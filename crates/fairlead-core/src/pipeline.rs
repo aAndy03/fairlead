@@ -1,0 +1,352 @@
+//! Composes the seams of contract Section 5. The only module that calls several stages.
+//! Sequencing only: no rule, path or file-format logic lives here (R-ARCH-001).
+
+use std::collections::BTreeSet;
+
+use camino::{Utf8Component, Utf8Path, Utf8PathBuf};
+use fairlead_syntax::GRAMMAR_EDITION;
+
+use crate::cache::{Cache, CacheKey};
+use crate::check::baseline::{Baseline, BaselineIssue};
+use crate::check::{CheckInput, CheckOptions, CheckReport, preflight, run as check_run};
+use crate::config::{ControlFile, ControlSet, config_hash_of, control_diagnostics, load_controls};
+use crate::context::{
+    ContextArgError, ContextInput, ContextOutput, ContextRequest, ContextTarget, NO_MATCH_MESSAGE,
+    build as build_context, parse_target, precheck,
+};
+use crate::diag::{Diagnostic, codes, sort_diagnostics};
+use crate::discover::{DiscoverRequest, Discovered, Root, discover};
+use crate::error::Error;
+use crate::explain::{ExplainTarget, parse_explain_target};
+use crate::extract::{Corpus, ExtractPlan, extract_files};
+use crate::facts::{Facts, collect_facts};
+use crate::path::RepoPath;
+use crate::registry::{Registry, ResolveInput, resolve};
+use crate::time::AsOf;
+use crate::walk::{WalkOptions, WalkResult, apply_child_excludes, walk};
+use crate::write::{
+    ApprovePreview, ApproveRequest, CommitReport, NewRequest, PidLiveness, Plan, Recovery,
+    SyncRequest, Transaction, WriterLock, approve_plan, approve_preview, new_plan, sync_plan,
+};
+
+pub struct LoadRequest {
+    pub discover: DiscoverRequest,
+    pub use_cache: bool,
+    pub threads: Option<usize>,
+    pub want_changed: bool,
+    pub only: Option<BTreeSet<RepoPath>>,
+}
+
+/// Everything a reader verb needs, gathered once. `root_control` is the A-11 extension.
+pub struct Loaded {
+    pub root: Root,
+    pub root_control: ControlFile,
+    pub controls: ControlSet,
+    pub walk: WalkResult,
+    pub corpus: Corpus,
+    pub facts: Facts,
+    pub load_diags: Vec<Diagnostic>,
+    pub cache: Cache,
+}
+
+/// A-11: discover -> walk -> controls -> child excludes -> extract plan -> cache -> extract -> facts.
+/// Reader verbs call this; only `WriteSession` takes the writer lock.
+pub fn load(req: &LoadRequest) -> Result<Loaded, Error> {
+    let Discovered {
+        root, root_control, ..
+    } = discover(&req.discover)?;
+    let walked = walk(
+        &root,
+        &WalkOptions::from_root_control(&root_control, req.threads),
+    )?;
+    let controls = load_controls(&root, &walked)?;
+    let walked = apply_child_excludes(walked, &controls)?;
+    let plan = ExtractPlan::from_controls(&root, &controls)?;
+    let key = CacheKey {
+        fairlead_version: env!("CARGO_PKG_VERSION").to_string(),
+        grammar: GRAMMAR_EDITION,
+        config_hash: config_hash_of(&controls),
+        as_of: None,
+    };
+    let cache = Cache::open(&root, req.use_cache, key);
+    let corpus = in_pool(req.threads, || {
+        extract_files(&walked, &root, &plan, &cache, req.only.as_ref())
+    })?;
+    let facts = collect_facts(&root, &walked, &controls, req.want_changed)?;
+    let mut load_diags = walked.diags.clone();
+    load_diags.extend(control_diagnostics(&controls));
+    sort_diagnostics(&mut load_diags);
+    Ok(Loaded {
+        root,
+        root_control,
+        controls,
+        walk: walked,
+        corpus,
+        facts,
+        load_diags,
+        cache,
+    })
+}
+
+/// R-ARCH-080: `--threads N` bounds the extraction pool; without it the global pool is used.
+fn in_pool<T: Send>(threads: Option<usize>, f: impl FnOnce() -> T + Send) -> T {
+    match threads.and_then(|n| rayon::ThreadPoolBuilder::new().num_threads(n).build().ok()) {
+        Some(pool) => pool.install(f),
+        None => f(),
+    }
+}
+
+pub fn resolve_loaded(loaded: &Loaded, as_of: AsOf) -> Registry {
+    resolve(&ResolveInput {
+        root: &loaded.root,
+        controls: &loaded.controls,
+        corpus: &loaded.corpus,
+        facts: &loaded.facts,
+        as_of,
+    })
+}
+
+/// Load-time diagnostics plus the baseline of this run (R-CHK-030). Bytes come from
+/// `Facts.generated_on_disk`, so no second read occurs.
+pub struct CheckContext {
+    pub diags: Vec<Diagnostic>,
+    pub baseline: Option<Baseline>,
+}
+
+/// An unreadable baseline is floor `HN-B002`. Header failures are already reported by the
+/// generated-file check, so only the body issues are added here.
+fn baseline_issue(issue: &BaselineIssue, path: &RepoPath) -> Option<Diagnostic> {
+    if matches!(
+        issue,
+        BaselineIssue::HashMismatch | BaselineIssue::MissingHeader
+    ) {
+        return None;
+    }
+    Some(
+        crate::check::finding::DiagB::new(codes::HN_B002, path, 0, 0, issue.message())
+            .hint("restore the file from git, or regenerate it with fairlead sync --baseline")
+            .text(path.as_str())
+            .build(),
+    )
+}
+
+pub fn check_context(loaded: &Loaded, registry: &Registry, options: &CheckOptions) -> CheckContext {
+    let mut diags = loaded.load_diags.clone();
+    let mut baseline = None;
+    if !options.no_baseline
+        && let Ok(path) = RepoPath::new(&crate::check::builtin::baseline_rel(registry))
+        && let Some(bytes) = loaded.facts.generated_on_disk.get(&path)
+    {
+        match Baseline::parse(bytes) {
+            Ok(parsed) => baseline = Some(parsed),
+            Err(issue) => diags.extend(baseline_issue(&issue, &path)),
+        }
+    }
+    CheckContext { diags, baseline }
+}
+
+/// A-17: `preflight` first (unreadable git under `--changed` is exit 5), then the pure run.
+pub fn check_loaded(
+    loaded: &Loaded,
+    registry: &Registry,
+    options: &CheckOptions,
+) -> Result<CheckReport, Error> {
+    let context = check_context(loaded, registry, options);
+    let input = CheckInput {
+        registry,
+        corpus: &loaded.corpus,
+        facts: &loaded.facts,
+        load_diags: &context.diags,
+        baseline: context.baseline.as_ref(),
+        options,
+    };
+    preflight(&input)?;
+    Ok(check_run(&input))
+}
+
+/// A-18: `precheck` (unresolved chain, `--exact-tokens`, unknown `--scope`) then `build`.
+pub fn context_loaded(
+    loaded: &Loaded,
+    registry: &Registry,
+    report: &CheckReport,
+    request: &ContextRequest,
+) -> Result<ContextOutput, Error> {
+    precheck(registry, &loaded.root_control.context, request)?;
+    Ok(build_context(&ContextInput {
+        registry,
+        corpus: &loaded.corpus,
+        report,
+        config: &loaded.root_control.context,
+        request,
+        cache: &loaded.cache,
+    }))
+}
+
+/// Lexical normalisation: `.` dropped, `..` removes the previous component. Containment is decided
+/// later by `strip_prefix`.
+pub fn normalise(path: &Utf8Path) -> Utf8PathBuf {
+    let mut out = Utf8PathBuf::new();
+    for component in path.components() {
+        match component {
+            Utf8Component::CurDir => {}
+            Utf8Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_str()),
+        }
+    }
+    out
+}
+
+/// A path argument as a repo-relative path (C-13, A-31): relative to the working directory. The root
+/// itself is `RepoPath::root()`; outside the root is `PathOutsideRoot`.
+pub fn to_root_relative(root: &Root, cwd: &Utf8Path, text: &str) -> Result<RepoPath, Error> {
+    let typed = Utf8Path::new(text);
+    let joined = if typed.is_absolute() {
+        typed.to_path_buf()
+    } else {
+        cwd.join(typed)
+    };
+    let absolute = normalise(&joined);
+    let outside = || Error::PathOutsideRoot {
+        path: text.to_string(),
+    };
+    let relative = absolute
+        .strip_prefix(normalise(&root.dir))
+        .map_err(|_| outside())?;
+    let rel = relative.as_str().replace('\\', "/");
+    if rel.is_empty() || rel == "." {
+        return Ok(RepoPath::root());
+    }
+    RepoPath::new(&rel).map_err(|_| outside())
+}
+
+pub fn context_target(
+    root: &Root,
+    cwd: &Utf8Path,
+    arg: Option<&str>,
+) -> Result<ContextTarget, Error> {
+    let exists = |path: &RepoPath| root.dir.join(path.as_str()).exists();
+    let root_relative =
+        |text: &str| to_root_relative(root, cwd, text).map_err(|_| ContextArgError::OutsideRoot);
+    parse_target(arg, &exists, &root_relative).map_err(|error| match error {
+        ContextArgError::NoMatchTaskQuery => Error::Usage(NO_MATCH_MESSAGE.to_string()),
+        ContextArgError::OutsideRoot => Error::PathOutsideRoot {
+            path: arg.unwrap_or_default().to_string(),
+        },
+    })
+}
+
+/// C-21 order: topic and `HN-` code words are never paths; otherwise an existing path wins over an ID.
+pub fn explain_target(root: &Root, cwd: &Utf8Path, arg: &str) -> Result<ExplainTarget, Error> {
+    let exists = |path: &RepoPath| root.dir.join(path.as_str()).exists();
+    let topic_or_code =
+        matches!(arg, "syntax" | "kinds" | "approve" | "pr-template") || arg.starts_with("HN-");
+    let text = if topic_or_code {
+        arg.to_string()
+    } else {
+        match to_root_relative(root, cwd, arg) {
+            Ok(path) if exists(&path) => path.as_str().to_string(),
+            _ => arg.to_string(),
+        }
+    };
+    parse_explain_target(&text, &exists)
+}
+
+/// A-63: a writer verb takes the lock and recovers an interrupted run BEFORE it loads, so the
+/// planners read the recovered files; the commit happens under the same lock.
+pub struct WriteSession<'p> {
+    pub root: Root,
+    pub lock: WriterLock<'p>,
+    pub recovery: Recovery,
+}
+
+impl<'p> WriteSession<'p> {
+    pub fn open(req: &DiscoverRequest, probe: &'p dyn PidLiveness) -> Result<Self, Error> {
+        let d = discover(req)?;
+        Self::open_at(d.root, probe)
+    }
+
+    /// For `init`, whose root does not exist yet (`write::init_root`).
+    pub fn open_at(root: Root, probe: &'p dyn PidLiveness) -> Result<Self, Error> {
+        let lock = WriterLock::acquire(&root, probe)?;
+        let recovery = Transaction::recover(&root, &lock)?;
+        Ok(WriteSession {
+            root,
+            lock,
+            recovery,
+        })
+    }
+}
+
+/// What a writer reports: the recovery it performed before writing, and what it wrote (R-CLI-007).
+pub struct WriteOutcome {
+    pub recovery: Recovery,
+    pub report: CommitReport,
+}
+
+/// `new` plan (R-CLI-028). Pure: never touches disk.
+pub fn plan_new(
+    loaded: &Loaded,
+    registry: &Registry,
+    request: &NewRequest,
+    as_of: AsOf,
+) -> Result<Plan, Error> {
+    new_plan(request, registry, &loaded.facts, as_of)
+}
+
+/// `sync` plan (R-CLI-025). The check runs first, so `sync_plan` sees the findings `check` reports.
+pub fn plan_sync(
+    loaded: &Loaded,
+    registry: &Registry,
+    options: &CheckOptions,
+    request: &SyncRequest,
+) -> Result<Plan, Error> {
+    let context = check_context(loaded, registry, options);
+    let input = CheckInput {
+        registry,
+        corpus: &loaded.corpus,
+        facts: &loaded.facts,
+        load_diags: &context.diags,
+        baseline: context.baseline.as_ref(),
+        options,
+    };
+    let report = check_run(&input);
+    sync_plan(request, &input, &report, loaded.root.edition)
+}
+
+/// `approve`, step 1: the preview the reviewer confirms (R-CLI-037).
+pub fn approve_preview_loaded(
+    loaded: &Loaded,
+    registry: &Registry,
+    request: &ApproveRequest,
+) -> Result<ApprovePreview, Error> {
+    approve_preview(request, registry, &loaded.facts)
+}
+
+/// `approve`, step 2: the plan, built only after the terminal gate has passed (A-21).
+pub fn plan_approve_loaded(
+    loaded: &Loaded,
+    preview: &ApprovePreview,
+    approver: &str,
+    as_of: AsOf,
+) -> Result<Plan, Error> {
+    approve_plan(
+        &loaded.root.folder,
+        preview,
+        approver,
+        as_of,
+        &loaded.facts.approvals,
+    )
+}
+
+/// Begin and commit under the session's lock (R-CLI-007, R-CLI-008). The only function that
+/// reaches `Transaction::begin`.
+pub fn commit_plan(session: &WriteSession<'_>, plan: Plan) -> Result<WriteOutcome, Error> {
+    let transaction = Transaction::begin(&session.root, &session.lock, plan.set)?;
+    let report = transaction.commit()?;
+    Ok(WriteOutcome {
+        recovery: session.recovery,
+        report,
+    })
+}

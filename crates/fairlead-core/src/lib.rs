@@ -31,6 +31,7 @@ pub mod hash;
 pub mod manifest;
 pub mod outcome;
 pub mod path;
+pub mod pipeline;
 pub mod registry;
 pub mod render;
 pub mod secrets;
