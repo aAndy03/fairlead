@@ -36,3 +36,11 @@ path = "../../tests/cli.rs"
 [[test]]
 name = "golden"
 path = "../../tests/golden.rs"
+
+[[test]]
+name = "determinism"
+path = "../../tests/determinism.rs"
+
+[[test]]
+name = "readonly"
+path = "../../tests/readonly.rs"

@@ -195,6 +195,48 @@ fn collect(root: &Path, dir: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
     }
 }
 
+use self::golden_spec as gs;
+
+pub fn golden_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/golden")
+}
+
+pub fn golden_expected(name: &str) -> Vec<u8> {
+    std::fs::read(golden_root().join(name).join("expected/check.terse.txt"))
+        .expect("expected output exists")
+}
+
+/// A fresh copy of a golden repository. The guard must stay alive while the copy is used.
+pub fn golden_checkout(name: &str, crlf: bool) -> (tempfile::TempDir, PathBuf) {
+    let dir = golden_root().join(name);
+    let mut g = gs::load(&dir).expect("golden.toml parses");
+    if crlf {
+        g.golden.line_endings = "crlf".to_string();
+    }
+    let scratch = tempfile::tempdir().expect("tempdir");
+    let root = scratch.path().join("repo");
+    gs::materialise(&dir, &g.golden, &root).expect("materialise");
+    (scratch, root)
+}
+
+/// Runs the built binary in `cwd` with NO_COLOR set and FAIRLEAD_ROOT removed.
+pub fn run_fairlead(cwd: &Path, args: &[&str], env: &[(&str, &str)]) -> Run {
+    let mut cmd = Command::new(fairlead_bin());
+    cmd.current_dir(cwd)
+        .args(args)
+        .env("NO_COLOR", "1")
+        .env_remove("FAIRLEAD_ROOT");
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().expect("spawn fairlead");
+    Run {
+        code: out.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
