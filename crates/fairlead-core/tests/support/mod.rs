@@ -177,7 +177,7 @@ impl Kit {
             by_parent
                 .entry(parent)
                 .or_default()
-                .push(format!("{id} path={dir}"));
+                .push(format!("scope.{id} dir={dir}"));
         }
         for (parent, mut lines) in by_parent {
             lines.sort();

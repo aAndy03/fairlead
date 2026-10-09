@@ -399,27 +399,22 @@ fn synth_root(
 
 // --- membership shards (the HN-C008 check arrives in Task 3) -------------------------------
 
-/// One line of a `gen/members` shard (P4-2).
+/// One child line of a `gen/members` shard (A-36).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct MemberLine {
     pub id: String,
     pub path: Option<String>,
 }
 
+/// Children registered in a `gen/members` shard (amendment A-36: one grammar, one parser, the one
+/// of `generate::members`). An unparseable or absent line registers nothing.
 pub fn parse_members(bytes: &[u8]) -> Vec<MemberLine> {
     let text = String::from_utf8_lossy(bytes);
-    let mut out = Vec::new();
-    for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() || line.starts_with('#') {
-            continue;
-        }
-        let mut it = line.split_whitespace();
-        let id = it.next().unwrap_or("").to_string();
-        let path = it.find_map(|t| t.strip_prefix("path=")).map(str::to_string);
-        out.push(MemberLine { id, path });
-    }
-    out
+    crate::generate::members::parse_members(&text)
+        .children
+        .into_iter()
+        .map(|(id, dir)| MemberLine { id, path: (!dir.is_empty()).then_some(dir) })
+        .collect()
 }
 
 fn shard_path(parent: &Scope, folder: &str) -> String {
