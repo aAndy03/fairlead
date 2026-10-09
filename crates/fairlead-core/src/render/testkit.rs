@@ -71,7 +71,6 @@ pub(crate) fn with(mut f: Finding, edit: impl FnOnce(&mut Finding)) -> Finding {
 }
 
 /// A report over `findings` (sorted into the total order), header of the spec example.
-#[allow(dead_code, reason = "used by the renderer tests of P5b-T13..T19")]
 pub(crate) fn report(mut findings: Vec<Finding>) -> CheckReport {
     findings.sort();
     let count =

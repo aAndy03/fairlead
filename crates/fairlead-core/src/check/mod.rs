@@ -31,6 +31,7 @@ use std::collections::BTreeSet;
 
 pub const FAIRLEAD_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ReportHeader {
     pub fairlead_version: String,
     pub edition: Edition,
@@ -40,6 +41,7 @@ pub struct ReportHeader {
     pub rules: u32,
 }
 
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CheckReport {
     pub header: ReportHeader,
     /// ALL findings, totally ordered; truncation is a render concern (R-ARCH-051).
