@@ -44,6 +44,8 @@ pub struct CheckReport {
     pub partial: bool,
     /// Unresolved or sparse scopes: the verdict depends on them (R-CHK-057).
     pub unknown_scopes: Vec<crate::registry::ScopeId>,
+    /// The subset of `unknown_scopes` absent from the working tree: exit 5, not 2 (A-45).
+    pub absent_scopes: Vec<crate::registry::ScopeId>,
     /// Zero declarations notice (R-CHK-003).
     pub zero_declarations: bool,
 }

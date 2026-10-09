@@ -269,6 +269,39 @@ impl Built {
         out
     }
 }
+/// A hand-built finding at `path:line` (state and stage as given).
+pub(crate) fn finding(
+    path: &str,
+    line: u32,
+    code: DiagCode,
+    sev: fairlead_syntax::diag::Severity,
+    stage: crate::config::Stage,
+    state: crate::check::FindingState,
+) -> crate::check::Finding {
+    use crate::{check::Finding, diag::Location, hash::Fingerprint, registry::ScopeId};
+    Finding {
+        code,
+        severity: sev,
+        stage,
+        location: Location {
+            path: RepoPath::new(path).unwrap(),
+            line,
+            col: 1,
+        },
+        scope: ScopeId(fairlead_syntax::ids::ScopeSlug::parse("root").unwrap()),
+        rule: None,
+        related: None,
+        message: "m".into(),
+        excerpt: None,
+        intent: None,
+        fix: String::new(),
+        occurrence: 0,
+        fingerprint: Fingerprint::from_digest(&[u8::try_from(line).unwrap(); 32]),
+        state,
+        waived_by: None,
+    }
+}
+
 pub(crate) fn of(ds: &[Diagnostic], c: DiagCode) -> Vec<&Diagnostic> {
     ds.iter().filter(|d| d.code == c).collect()
 }

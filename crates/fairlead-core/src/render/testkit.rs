@@ -104,6 +104,7 @@ pub(crate) fn report(mut findings: Vec<Finding>) -> CheckReport {
         summary,
         partial: false,
         unknown_scopes: Vec::new(),
+        absent_scopes: Vec::new(),
         zero_declarations: false,
     }
 }
