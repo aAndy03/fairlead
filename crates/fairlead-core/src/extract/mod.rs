@@ -42,6 +42,7 @@ pub struct Extras {
     pub css_tokens: Vec<CssTokenSite>,
     pub literals: Vec<LiteralSite>,
     pub secrets: Vec<SecretHit>,
+    pub pattern_hits: Vec<PatternHit>,
 }
 
 use crate::classify::{ClassifyRules, FileClass, classify, scans_directives};
@@ -57,7 +58,7 @@ use std::sync::Arc;
 
 pub mod literals;
 
-pub use literals::scan_literals;
+pub use literals::{LEAK_PROPERTIES, PatternHit, PatternProbe, scan_literals, scan_patterns};
 
 /// Per-file record (contract 4.5). Equal for equal bytes, path and plan, whatever the cache state.
 #[derive(Clone, PartialEq, Debug)]
@@ -72,6 +73,8 @@ pub struct FileRecord {
     pub css_tokens: Vec<CssTokenSite>,
     pub literals: Vec<LiteralSite>,
     pub secrets: Vec<SecretHit>,
+    /// Matches of `check = "pattern"` rules (amendment A-13).
+    pub pattern_hits: Vec<PatternHit>,
     pub skip: Option<SkipReason>,
 }
 
@@ -83,11 +86,43 @@ pub struct ExtractPlan {
     pub styles: StyleKinds,
     /// CSS properties named by `applies=` of declared tokens (sorted, deduplicated); empty = no literal scan.
     pub leak_properties: Vec<String>,
+    /// One probe per `check = "pattern"` rule (amendment A-13).
+    pub pattern_rules: Vec<PatternProbe>,
 }
 
 impl ExtractPlan {
     /// Build the plan from the root control file: marker, `[comments]`, `[scan]`, plus the class rules.
-    pub fn from_controls(
+    /// Build the plan from the control files (amendment A-12): style kinds, pattern probes and the
+    /// leak property list are all derived here.
+    pub fn from_controls(root: &Root, controls: &ControlSet) -> Result<ExtractPlan, Error> {
+        let styles = StyleKinds::from_controls(controls);
+        let wants_leak = controls.ok_files().any(|cf| {
+            cf.rules
+                .values()
+                .any(|r| matches!(r.check, crate::config::RuleCheckDecl::Leak { .. }))
+        });
+        let leak: Vec<String> = if wants_leak {
+            LEAK_PROPERTIES.iter().map(|p| (*p).to_string()).collect()
+        } else {
+            Vec::new()
+        };
+        let mut plan = Self::with_parts(root, controls, styles, leak)?;
+        for cf in controls.ok_files() {
+            for r in cf.rules.values() {
+                if let crate::config::RuleCheckDecl::Pattern { forbid, .. } = &r.check {
+                    let key = format!("{}:{}", cf.fairlead.scope.as_str(), r.name);
+                    match PatternProbe::new(key, &cf.dir, &r.glob, &r.exclude, forbid) {
+                        Ok(p) => plan.pattern_rules.push(p),
+                        Err(e) => return Err(Error::Internal(format!("rule {}: {e}", r.name))),
+                    }
+                }
+            }
+        }
+        Ok(plan)
+    }
+
+    /// Plan from explicit parts (tests and `from_controls`).
+    pub fn with_parts(
         root: &Root,
         controls: &ControlSet,
         styles: StyleKinds,
@@ -130,6 +165,7 @@ impl ExtractPlan {
             classify: ClassifyRules::from_controls(root, controls),
             styles,
             leak_properties,
+            pattern_rules: Vec::new(),
         })
     }
 
@@ -158,7 +194,10 @@ impl ExtractPlan {
 /// Which text-derived extras exist for this path and class (the cache reads them only if true).
 pub fn extras_wanted(plan: &ExtractPlan, path: &RepoPath, class: FileClass) -> bool {
     let scanned_authored = class == FileClass::Authored && !plan.classify.skips(path);
-    (scanned_authored && (plan.styles.applies(path) || !plan.leak_properties.is_empty()))
+    (scanned_authored
+        && (plan.styles.applies(path)
+            || !plan.leak_properties.is_empty()
+            || !plan.pattern_rules.is_empty()))
         || plan.classify.in_managerial_folder(path)
 }
 
@@ -191,6 +230,9 @@ fn compute_extras(
     }
     if scanned && class == FileClass::Authored && !plan.leak_properties.is_empty() {
         out.literals = scan_literals(text, &ext, &plan.leak_properties);
+    }
+    if scanned && class == FileClass::Authored && !plan.pattern_rules.is_empty() {
+        out.pattern_hits = scan_patterns(text, path, &plan.pattern_rules);
     }
     if plan.classify.in_managerial_folder(path) {
         out.secrets = crate::secrets::scan_secrets(text);
@@ -226,6 +268,7 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
         css_tokens: extras.css_tokens,
         literals: extras.literals,
         secrets: extras.secrets,
+        pattern_hits: extras.pattern_hits,
         skip,
     }
 }
@@ -333,6 +376,7 @@ fn unread_record(e: &WalkEntry, class: FileClass, skip: SkipReason, head: &[u8])
         css_tokens: Vec::new(),
         literals: Vec::new(),
         secrets: Vec::new(),
+        pattern_hits: Vec::new(),
         skip: Some(skip),
     }
 }
@@ -366,6 +410,7 @@ fn from_cache(
         css_tokens: extras.css_tokens,
         literals: extras.literals,
         secrets: extras.secrets,
+        pattern_hits: extras.pattern_hits,
         skip,
     })
 }
@@ -411,6 +456,7 @@ fn process(
                     css_tokens: rec.css_tokens.clone(),
                     literals: rec.literals.clone(),
                     secrets: rec.secrets.clone(),
+                    pattern_hits: rec.pattern_hits.clone(),
                 };
                 cache.put_extras(&rec.hash, &extras_key(fp, plan, &e.path), &extras);
             }
@@ -483,7 +529,7 @@ mod tests {
             p.clone(),
             parse_control(&p, format!("{ROOT_CONTROL}{extra_root}").as_bytes(), true),
         );
-        ExtractPlan::from_controls(
+        ExtractPlan::with_parts(
             &test_root(Utf8Path::new("/r")),
             &set,
             StyleKinds::default(),
@@ -739,7 +785,7 @@ mod tests {
         )
         .unwrap();
         let set = crate::config::load_controls(&root, &walked).unwrap();
-        let plan = ExtractPlan::from_controls(&root, &set, StyleKinds::default(), vec![]).unwrap();
+        let plan = ExtractPlan::with_parts(&root, &set, StyleKinds::default(), vec![]).unwrap();
         Fixture {
             _guard: guard,
             dir,

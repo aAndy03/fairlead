@@ -235,8 +235,9 @@ impl Kit {
                 max_directives: 500,
             },
             classify: ClassifyRules::from_controls(&root, &controls),
-            styles: StyleKinds::default(), // Verify: P3 derives Default
+            styles: StyleKinds::default(),
             leak_properties: vec![],
+            pattern_rules: vec![],
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),
