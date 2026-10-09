@@ -6,6 +6,7 @@ mod ablation;
 mod bench;
 mod docs;
 mod golden;
+mod sarif;
 mod syntax_card;
 
 use std::process::ExitCode;
@@ -188,6 +189,18 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("sarif-validate") => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            match sarif::validate(root) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("xtask sarif-validate: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some("docs-check") => {
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
@@ -218,7 +231,7 @@ fn main() -> ExitCode {
         }
         None => {
             eprintln!(
-                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | syntax-card-score DIR | golden-bless NAME>"
+                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | syntax-card-score DIR | sarif-validate | golden-bless NAME>"
             );
             ExitCode::from(2)
         }

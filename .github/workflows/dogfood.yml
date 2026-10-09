@@ -38,6 +38,8 @@ jobs:
         run: target/debug/fairlead check --as-of "$(git log -1 --format=%cs HEAD)" --format sarif > fairlead.sarif || true
       - name: Docs references and open questions (R-ARCH-161, E10)
         run: cargo run -p xtask --locked -- docs-check
+      - name: SARIF output against the official 2.1.0 schema (R-CHK-036, E5)
+        run: cargo run -p xtask --locked -- sarif-validate
       - uses: actions/upload-artifact@v4
         if: always()
         with:

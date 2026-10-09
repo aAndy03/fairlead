@@ -3,7 +3,7 @@
 //! committing the diff. Refuses to run when CI is set.
 
 #[path = "../../tests/testkit/golden_spec.rs"]
-mod golden_spec;
+pub(crate) mod golden_spec;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
