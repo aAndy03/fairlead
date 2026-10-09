@@ -21,3 +21,7 @@ Deviations of the actual implementation from the phase plans, recorded as they h
 
 - E-9: P2, P3 and P4 have every planned test name; the workspace tests pass. P1 was incomplete: `fairlead/control.toml` (P1-T12) was missing and the xtask tests did not carry the `r_arch_123__` names; both fixed. `fuzz.yml`, `bench.yml`, `dogfood.yml`, `release.yml` and the PR template stay deferred to the phases that fill them (E-1).
 - E-10: `cargo clippy -D warnings` and `cargo fmt --check` were failing at `05be41e` (32 lint errors from P5a-T12..T17). Fixed; helpers that only P5a-T25..T29 consume carry a temporary `#[allow(dead_code, reason = ...)]`, removed as they are wired. The `--budget` `Deadline` carries the local clock allow that clippy.toml requires.
+
+## P5a-T18 onwards
+
+- E-11: `ControlsCheck` (T19) does not pass `ControlFile.violations` through: `config::control_diagnostics` already carries them into the load diagnostics (A-11), so passing them again would report each `HN-C003` twice.
