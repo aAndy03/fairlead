@@ -23,6 +23,13 @@ pub enum FindingState {
     Waived,
     WaiverIneffective,
 }
+
+/// `rule.<name>`, the form rule IDs are printed in.
+impl std::fmt::Display for RuleId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "rule.{}", self.0.as_str())
+    }
+}
 impl FindingState {
     pub fn as_str(&self) -> &'static str {
         match self {

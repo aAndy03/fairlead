@@ -11,6 +11,7 @@ pub mod rules;
 pub mod summary;
 
 pub use baseline::{AcceptRefusal, Baseline, BaselineEntry, BaselineIssue};
+pub use codes::{all_specs, is_active, spec};
 pub use finding::{Finding, FindingState, RuleId};
 pub use options::{CheckOptions, MaxFindings};
 pub use rules::{Check, DeclaredRule, RuleCheck, RuleSet};
