@@ -416,4 +416,79 @@ mod tests {
         );
         assert!(r.findings.iter().all(|f| f.code != c::HN_V001));
     }
+
+    macro_rules! sources { ($($p:literal),* $(,)?) => { [$(($p, include_str!($p))),*] }; }
+    const FILES: [(&str, &str); 23] = sources!(
+        "mod.rs",
+        "codes.rs",
+        "options.rs",
+        "finding.rs",
+        "fingerprint.rs",
+        "floor.rs",
+        "rules.rs",
+        "summary.rs",
+        "apply.rs",
+        "testkit.rs",
+        "builtin/mod.rs",
+        "builtin/agents.rs",
+        "builtin/controls.rs",
+        "builtin/exceptions.rs",
+        "builtin/generated.rs",
+        "builtin/leak.rs",
+        "builtin/notices.rs",
+        "builtin/paths.rs",
+        "builtin/refs.rs",
+        "builtin/scopes.rs",
+        "builtin/syntax.rs",
+        "builtin/tokens.rs",
+        "builtin/vendor.rs",
+    );
+    const LITERALS: &str = include_str!("../extract/literals.rs");
+    const SECRETS: &str = include_str!("../secrets.rs");
+    /// Needles are assembled at run time so this file does not trip itself.
+    fn n(a: &str, b: &str) -> String {
+        [a, b].concat()
+    }
+
+    #[test]
+    fn r_arch_055__no_code_string_literals_outside_the_diag_tables() {
+        let needle = n("\"HN", "-");
+        for (name, src) in FILES.iter().chain([("literals.rs", LITERALS)].iter()) {
+            assert!(!src.contains(&needle), "{name} contains a code literal");
+        }
+    }
+
+    #[test]
+    fn r_chk_004__r_cli_024__r_arch_050__check_is_pure_has_one_clock_and_no_unordered_maps() {
+        let banned = [
+            n("std", "::fs"),
+            n("std", "::env"),
+            n("std", "::process"),
+            n("std", "::net"),
+            n("System", "Time"),
+            n("Hash", "Map"),
+            n("Hash", "Set"),
+            n("uns", "afe"),
+        ];
+        for (name, src) in FILES.iter().chain([("literals.rs", LITERALS)].iter()) {
+            for b in &banned {
+                assert!(!src.contains(b.as_str()), "{name} uses {b}");
+            }
+            if *name != "options.rs" {
+                assert!(
+                    !src.contains(&n("Instant", "::now")),
+                    "{name} reads the clock"
+                );
+            }
+        }
+    }
+
+    /// A-14: no extraction or secret stub may ship.
+    #[test]
+    fn r_agt_022__no_p5_stub_is_left_in_the_scanners() {
+        let needle = n("STUB", "(P5)");
+        for (name, src) in [("literals.rs", LITERALS), ("secrets.rs", SECRETS)] {
+            assert!(!src.contains(&needle), "{name} still holds a stub");
+        }
+    }
 }

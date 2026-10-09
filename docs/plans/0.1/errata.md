@@ -15,7 +15,7 @@ Deviations of the actual implementation from the phase plans, recorded as they h
 - E-6: rule items now carry `check`, `tokens`, `forbid`, `msg`, `waivable`, `why`, `since` fields (P4 only had `sev`, `stage`, `glob`, `exclude`); `ovr` on a rule may touch only `sev`, `stage`, `glob`, `exclude` (C-32). `check = "builtin"` is accepted by the config parser (A-24).
 - E-7: `RuleSet::applies` goes through `Registry::glob_matches` (A-27); rule defaults are `sev=error stage=observe` for every kind (A-52).
 - E-8: `HN-G001` diffs bodies only (the header hash always differs when the body does); the first three differing lines are shown.
-- Safe stop point: P5a tasks 1-17 are done (Check trait, syntax, refs, tokens, leak, pattern rules, generated). Next: T18 exceptions, T19 controls, T20 scopes, T21 vendor, T22 paths, T23 agents, T24 notices, T25-T29 apply/summarize/run, then P5b render, P6-P9.
+- (Superseded) Safe stop point: P5a tasks 1-17 are done (Check trait, syntax, refs, tokens, leak, pattern rules, generated). Next: T18 exceptions, T19 controls, T20 scopes, T21 vendor, T22 paths, T23 agents, T24 notices, T25-T29 apply/summarize/run, then P5b render, P6-P9.
 
 ## Verification audit (2026-10-09, before P5a-T18)
 
@@ -29,3 +29,5 @@ Deviations of the actual implementation from the phase plans, recorded as they h
 - E-13: `write::init::pointer_block` (P7-T7) and its three tests land before P7 so `HN-A001` (T23) can import it (A-25, A-64). `write/mod.rs` holds only `pub mod init;` until P7-T0.
 - E-14: Relaxation lines (T27) follow A-52, not the plan's per-kind defaults: a line is written when a scope's effective rule has a lower `stage` or `sev` than the rule as declared in its home, formatted `rules.<name> stage=<x> in <scope> (declared <y>)`; valid `[[allow]]` grants are listed as planned. `CheckReport.absent_scopes` (A-45) maps to exit 5, other unknown scopes to exit 2.
 - E-15: `check::run` (T29) calls `generate` without a version (A-42) and builds the baseline path with `builtin::baseline_rel` (the `apply::baseline_path` of the plan is dropped). End-to-end tests use `testkit::Built::synced()`, which puts the output of `generate` on disk; without it every expected generated file is `HN-G001` and the run exits 3.
+- E-16: The T30 code-literal audit looks for a quoted code (`"HN-`), not the bare prefix, so doc comments may name codes; it also covers `testkit.rs` and asserts no `STUB(P5)` is left in `literals.rs` and `secrets.rs` (A-14).
+- Safe stop point (2026-10-09): P5a complete (T1-T30). Next: P5b T13-T19 (render), then P6, P7, P8, P9.
