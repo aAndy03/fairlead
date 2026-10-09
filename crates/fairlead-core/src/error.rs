@@ -120,6 +120,7 @@ impl Error {
     pub fn diagnostics(&self) -> &[Diagnostic] {
         match self {
             Error::Config(c) => &c.diags,
+            Error::Pin(p) => &p.diags,
             _ => &[],
         }
     }
@@ -176,6 +177,7 @@ mod tests {
         let pin = PinRefusal {
             install_line: "i".into(),
             reason: "r".into(),
+            diags: Vec::new(),
         };
         assert_eq!(Error::Pin(pin).class(), Refused);
         let r = crate::error::Refusal {

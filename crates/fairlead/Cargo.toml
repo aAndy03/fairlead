@@ -60,3 +60,7 @@ path = "../../tests/replay.rs"
 [[test]]
 name = "platform"
 path = "../../tests/platform.rs"
+
+[[test]]
+name = "codes"
+path = "../../tests/codes.rs"

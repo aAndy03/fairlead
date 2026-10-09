@@ -24,6 +24,8 @@ pub struct Pin {
 pub struct PinRefusal {
     pub install_line: String,
     pub reason: String,
+    /// `HN-C006` on the root control file, filled by `discover` (A-30); empty from `pin_check`.
+    pub diags: Vec<crate::diag::Diagnostic>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -64,6 +66,7 @@ pub fn pin_check(binary: &Version, supported: Edition, pin: &Pin) -> PinVerdict 
                 "this binary supports edition {} but the codebase is pinned to edition {}",
                 supported.0, pin.edition.0
             ),
+            diags: Vec::new(),
         });
     }
     let Some(pinned) = &pin.version else {
@@ -74,6 +77,7 @@ pub fn pin_check(binary: &Version, supported: Edition, pin: &Pin) -> PinVerdict 
         Ordering::Less => PinVerdict::Refused(PinRefusal {
             install_line: install_line(Some(pinned)),
             reason: format!("binary {binary} is older than the fairlead-version pin {pinned}"),
+            diags: Vec::new(),
         }),
         Ordering::Equal => PinVerdict::Ok,
         Ordering::Greater => PinVerdict::OkNewerBinary {
@@ -370,7 +374,21 @@ pub fn discover_optional(req: &DiscoverRequest) -> Result<Option<Discovered>, Er
             "{dir} is not a codebase root: {rel} lacks `root = true`"
         )));
     }
-    if let PinVerdict::Refused(refusal) = pin_check(&req.binary_version, SUPPORTED_EDITION, &pin) {
+    if let PinVerdict::Refused(mut refusal) =
+        pin_check(&req.binary_version, SUPPORTED_EDITION, &pin)
+    {
+        refusal.diags.push(
+            Diagnostic::new(
+                codes::HN_C006,
+                Severity::Error,
+                Location::file(rel.clone()),
+                format!("pin mismatch: {}", refusal.reason),
+            )
+            .with_hint(format!(
+                "install the pinned binary: {}",
+                refusal.install_line
+            )),
+        );
         return Err(Error::Pin(refusal));
     }
     // 2. Full parse of the root control file.
@@ -607,10 +625,18 @@ mod root_tests {
         );
         let e = discover(&req(&t.join("a"))).unwrap_err();
         match &e {
-            Error::Pin(r) => assert_eq!(
-                r.install_line,
-                "cargo install fairlead --version 99.0.0 --locked"
-            ),
+            Error::Pin(r) => {
+                assert_eq!(
+                    r.install_line,
+                    "cargo install fairlead --version 99.0.0 --locked"
+                );
+                assert_eq!(e.diagnostics().len(), 1);
+                assert_eq!(e.diagnostics()[0].code, codes::HN_C006);
+                assert_eq!(
+                    e.diagnostics()[0].location.path.as_str(),
+                    "fairlead/control.toml"
+                );
+            }
             other => panic!("expected the pin refusal first, got {other}"),
         }
         assert_eq!(e.class(), ErrorClass::Refused);

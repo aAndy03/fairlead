@@ -60,6 +60,7 @@ mod tests {
         let refused = Error::Pin(PinRefusal {
             install_line: "cargo install fairlead --version 0.1.0".to_string(),
             reason: "binary older than the pin".to_string(),
+            diags: Vec::new(),
         });
         let internal = Error::Internal("boom".to_string());
         assert_eq!(exit_for_error(&usage), ExitCode::Usage);
