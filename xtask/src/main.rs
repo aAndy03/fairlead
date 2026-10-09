@@ -2,6 +2,8 @@
 #![forbid(unsafe_code)]
 #![allow(clippy::print_stdout, clippy::print_stderr)] // reason: a developer command line prints
 
+mod ablation;
+
 use std::process::ExitCode;
 
 /// Crates that must never appear in `Cargo.lock` (R-ARCH-120, R-ARCH-123, R-AGT-007, D-05, D-26).
