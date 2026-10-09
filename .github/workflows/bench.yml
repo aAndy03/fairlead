@@ -1,0 +1,67 @@
+name: bench
+
+# Weekly and on demand only (E-18).
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary
+        run: cargo build --release -p fairlead --locked
+      - name: Generate the 100,000-file corpus
+        run: cargo run -p xtask --locked -- bench-corpus generate --files 100000 --out target/bench/corpus
+      - name: Measure (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          H=target/release/fairlead; C=target/bench/corpus; mkdir -p target/bench
+          git -C "$C" init -q && git -C "$C" add -A && git -C "$C" -c user.name=bench -c user.email=bench@invalid commit -qm base
+          printf 'pkg-0001/src/f-001.ts\n' > target/bench/files.txt
+          t() { local s e; s=$(date +%s%N); "$@" >/dev/null 2>&1; e=$(date +%s%N); echo "scale=3; ($e-$s)/1000000000" | bc; }
+          cold=$(t $H -C "$C" check --as-of 2026-10-09 --format terse --no-cache)
+          warm=$(t $H -C "$C" check --as-of 2026-10-09 --format terse)
+          echo "// touched" >> "$C/pkg-0000/src/f-000.ts"; git -C "$C" -c user.name=bench -c user.email=bench@invalid commit -qam change
+          changed=$(t $H -C "$C" check --as-of 2026-10-09 --format terse --changed)
+          ff=$(t $H -C "$C" check --as-of 2026-10-09 --format terse --files-from target/bench/files.txt)
+          rss=$(/usr/bin/time -f "%M" $H -C "$C" check --as-of 2026-10-09 --format terse --no-cache 2>&1 >/dev/null | tail -1)
+          printf 'cold_s = %s\nwarm_s = %s\nchanged_s = %s\nfiles_from_s = %s\npeak_rss_mb = %s\n' "$cold" "$warm" "$changed" "$ff" "$((rss / 1024))" > target/bench/results.toml
+      - name: Measure (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $h = "target\release\fairlead.exe"; $c = "target\bench\corpus"
+          New-Item -ItemType Directory -Force target\bench | Out-Null
+          git -C $c init -q; git -C $c add -A; git -C $c -c user.name=bench -c user.email=bench@invalid commit -qm base
+          Set-Content target\bench\files.txt "pkg-0001/src/f-001.ts"
+          function T([scriptblock]$b) { (Measure-Command $b).TotalSeconds }
+          $cold = T { & $h -C $c check --as-of 2026-10-09 --format terse --no-cache | Out-Null }
+          $warm = T { & $h -C $c check --as-of 2026-10-09 --format terse | Out-Null }
+          Add-Content "$c\pkg-0000\src\f-000.ts" "// touched"; git -C $c -c user.name=bench -c user.email=bench@invalid commit -qam change
+          $changed = T { & $h -C $c check --as-of 2026-10-09 --format terse --changed | Out-Null }
+          $ff = T { & $h -C $c check --as-of 2026-10-09 --format terse --files-from target\bench\files.txt | Out-Null }
+          $p = Start-Process -FilePath $h -ArgumentList @('-C', $c, 'check', '--as-of', '2026-10-09', '--format', 'terse', '--no-cache') -NoNewWindow -PassThru -RedirectStandardOutput NUL
+          $p.WaitForExit()
+          $rss = [math]::Round($p.PeakWorkingSet64 / 1MB)
+          "cold_s = $cold`nwarm_s = $warm`nchanged_s = $changed`nfiles_from_s = $ff`npeak_rss_mb = $rss" | Set-Content -Encoding ascii target\bench\results.toml
+      - name: Gate E6 limits and regression
+        run: cargo run -p xtask --locked -- bench-corpus check --results target/bench/results.toml --baseline bench/baseline.toml
+      - name: Keep results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.os }}
+          path: target/bench/results.toml
+          if-no-files-found: ignore

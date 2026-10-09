@@ -3,6 +3,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)] // reason: a developer command line prints
 
 mod ablation;
+mod bench;
 mod golden;
 
 use std::process::ExitCode;
@@ -82,11 +83,49 @@ fn check_deps() -> ExitCode {
     ExitCode::from(1)
 }
 
+/// `bench-corpus generate --files N --out DIR` or `bench-corpus check --results FILE --baseline FILE`.
+fn bench_corpus(args: &[String]) -> ExitCode {
+    let flag = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let result = match args.first().map(String::as_str) {
+        Some("generate") => {
+            let files = flag("--files")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(100_000);
+            let out = flag("--out").unwrap_or_else(|| "target/bench/corpus".into());
+            bench::generate(std::path::Path::new(&out), files).map_err(|e| e.to_string())
+        }
+        Some("check") => {
+            let read = |f: Option<String>| {
+                f.ok_or("missing file argument".to_string())
+                    .and_then(|p| std::fs::read_to_string(&p).map_err(|e| format!("{p}: {e}")))
+            };
+            read(flag("--results")).and_then(|r| {
+                read(flag("--baseline").or(Some("bench/baseline.toml".into())))
+                    .and_then(|b| bench::check(&r, &b))
+            })
+        }
+        _ => Err("usage: bench-corpus generate|check".into()),
+    };
+    match result {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("xtask bench-corpus: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
+
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let task = args.next();
     match task.as_deref() {
         Some("check-deps") => check_deps(),
+        Some("bench-corpus") => bench_corpus(&args.collect::<Vec<_>>()),
         Some("golden-bless") => {
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
