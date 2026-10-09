@@ -63,7 +63,7 @@ proptest! {
     #[test]
     fn r_chk_030__render_then_parse_is_the_identity(base in prop::collection::btree_set(FP, 0..24)) {
         let b = baseline(&base);
-        let text = b.render(Edition(1), "0.1.0");
+        let text = b.render(Edition(1));
         prop_assert_eq!(Baseline::parse(text.as_bytes()), Ok(b));
     }
 }
