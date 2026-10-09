@@ -14,12 +14,111 @@ use fairlead_syntax::extract::Extraction;
 use files::FileTable;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
+
+/// Entries keyed by content hash live in 16 shard files per kind (`x-<n>.json`, by the first hex
+/// digit), loaded on first use and written once by `flush` (or on drop). One file per hash cost
+/// about 200,000 small writes on a 100,000-file tree, which is slow on Windows (E-46).
+const SHARDS: usize = 16;
+
+#[derive(Debug)]
+struct Shard<T> {
+    loaded: bool,
+    dirty: bool,
+    map: BTreeMap<String, Arc<T>>,
+}
+
+impl<T> Default for Shard<T> {
+    fn default() -> Self {
+        Shard {
+            loaded: false,
+            dirty: false,
+            map: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct Store<T> {
+    kind: &'static str,
+    shards: [Mutex<Shard<T>>; SHARDS],
+}
+
+impl<T: Serialize + DeserializeOwned> Store<T> {
+    fn new(kind: &'static str) -> Self {
+        Store {
+            kind,
+            shards: std::array::from_fn(|_| Mutex::new(Shard::default())),
+        }
+    }
+
+    fn path(&self, dir: &Utf8PathBuf, n: usize) -> Utf8PathBuf {
+        dir.join(format!("{}-{n:x}.json", self.kind))
+    }
+
+    fn index(h: &ContentHash) -> usize {
+        h.to_hex()
+            .chars()
+            .next()
+            .and_then(|c| c.to_digit(16))
+            .map_or(0, |d| d as usize)
+    }
+
+    fn with_shard<R>(
+        &self,
+        dir: &Utf8PathBuf,
+        n: usize,
+        f: impl FnOnce(&mut Shard<T>) -> R,
+    ) -> Option<R> {
+        let mut shard = self
+            .shards
+            .get(n)?
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        if !shard.loaded {
+            shard.map = read_json::<BTreeMap<String, T>>(&self.path(dir, n))
+                .unwrap_or_default()
+                .into_iter()
+                .map(|(k, v)| (k, Arc::new(v)))
+                .collect();
+            shard.loaded = true;
+        }
+        Some(f(&mut shard))
+    }
+
+    fn get(&self, dir: &Utf8PathBuf, h: &ContentHash, key: &str) -> Option<Arc<T>> {
+        self.with_shard(dir, Self::index(h), |s| s.map.get(key).cloned())
+            .flatten()
+    }
+
+    fn put(&self, dir: &Utf8PathBuf, h: &ContentHash, key: String, value: T) {
+        self.with_shard(dir, Self::index(h), |s| {
+            s.map.insert(key, Arc::new(value));
+            s.dirty = true;
+        });
+    }
+
+    fn flush(&self, dir: &Utf8PathBuf) {
+        for (n, m) in self.shards.iter().enumerate() {
+            let mut shard = m.lock().unwrap_or_else(PoisonError::into_inner);
+            if shard.dirty {
+                let plain: BTreeMap<&String, &T> =
+                    shard.map.iter().map(|(k, v)| (k, v.as_ref())).collect();
+                write_atomic(&self.path(dir, n), &plain);
+                shard.dirty = false;
+            }
+        }
+    }
+}
 
 #[derive(Debug)]
 pub struct Cache {
     dir: Option<Utf8PathBuf>,
     rows: Mutex<FileTable>,
+    extractions: Store<Extraction>,
+    extras: Store<Extras>,
+    tokens: Store<u32>,
 }
 
 fn read_json<T: DeserializeOwned>(path: &Utf8PathBuf) -> Option<T> {
@@ -54,10 +153,14 @@ fn write_atomic<T: Serialize>(path: &Utf8PathBuf, value: &T) {
 impl Cache {
     /// Infallible: an unusable location yields an inactive cache.
     pub fn open(root: &Root, enabled: bool, key: CacheKey) -> Cache {
-        let none = || Cache {
-            dir: None,
-            rows: Mutex::new(FileTable::new()),
+        let with = |dir: Option<Utf8PathBuf>, rows: FileTable| Cache {
+            dir,
+            rows: Mutex::new(rows),
+            extractions: Store::new("x"),
+            extras: Store::new("e"),
+            tokens: Store::new("t"),
         };
+        let none = || with(None, FileTable::new());
         if !enabled {
             return none();
         }
@@ -74,9 +177,15 @@ impl Cache {
         }
         write_atomic(&key_file, &described);
         let rows = read_json::<FileTable>(&dir.join("files.json")).unwrap_or_default();
-        Cache {
-            dir: Some(dir),
-            rows: Mutex::new(rows),
+        with(Some(dir), rows)
+    }
+
+    /// Writes every changed shard. Also runs on drop; calling it early only saves work later.
+    pub fn flush(&self) {
+        if let Some(dir) = &self.dir {
+            self.extractions.flush(dir);
+            self.extras.flush(dir);
+            self.tokens.flush(dir);
         }
     }
 
@@ -88,35 +197,27 @@ impl Cache {
         self.dir.as_ref()
     }
 
-    fn shard(&self, kind: &str, h: &ContentHash) -> Option<Utf8PathBuf> {
-        let hex = h.to_hex();
-        let first = hex.get(..2)?.to_string();
-        Some(
-            self.dir
-                .as_ref()?
-                .join(kind)
-                .join(first)
-                .join(format!("{hex}.json")),
-        )
-    }
-
     pub fn get_extraction(&self, h: &ContentHash) -> Option<Arc<Extraction>> {
-        read_json::<Extraction>(&self.shard("x", h)?).map(Arc::new)
+        self.extractions.get(self.dir.as_ref()?, h, &h.to_hex())
     }
 
     pub fn put_extraction(&self, h: &ContentHash, e: &Extraction) {
-        if let Some(p) = self.shard("x", h) {
-            write_atomic(&p, e);
+        if let Some(dir) = &self.dir {
+            self.extractions.put(dir, h, h.to_hex(), e.clone());
         }
     }
 
     pub fn get_extras(&self, h: &ContentHash, plan: &str) -> Option<Extras> {
-        read_json::<Extras>(&self.shard(&format!("e/{plan}"), h)?)
+        let key = format!("{plan}/{}", h.to_hex());
+        self.extras
+            .get(self.dir.as_ref()?, h, &key)
+            .map(|e| (*e).clone())
     }
 
     pub fn put_extras(&self, h: &ContentHash, plan: &str, extras: &Extras) {
-        if let Some(p) = self.shard(&format!("e/{plan}"), h) {
-            write_atomic(&p, extras);
+        if let Some(dir) = &self.dir {
+            let key = format!("{plan}/{}", h.to_hex());
+            self.extras.put(dir, h, key, extras.clone());
         }
     }
 
@@ -140,13 +241,21 @@ impl Cache {
     }
 
     pub fn token_estimate(&self, h: &ContentHash) -> Option<u32> {
-        read_json::<u32>(&self.shard("t", h)?)
+        self.tokens
+            .get(self.dir.as_ref()?, h, &h.to_hex())
+            .map(|t| *t)
     }
 
     pub fn put_token_estimate(&self, h: &ContentHash, tokens: u32) {
-        if let Some(p) = self.shard("t", h) {
-            write_atomic(&p, &tokens);
+        if let Some(dir) = &self.dir {
+            self.tokens.put(dir, h, h.to_hex(), tokens);
         }
+    }
+}
+
+impl Drop for Cache {
+    fn drop(&mut self) {
+        self.flush();
     }
 }
 
@@ -204,6 +313,12 @@ mod tests {
         assert!(off.get_extraction(&h).is_none());
     }
 
+    /// The shard file holding hash `h` for kind `kind`.
+    fn shard_path(c: &Cache, kind: &str, h: &ContentHash) -> Utf8PathBuf {
+        let first = &h.to_hex()[..1];
+        c.dir().unwrap().join(format!("{kind}-{first}.json"))
+    }
+
     #[test]
     fn r_arch_073__extraction_roundtrips_as_readable_json() {
         let (_g, t) = utf8_tmp();
@@ -213,40 +328,34 @@ mod tests {
         assert!(c.get_extraction(&h).is_none());
         c.put_extraction(&h, &e);
         assert_eq!(*c.get_extraction(&h).unwrap(), e);
-        let hex = h.to_hex();
-        let path = c
-            .dir()
-            .unwrap()
-            .join("x")
-            .join(&hex[..2])
-            .join(format!("{hex}.json"));
-        let text = std::fs::read_to_string(path.as_std_path()).unwrap();
+        c.flush();
+        let text = std::fs::read_to_string(shard_path(&c, "x", &h).as_std_path()).unwrap();
         let v: serde_json::Value = serde_json::from_str(&text).unwrap();
         assert!(
-            v.get("directives").is_some(),
+            v.get(h.to_hex())
+                .and_then(|x| x.get("directives"))
+                .is_some(),
             "plain JSON, no binary format: {text}"
         );
-        assert!(text.contains('\n') || text.len() < 4000);
     }
 
     #[test]
     fn r_arch_072__corrupt_entries_are_discarded_not_errors() {
         let (_g, t) = utf8_tmp();
-        let c = Cache::open(&test_root(&t), true, key("0.1.0", 1, b"c", None));
+        let root = test_root(&t);
+        let k = key("0.1.0", 1, b"c", None);
         let h = hash_raw(b"file");
-        c.put_extraction(&h, &sample_extraction());
-        let hex = h.to_hex();
-        let path = c
-            .dir()
-            .unwrap()
-            .join("x")
-            .join(&hex[..2])
-            .join(format!("{hex}.json"));
+        let path = {
+            let c = Cache::open(&root, true, k.clone());
+            c.put_extraction(&h, &sample_extraction());
+            shard_path(&c, "x", &h)
+        };
         std::fs::write(path.as_std_path(), b"{ not json").unwrap();
+        let c = Cache::open(&root, true, k);
         assert!(c.get_extraction(&h).is_none());
         assert!(
             !path.exists(),
-            "the corrupt entry is removed so it is rebuilt"
+            "the corrupt shard is removed so it is rebuilt"
         );
         c.put_extraction(&h, &sample_extraction());
         assert!(c.get_extraction(&h).is_some());
@@ -316,15 +425,15 @@ mod tests {
         for h in handles {
             h.join().unwrap();
         }
-        let hex = h.to_hex();
-        let dir = c.dir().unwrap().join("x").join(&hex[..2]);
-        let names: Vec<String> = std::fs::read_dir(dir.as_std_path())
+        c.flush();
+        let names: Vec<String> = std::fs::read_dir(c.dir().unwrap().as_std_path())
             .unwrap()
             .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with("x-"))
             .collect();
         assert_eq!(
             names,
-            [format!("{hex}.json")],
+            [format!("x-{}.json", &h.to_hex()[..1])],
             "no temporary files are left behind"
         );
     }

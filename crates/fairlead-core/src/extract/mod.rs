@@ -522,6 +522,7 @@ pub fn extract_files(
     }
     if !rows.is_empty() {
         cache.put_file_rows(&rows);
+        cache.flush();
     }
     Ok(Corpus { records })
 }

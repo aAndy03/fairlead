@@ -113,7 +113,7 @@ pub fn parse_vendor_lock(scope_dir: &str, text: &str) -> BTreeMap<RepoPath, Cont
     out
 }
 
-fn git_facts(root: &Root, want_changed: bool) -> GitFacts {
+pub fn git_facts(root: &Root, want_changed: bool) -> GitFacts {
     let Some(repo) = GitRepo::open(root) else {
         return GitFacts {
             unreadable: want_changed
@@ -144,6 +144,16 @@ pub fn collect_facts(
     walk: &WalkResult,
     controls: &ControlSet,
     want_changed: bool,
+) -> Result<Facts, Error> {
+    collect_facts_with(root, walk, controls, git_facts(root, want_changed))
+}
+
+/// `collect_facts` with git state gathered by the caller (the pipeline runs it beside the walk).
+pub fn collect_facts_with(
+    root: &Root,
+    walk: &WalkResult,
+    controls: &ControlSet,
+    git: GitFacts,
 ) -> Result<Facts, Error> {
     let rules = ClassifyRules::from_controls(root, controls);
     let mut facts = Facts::default();
@@ -207,7 +217,7 @@ pub fn collect_facts(
         facts.approvals =
             parse_approvals(&bytes).map_err(|f| Error::from(f.with_path(&approvals_rel)))?;
     }
-    facts.git = git_facts(root, want_changed);
+    facts.git = git;
     facts.manifest_hints = read_manifest_hints(root, walk);
     Ok(facts)
 }

@@ -19,7 +19,7 @@ use crate::discover::{DiscoverRequest, Discovered, Root, discover};
 use crate::error::Error;
 use crate::explain::{ExplainTarget, parse_explain_target};
 use crate::extract::{Corpus, ExtractPlan, extract_files};
-use crate::facts::{Facts, collect_facts};
+use crate::facts::{Facts, GitFacts, collect_facts, collect_facts_with, git_facts};
 use crate::path::RepoPath;
 use crate::registry::{Registry, ResolveInput, resolve};
 use crate::time::AsOf;
@@ -55,6 +55,20 @@ pub fn load(req: &LoadRequest) -> Result<Loaded, Error> {
     let Discovered {
         root, root_control, ..
     } = discover(&req.discover)?;
+    // Git status depends only on the root, so it runs beside walk and extract (E-46: on a
+    // 100,000-file Windows tree it was a third of a `--changed` run).
+    std::thread::scope(|s| {
+        let git = s.spawn(|| git_facts(&root, req.want_changed));
+        load_rest(req, root.clone(), root_control, git)
+    })
+}
+
+fn load_rest(
+    req: &LoadRequest,
+    root: Root,
+    root_control: ControlFile,
+    git: std::thread::ScopedJoinHandle<'_, GitFacts>,
+) -> Result<Loaded, Error> {
     let walked = walk(
         &root,
         &WalkOptions::from_root_control(&root_control, req.threads),
@@ -72,7 +86,10 @@ pub fn load(req: &LoadRequest) -> Result<Loaded, Error> {
     let corpus = in_pool(req.threads, || {
         extract_files(&walked, &root, &plan, &cache, req.only.as_ref())
     })?;
-    let facts = collect_facts(&root, &walked, &controls, req.want_changed)?;
+    let git = git
+        .join()
+        .map_err(|_| Error::Internal("the git status thread panicked".into()))?;
+    let facts = collect_facts_with(&root, &walked, &controls, git)?;
     let mut load_diags = walked.diags.clone();
     load_diags.extend(control_diagnostics(&controls));
     sort_diagnostics(&mut load_diags);
