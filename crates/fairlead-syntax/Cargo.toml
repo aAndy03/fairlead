@@ -12,3 +12,11 @@ repository.workspace = true
 workspace = true
 
 [dependencies]
+memchr = "2.8.3"
+serde = { version = "1.0.229", features = ["derive"] }
+toml = { version = "1.1.8", default-features = false, features = ["std", "parse", "serde"] }
+unicode-normalization = "0.1.25"
+winnow = "1.0.4"
+
+[dev-dependencies]
+proptest = "1"

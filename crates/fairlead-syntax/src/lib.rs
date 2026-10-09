@@ -1,12 +1,27 @@
-//! `fairlead-syntax`: the pure directive grammar of fairlead (contract sections 3 and 4.1 to 4.2).
-//!
-//! No I/O, no git, no threads, and no dependency on `fairlead-core` (R-ARCH-002).
+//! Pure directive extraction for fairlead (R-ARCH-002, R-ARCH-030).
+//! No I/O, no clock, no `fairlead-core`. Every public function is total.
 #![forbid(unsafe_code)]
 // R-ARCH-032: extraction must not panic on any bytes, so slice indexing is denied outside tests.
 #![cfg_attr(not(test), deny(clippy::indexing_slicing))]
+#![cfg_attr(
+    test,
+    allow(
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::indexing_slicing
+    )
+)]
 
-/// Version of the syntax implementation (contract section 3, `lib`).
+pub mod delimiters;
+pub mod diag;
+pub mod ids;
+pub mod lexer;
+pub mod normalize;
+
+/// Bumped when extraction behaviour changes in a way that must invalidate cached records.
 pub const SYNTAX_VERSION: u32 = 1;
-
-/// Grammar edition of this build (D-17, D-45): an integer, 1 in 0.1.
+/// Directive grammar edition implemented by this crate (D-17, D-45).
 pub const GRAMMAR_EDITION: u32 = 1;
+
+pub use diag::{DiagCode, Severity, Span, SyntaxDiag, codes};
