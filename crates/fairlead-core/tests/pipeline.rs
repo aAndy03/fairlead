@@ -240,7 +240,7 @@ fn r_arch_001__commit_plan_writes_and_releases_the_lock() {
     let session = WriteSession::open(&request(&root).discover, &AlwaysAlive).unwrap();
     let loaded = load(&request(&root)).unwrap();
     let as_of = AsOf::parse("2026-10-09").unwrap();
-    let registry = resolve_loaded(&loaded, as_of.clone());
+    let registry = resolve_loaded(&loaded, as_of);
     let plan = plan_new(&loaded, &registry, &rule_request(), as_of).unwrap();
     let outcome = commit_plan(&session, plan).unwrap();
     drop(session);
@@ -253,7 +253,7 @@ fn r_cli_008__a_held_lock_refuses_the_commit_with_a_refusal() {
     let (_dir, root) = temp_root(true);
     let loaded = load(&request(&root)).unwrap();
     let as_of = AsOf::parse("2026-10-09").unwrap();
-    let registry = resolve_loaded(&loaded, as_of.clone());
+    let registry = resolve_loaded(&loaded, as_of);
     let plan = plan_new(&loaded, &registry, &rule_request(), as_of).unwrap();
     let probe = AlwaysAlive;
     let _held = WriterLock::acquire(&loaded.root, &probe).unwrap();
