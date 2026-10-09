@@ -44,3 +44,19 @@ path = "../../tests/determinism.rs"
 [[test]]
 name = "readonly"
 path = "../../tests/readonly.rs"
+
+[[test]]
+name = "sarif"
+path = "../../tests/sarif.rs"
+
+[[test]]
+name = "secrets"
+path = "../../tests/secrets.rs"
+
+[[test]]
+name = "replay"
+path = "../../tests/replay.rs"
+
+[[test]]
+name = "platform"
+path = "../../tests/platform.rs"
