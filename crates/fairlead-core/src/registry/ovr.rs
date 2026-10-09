@@ -373,17 +373,20 @@ fn target_pin(item: Option<&Item>, target: &ItemId, touched: &BTreeSet<String>) 
 }
 
 fn field_allowed(ev: &Eval<'_>, item: &Item, key: &str) -> bool {
+    let kind = item.id.kind.as_str();
+    if kind == "rule" {
+        // C-32: only these four are overridable on a rule item.
+        return matches!(key, "sev" | "stage" | "glob" | "exclude");
+    }
     if item.fields.contains_key(key) {
         return true;
     }
-    let kind = item.id.kind.as_str();
-    kind != "rule"
-        && (known_keys(Verb::Def).contains(&key)
-            || ev
-                .idx
-                .kinds
-                .decl(ev.idx.table, &item.id.scope, kind)
-                .is_some_and(|k| k.keys.contains_key(key)))
+    (known_keys(Verb::Def).contains(&key)
+        || ev
+            .idx
+            .kinds
+            .decl(ev.idx.table, &item.id.scope, kind)
+            .is_some_and(|k| k.keys.contains_key(key)))
 }
 
 struct Verdict {

@@ -1,19 +1,25 @@
-#![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+#![allow(
+    non_snake_case,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 //! generate() over a real Registry built in memory (no disk): S10 of the contract.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use fairlead_core::check::Baseline;
-use fairlead_core::config::{parse_control, ApprovalsFile, ControlSet};
+use fairlead_core::config::{ApprovalsFile, ControlSet, parse_control};
 use fairlead_core::discover::{Edition, Pin, Root, RootSource};
 use fairlead_core::extract::Corpus;
 use fairlead_core::facts::{Facts, GitFacts};
-use fairlead_core::generate::{generate, verify_header, GenKind, HeaderVerdict};
+use fairlead_core::generate::{GenKind, HeaderVerdict, generate, verify_header};
 use fairlead_core::hash::ContentHash;
 use fairlead_core::manifest::ManifestHints;
 use fairlead_core::path::RepoPath;
-use fairlead_core::registry::{resolve, Registry, ResolveInput};
+use fairlead_core::registry::{Registry, ResolveInput, resolve};
 use fairlead_core::time::AsOf;
 
 /// Minimal root control file: one pattern rule, which resolves to the item `rule.no-raw-hex`.
@@ -43,9 +49,19 @@ fn empty_facts() -> Facts {
         codeowners: None,
         vendor_hashes: BTreeMap::new(),
         vendor_lock: BTreeMap::new(),
-        approvals: ApprovalsFile { approvals: Vec::new() },
-        git: GitFacts { available: false, changed: None, sparse_absent: Vec::new(), unreadable: None },
-        manifest_hints: ManifestHints { workspace_members: BTreeSet::new(), default_excludes: Vec::new() },
+        approvals: ApprovalsFile {
+            approvals: Vec::new(),
+        },
+        git: GitFacts {
+            available: false,
+            changed: None,
+            sparse_absent: Vec::new(),
+            unreadable: None,
+        },
+        manifest_hints: ManifestHints {
+            workspace_members: BTreeSet::new(),
+            default_excludes: Vec::new(),
+        },
     }
 }
 
@@ -61,7 +77,10 @@ fn world() -> World {
         folder: "fairlead".to_string(),
         source: RootSource::Flag,
         edition: Edition(1),
-        pin: Pin { version: None, edition: Edition(1) },
+        pin: Pin {
+            version: None,
+            edition: Edition(1),
+        },
         config_hash: ContentHash([0; 32]),
     };
     let path = RepoPath::new("fairlead/control.toml").unwrap();
@@ -70,7 +89,9 @@ fn world() -> World {
     let mut files = BTreeMap::new();
     files.insert(path, parsed);
     let controls = ControlSet { files };
-    let corpus = Corpus { records: BTreeMap::new() };
+    let corpus = Corpus {
+        records: BTreeMap::new(),
+    };
     let facts = empty_facts();
     let reg = resolve(&ResolveInput {
         root: &root,
@@ -87,10 +108,17 @@ fn r_file_022__root_scope_gets_its_rule_shard_and_members_and_no_empty_shards() 
     let w = world();
     let set = generate(&w.reg, &w.corpus, &w.facts, None, Edition(1));
     let paths: Vec<&str> = set.files.keys().map(|p| p.as_str()).collect();
-    assert_eq!(paths, vec!["fairlead/gen/members", "fairlead/gen/reg/rule.reg"]);
+    assert_eq!(
+        paths,
+        vec!["fairlead/gen/members", "fairlead/gen/reg/rule.reg"]
+    );
     let rule = &set.files[&RepoPath::new("fairlead/gen/reg/rule.reg").unwrap()];
     assert!(matches!(rule.kind, GenKind::Shard(_)));
-    assert!(rule.body.starts_with("rule.no-raw-hex pol=sealed"), "{}", rule.body);
+    assert!(
+        rule.body.starts_with("rule.no-raw-hex pol=sealed"),
+        "{}",
+        rule.body
+    );
     assert!(rule.body.contains("sev=error"), "{}", rule.body);
     let members = &set.files[&RepoPath::new("fairlead/gen/members").unwrap()];
     assert_eq!(members.body, "self.root dir=. up=- chain=root\n");
@@ -100,11 +128,21 @@ fn r_file_022__root_scope_gets_its_rule_shard_and_members_and_no_empty_shards() 
 fn r_file_008__generate_ignores_whatever_is_on_disk() {
     let mut w = world();
     let clean = generate(&w.reg, &w.corpus, &w.facts, None, Edition(1));
-    for p in ["fairlead/gen/reg/rule.reg", "fairlead/gen/members", "fairlead/gen/reg/kept.reg"] {
-        w.facts.generated_on_disk.insert(RepoPath::new(p).unwrap(), Arc::from(&b"hand written line\n"[..]));
+    for p in [
+        "fairlead/gen/reg/rule.reg",
+        "fairlead/gen/members",
+        "fairlead/gen/reg/kept.reg",
+    ] {
+        w.facts.generated_on_disk.insert(
+            RepoPath::new(p).unwrap(),
+            Arc::from(&b"hand written line\n"[..]),
+        );
     }
     let dirty = generate(&w.reg, &w.corpus, &w.facts, None, Edition(1));
-    assert_eq!(clean, dirty, "an authored line in a generated file is wiped, never kept");
+    assert_eq!(
+        clean, dirty,
+        "an authored line in a generated file is wiped, never kept"
+    );
 }
 
 #[test]
@@ -123,10 +161,29 @@ fn r_arch_091__generate_is_deterministic_and_every_file_verifies() {
 #[test]
 fn r_chk_030__the_baseline_joins_the_set_only_when_given() {
     let w = world();
-    assert!(!generate(&w.reg, &w.corpus, &w.facts, None, Edition(1)).files.values().any(|f| f.kind == GenKind::Baseline));
-    let with = generate(&w.reg, &w.corpus, &w.facts, Some(&Baseline::default()), Edition(1));
-    let base: Vec<_> = with.files.values().filter(|f| f.kind == GenKind::Baseline).collect();
+    assert!(
+        !generate(&w.reg, &w.corpus, &w.facts, None, Edition(1))
+            .files
+            .values()
+            .any(|f| f.kind == GenKind::Baseline)
+    );
+    let with = generate(
+        &w.reg,
+        &w.corpus,
+        &w.facts,
+        Some(&Baseline::default()),
+        Edition(1),
+    );
+    let base: Vec<_> = with
+        .files
+        .values()
+        .filter(|f| f.kind == GenKind::Baseline)
+        .collect();
     assert_eq!(base.len(), 1);
     assert_eq!(base[0].body, "");
-    assert!(String::from_utf8(base[0].render(Edition(1))).unwrap().starts_with("# baseline edition=1"));
+    assert!(
+        String::from_utf8(base[0].render(Edition(1)))
+            .unwrap()
+            .starts_with("# baseline edition=1")
+    );
 }

@@ -144,7 +144,7 @@ pub(crate) fn parse_rules(cx: &mut Ctx<'_>, root: &mut toml::Table) -> BTreeMap<
             continue;
         };
         let check = match take_string(cx, &mut t, &key, "check").as_deref() {
-            None => Some(RuleCheckDecl::Builtin),
+            None | Some("builtin") => Some(RuleCheckDecl::Builtin),
             Some("leak") => {
                 let tokens = take_string_list(cx, &mut t, &key, "tokens").unwrap_or_default();
                 if tokens.is_empty() {
@@ -177,7 +177,7 @@ pub(crate) fn parse_rules(cx: &mut Ctx<'_>, root: &mut toml::Table) -> BTreeMap<
             Some(other) => {
                 cx.error(
                     &key,
-                    format!("unknown check {other:?}; use \"leak\" or \"pattern\""),
+                    format!("unknown check {other:?}; use \"leak\", \"pattern\" or \"builtin\""),
                 );
                 None
             }

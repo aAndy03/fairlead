@@ -82,12 +82,16 @@ pub fn first_differing_lines(want: &[u8], have: &[u8], n: usize) -> Vec<String> 
     out
 }
 
-use crate::hash::{base32, hash_raw, ContentHash};
+use crate::hash::{ContentHash, base32, hash_raw};
 use crate::render::line::TerseLine;
 
 /// Join a scope directory (empty or `.` for the root) and a relative path into a `RepoPath`.
 pub(crate) fn join_dir(dir: &str, rest: &str) -> Option<RepoPath> {
-    let full = if dir.is_empty() || dir == "." { rest.to_string() } else { format!("{dir}/{rest}") };
+    let full = if dir.is_empty() || dir == "." {
+        rest.to_string()
+    } else {
+        format!("{dir}/{rest}")
+    };
     RepoPath::new(&full).ok()
 }
 
@@ -145,14 +149,17 @@ use crate::config::{IndexValues, VendorDecl};
 use crate::extract::Corpus;
 use crate::facts::Facts;
 use crate::registry::{InertReason, OvrState, Registry, ScopeState};
-use members::{members_body, MembersView};
-use shard::{exc_body, shard_kind, ExcRow, ShardItem, TokSite};
+use members::{MembersView, members_body};
+use shard::{ExcRow, ShardItem, TokSite, exc_body, shard_kind};
 
 fn rel_to(dir: &str, path: &str) -> String {
     if dir.is_empty() || dir == "." {
         return path.to_string();
     }
-    path.strip_prefix(dir).and_then(|r| r.strip_prefix('/')).unwrap_or(path).to_string()
+    path.strip_prefix(dir)
+        .and_then(|r| r.strip_prefix('/'))
+        .unwrap_or(path)
+        .to_string()
 }
 
 fn inert_word(r: &InertReason) -> &'static str {
@@ -197,21 +204,44 @@ fn token_sites(reg: &Registry, corpus: &Corpus) -> BTreeMap<(ScopeId, String), V
         if rec.css_tokens.is_empty() {
             continue;
         }
-        let Some(scope_id) = reg.scope_of(path) else { continue };
-        let Some(scope) = reg.scope(scope_id) else { continue };
+        let Some(scope_id) = reg.scope_of(path) else {
+            continue;
+        };
+        let Some(scope) = reg.scope(scope_id) else {
+            continue;
+        };
         let rel = rel_to(scope.dir.as_str(), path.as_str());
         for site in rec.css_tokens.iter().filter(|s| !s.in_foreign) {
             out.entry((scope_id.clone(), site.name.clone()))
                 .or_default()
-                .push(TokSite { value: site.value.clone(), context: site.context.clone(), src: rel.clone() });
+                .push(TokSite {
+                    value: site.value.clone(),
+                    context: site.context.clone(),
+                    src: rel.clone(),
+                });
         }
     }
     out
 }
 
-fn put(files: &mut BTreeMap<RepoPath, GeneratedFile>, dir: &str, rest: &str, scope: &ScopeId, kind: GenKind, body: String) {
+fn put(
+    files: &mut BTreeMap<RepoPath, GeneratedFile>,
+    dir: &str,
+    rest: &str,
+    scope: &ScopeId,
+    kind: GenKind,
+    body: String,
+) {
     if let Some(path) = join_dir(dir, rest) {
-        files.insert(path.clone(), GeneratedFile { path, scope: scope.clone(), kind, body });
+        files.insert(
+            path.clone(),
+            GeneratedFile {
+                path,
+                scope: scope.clone(),
+                kind,
+                body,
+            },
+        );
     }
 }
 
@@ -235,8 +265,13 @@ pub fn generate(
         .and_then(|c| c.settings.folder.clone())
         .filter(|f| !f.is_empty())
         .unwrap_or_else(|| "fairlead".to_string());
-    let gen_dir = root_ctl.map(|c| c.layout.r#gen.clone()).filter(|g| !g.is_empty()).unwrap_or_else(|| "gen".to_string());
-    let mode = root_ctl.map(|c| c.settings.index_values.clone()).unwrap_or(IndexValues::Value);
+    let gen_dir = root_ctl
+        .map(|c| c.layout.r#gen.clone())
+        .filter(|g| !g.is_empty())
+        .unwrap_or_else(|| "gen".to_string());
+    let mode = root_ctl
+        .map(|c| c.settings.index_values.clone())
+        .unwrap_or(IndexValues::Value);
     let tokens = token_sites(reg, corpus);
 
     for scope in reg.scopes() {
@@ -257,13 +292,16 @@ pub fn generate(
                 }
             }
             let sites = match fields.get("css") {
-                Some(crate::registry::FieldValue::Scalar(css)) => {
-                    tokens.get(&(scope.id.clone(), css.clone())).cloned().unwrap_or_default()
-                }
+                Some(crate::registry::FieldValue::Scalar(css)) => tokens
+                    .get(&(scope.id.clone(), css.clone()))
+                    .cloned()
+                    .unwrap_or_default(),
                 _ => Vec::new(),
             };
             let kind_text = item.id.kind.as_str().to_string();
-            let entry = by_kind.entry(kind_text.clone()).or_insert_with(|| (item.id.kind.clone(), Vec::new()));
+            let entry = by_kind
+                .entry(kind_text.clone())
+                .or_insert_with(|| (item.id.kind.clone(), Vec::new()));
             entry.1.push(ShardItem {
                 kind: kind_text,
                 name: item.id.name.as_str().to_string(),
@@ -275,7 +313,14 @@ pub fn generate(
         }
         for (kind_text, (kind, items)) in &by_kind {
             for out in shard_kind(kind_text, items, &mode) {
-                put(&mut files, dir, &format!("{folder}/{gen_dir}/reg/{}", out.file_name), &scope.id, GenKind::Shard(kind.clone()), out.body);
+                put(
+                    &mut files,
+                    dir,
+                    &format!("{folder}/{gen_dir}/reg/{}", out.file_name),
+                    &scope.id,
+                    GenKind::Shard(kind.clone()),
+                    out.body,
+                );
             }
         }
 
@@ -299,7 +344,14 @@ pub fn generate(
             .collect();
         let exc = exc_body(&rows);
         if !exc.is_empty() {
-            put(&mut files, dir, &format!("{folder}/{gen_dir}/reg/exc.reg"), &scope.id, GenKind::Exceptions, exc);
+            put(
+                &mut files,
+                dir,
+                &format!("{folder}/{gen_dir}/reg/exc.reg"),
+                &scope.id,
+                GenKind::Exceptions,
+                exc,
+            );
         }
 
         // 3. membership, separate from the shards (R-FILE-022)
@@ -307,14 +359,25 @@ pub fn generate(
             id: scope.id.0.as_str().to_string(),
             dir: dir.to_string(),
             parent: scope.parent.as_ref().map(|p| p.0.as_str().to_string()),
-            chain: reg.chain(&scope.id).iter().map(|s| s.0.as_str().to_string()).collect(),
+            chain: reg
+                .chain(&scope.id)
+                .iter()
+                .map(|s| s.0.as_str().to_string())
+                .collect(),
             children: reg
                 .scopes()
                 .filter(|s| s.parent.as_ref() == Some(&scope.id))
                 .map(|s| (s.id.0.as_str().to_string(), s.dir.as_str().to_string()))
                 .collect(),
         };
-        put(&mut files, dir, &format!("{folder}/{gen_dir}/members"), &scope.id, GenKind::Members, members_body(&view_members));
+        put(
+            &mut files,
+            dir,
+            &format!("{folder}/{gen_dir}/members"),
+            &scope.id,
+            GenKind::Members,
+            members_body(&view_members),
+        );
 
         // 4. vendor lock (R-FILE-040)
         if let Some(ctl) = scope.control.as_ref() {
@@ -325,11 +388,22 @@ pub fn generate(
                     .filter(|(p, _)| reg.scope_of(p) == Some(&scope.id))
                     .map(|(p, h)| {
                         let rel = rel_to(dir, p.as_str());
-                        VendorRow { tool: tool_for(&ctl.vendors, &rel), path: rel, hash: h.clone() }
+                        VendorRow {
+                            tool: tool_for(&ctl.vendors, &rel),
+                            path: rel,
+                            hash: h.clone(),
+                        }
                     })
                     .collect();
                 if !rows.is_empty() {
-                    put(&mut files, dir, &format!("{folder}/vendored.lock"), &scope.id, GenKind::VendorLock, vendor_lock_body(&rows));
+                    put(
+                        &mut files,
+                        dir,
+                        &format!("{folder}/vendored.lock"),
+                        &scope.id,
+                        GenKind::VendorLock,
+                        vendor_lock_body(&rows),
+                    );
                 }
             }
         }
@@ -337,16 +411,31 @@ pub fn generate(
 
     // 5. the baseline, when the caller holds one (written only by `sync --baseline`, D-38)
     if let Some(b) = baseline {
-        let configured = root_ctl.map(|c| c.baseline.file.clone()).filter(|f| !f.is_empty());
+        let configured = root_ctl
+            .map(|c| c.baseline.file.clone())
+            .filter(|f| !f.is_empty());
         let rel = configured.unwrap_or_else(|| format!("{folder}/{gen_dir}/baseline.txt"));
-        put(&mut files, "", &rel, reg.root_scope(), GenKind::Baseline, b.body());
+        put(
+            &mut files,
+            "",
+            &rel,
+            reg.root_scope(),
+            GenKind::Baseline,
+            b.body(),
+        );
     }
     GeneratedSet { files }
 }
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+    #![allow(
+        non_snake_case,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )]
     use super::*;
     use fairlead_syntax::ids::ScopeSlug;
 
@@ -355,7 +444,12 @@ mod tests {
     }
 
     fn file(kind: GenKind, body: &str) -> GeneratedFile {
-        GeneratedFile { path: RepoPath::new("fairlead/gen/members").unwrap(), scope: root(), kind, body: body.to_string() }
+        GeneratedFile {
+            path: RepoPath::new("fairlead/gen/members").unwrap(),
+            scope: root(),
+            kind,
+            body: body.to_string(),
+        }
     }
 
     #[test]
@@ -392,9 +486,15 @@ mod tests {
 
     #[test]
     fn r_chk_023__pure_additions_and_identical_inputs() {
-        assert_eq!(first_differing_lines(b"a\nb\n", b"a\n", 3), vec!["+b".to_string()]);
+        assert_eq!(
+            first_differing_lines(b"a\nb\n", b"a\n", 3),
+            vec!["+b".to_string()]
+        );
         assert!(first_differing_lines(b"a\nb\n", b"a\nb\n", 3).is_empty());
-        assert!(first_differing_lines(b"a\r\nb\r\n", b"a\nb\n", 3).is_empty(), "a CRLF checkout is not a difference");
+        assert!(
+            first_differing_lines(b"a\r\nb\r\n", b"a\nb\n", 3).is_empty(),
+            "a CRLF checkout is not a difference"
+        );
     }
 
     #[test]
@@ -405,21 +505,42 @@ mod tests {
 
     #[test]
     fn r_file_040__vendor_lock_line_and_reader_roundtrip() {
-        let rows = vec![VendorRow { path: "components.json".to_string(), tool: "shadcn".to_string(), hash: ContentHash([7u8; 32]) }];
+        let rows = vec![VendorRow {
+            path: "components.json".to_string(),
+            tool: "shadcn".to_string(),
+            hash: ContentHash([7u8; 32]),
+        }];
         let body = vendor_lock_body(&rows);
         let id = crate::hash::base32(&crate::hash::hash_raw(b"components.json").0, 10);
-        assert_eq!(body, format!("vendor.{id} path=components.json tool=shadcn b3={}\n", "07".repeat(32)));
+        assert_eq!(
+            body,
+            format!(
+                "vendor.{id} path=components.json tool=shadcn b3={}\n",
+                "07".repeat(32)
+            )
+        );
         let text = format!("# scope console edition=1 body=aaaaaaaaaaaaaaaaaaaa\n{body}");
         let map = parse_vendor_lock("apps/console", &text);
-        assert_eq!(map.get(&RepoPath::new("apps/console/components.json").unwrap()), Some(&ContentHash([7u8; 32])));
+        assert_eq!(
+            map.get(&RepoPath::new("apps/console/components.json").unwrap()),
+            Some(&ContentHash([7u8; 32]))
+        );
         let root_map = parse_vendor_lock("", &text);
         assert!(root_map.contains_key(&RepoPath::new("components.json").unwrap()));
     }
 
     #[test]
     fn r_file_040__lock_ids_are_stable_when_other_files_are_added() {
-        let a = VendorRow { path: "a.json".to_string(), tool: "t".to_string(), hash: ContentHash([1u8; 32]) };
-        let b = VendorRow { path: "b.json".to_string(), tool: "t".to_string(), hash: ContentHash([2u8; 32]) };
+        let a = VendorRow {
+            path: "a.json".to_string(),
+            tool: "t".to_string(),
+            hash: ContentHash([1u8; 32]),
+        };
+        let b = VendorRow {
+            path: "b.json".to_string(),
+            tool: "t".to_string(),
+            hash: ContentHash([2u8; 32]),
+        };
         let only_a = vendor_lock_body(std::slice::from_ref(&a));
         let both = vendor_lock_body(&[a, b]);
         assert!(both.contains(only_a.trim_end()));

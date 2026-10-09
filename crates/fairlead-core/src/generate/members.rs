@@ -19,14 +19,21 @@ pub struct MembersView {
 }
 
 fn dir_text(dir: &str) -> String {
-    if dir.is_empty() { ".".to_string() } else { clean_data(dir, 240) }
+    if dir.is_empty() {
+        ".".to_string()
+    } else {
+        clean_data(dir, 240)
+    }
 }
 
 pub fn members_body(v: &MembersView) -> String {
     let mut rows: Vec<(String, String)> = Vec::new();
     for (child, dir) in &v.children {
         let id = format!("scope.{child}");
-        rows.push((id.clone(), TerseLine::new(&id).with("dir", &dir_text(dir)).render()));
+        rows.push((
+            id.clone(),
+            TerseLine::new(&id).with("dir", &dir_text(dir)).render(),
+        ));
     }
     let self_id = format!("self.{}", v.id);
     let up = v.parent.clone().unwrap_or_else(|| "-".to_string());
@@ -62,14 +69,20 @@ pub fn parse_members(text: &str) -> ParsedMembers {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let Ok(t) = TerseLine::parse(line) else { continue };
+        let Ok(t) = TerseLine::parse(line) else {
+            continue;
+        };
         if let Some(child) = t.id.strip_prefix("scope.") {
-            out.children.insert(child.to_string(), t.get("dir").unwrap_or("").to_string());
+            out.children
+                .insert(child.to_string(), t.get("dir").unwrap_or("").to_string());
         } else if let Some(id) = t.id.strip_prefix("self.") {
             out.id = Some(id.to_string());
             out.dir = t.get("dir").map(str::to_string);
             out.up = t.get("up").map(str::to_string);
-            out.chain = t.get("chain").map(|c| c.split(',').map(str::to_string).collect()).unwrap_or_default();
+            out.chain = t
+                .get("chain")
+                .map(|c| c.split(',').map(str::to_string).collect())
+                .unwrap_or_default();
         }
     }
     out
@@ -77,7 +90,13 @@ pub fn parse_members(text: &str) -> ParsedMembers {
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+    #![allow(
+        non_snake_case,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )]
     use super::*;
 
     fn web() -> MembersView {
@@ -110,7 +129,10 @@ mod tests {
             chain: vec!["root".to_string()],
             children: BTreeMap::from([("web".to_string(), "apps/web".to_string())]),
         };
-        assert_eq!(members_body(&root), "scope.web dir=apps/web\nself.root dir=. up=- chain=root\n");
+        assert_eq!(
+            members_body(&root),
+            "scope.web dir=apps/web\nself.root dir=. up=- chain=root\n"
+        );
     }
 
     #[test]
@@ -122,7 +144,10 @@ mod tests {
 
     #[test]
     fn r_file_022__parse_inverts_the_writer_and_skips_the_header() {
-        let text = format!("# scope web edition=1 body=aaaaaaaaaaaaaaaaaaaa\n{}", members_body(&web()));
+        let text = format!(
+            "# scope web edition=1 body=aaaaaaaaaaaaaaaaaaaa\n{}",
+            members_body(&web())
+        );
         let p = parse_members(&text);
         assert_eq!(p.id.as_deref(), Some("web"));
         assert_eq!(p.dir.as_deref(), Some("apps/web"));

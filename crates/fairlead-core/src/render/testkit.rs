@@ -1,5 +1,10 @@
 //! Test-only builders for `Finding` and `CheckReport` (compiled only under `cfg(test)`).
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 
 use std::collections::BTreeMap;
 
@@ -9,7 +14,7 @@ use crate::check::{CheckReport, Finding, FindingState, ReportHeader, RuleId, Sum
 use crate::config::Stage;
 use crate::diag::{DiagCode, Location, Severity};
 use crate::discover::Edition;
-use crate::hash::{base32, hash_raw, Fingerprint};
+use crate::hash::{Fingerprint, base32, hash_raw};
 use crate::path::RepoPath;
 use crate::registry::ScopeId;
 use crate::time::AsOf;
@@ -27,13 +32,24 @@ pub(crate) fn fp(text: &str) -> Fingerprint {
 }
 
 /// An enforce-stage, state `new` finding in scope `web` with a fingerprint derived from its fields.
-pub(crate) fn finding(code: DiagCode, severity: Severity, path: &str, line: u32, col: u32, message: &str) -> Finding {
+pub(crate) fn finding(
+    code: DiagCode,
+    severity: Severity,
+    path: &str,
+    line: u32,
+    col: u32,
+    message: &str,
+) -> Finding {
     let seed = format!("{}:{path}:{line}:{col}:{message}", code.0);
     Finding {
         code,
         severity,
         stage: Stage::Enforce,
-        location: Location { path: RepoPath::new(path).unwrap(), line, col },
+        location: Location {
+            path: RepoPath::new(path).unwrap(),
+            line,
+            col,
+        },
         scope: scope("web"),
         rule: None,
         related: None,
@@ -55,7 +71,8 @@ pub(crate) fn with(mut f: Finding, edit: impl FnOnce(&mut Finding)) -> Finding {
 /// A report over `findings` (sorted into the total order), header of the spec example.
 pub(crate) fn report(mut findings: Vec<Finding>) -> CheckReport {
     findings.sort();
-    let count = |s: Severity| u32::try_from(findings.iter().filter(|f| f.severity == s).count()).unwrap();
+    let count =
+        |s: Severity| u32::try_from(findings.iter().filter(|f| f.severity == s).count()).unwrap();
     let summary = Summary {
         errors: count(Severity::Error),
         warns: count(Severity::Warn),

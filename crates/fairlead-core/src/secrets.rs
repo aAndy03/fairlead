@@ -34,22 +34,72 @@ const SPECS: &[Spec] = &[
         group: 0,
         gate: Gate::Always,
     },
-    Spec { class: "aws-access-key", pattern: r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[0-9A-Z]{16}\b", group: 0, gate: Gate::Always },
-    Spec { class: "github-token", pattern: r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})", group: 0, gate: Gate::Always },
-    Spec { class: "slack-token", pattern: r"\bxox[abprs]-[A-Za-z0-9-]{10,}", group: 0, gate: Gate::Always },
-    Spec { class: "stripe-key", pattern: r"\b[rs]k_live_[0-9A-Za-z]{16,}\b", group: 0, gate: Gate::Always },
-    Spec { class: "google-api-key", pattern: r"\bAIza[0-9A-Za-z_-]{35}", group: 0, gate: Gate::Always },
-    Spec { class: "llm-api-key", pattern: r"\bsk-(?:ant-|proj-|svcacct-)?[A-Za-z0-9_-]{20,}", group: 0, gate: Gate::NeedsDigit },
-    Spec { class: "npm-token", pattern: r"\bnpm_[A-Za-z0-9]{36}\b", group: 0, gate: Gate::Always },
-    Spec { class: "jwt", pattern: r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}", group: 0, gate: Gate::Always },
-    Spec { class: "url-credentials", pattern: r#"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@"']+:([^\s/@"']+)@"#, group: 1, gate: Gate::UrlPassword },
+    Spec {
+        class: "aws-access-key",
+        pattern: r"\b(?:AKIA|ASIA|AGPA|AIDA|AROA|ANPA|ANVA)[0-9A-Z]{16}\b",
+        group: 0,
+        gate: Gate::Always,
+    },
+    Spec {
+        class: "github-token",
+        pattern: r"\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})",
+        group: 0,
+        gate: Gate::Always,
+    },
+    Spec {
+        class: "slack-token",
+        pattern: r"\bxox[abprs]-[A-Za-z0-9-]{10,}",
+        group: 0,
+        gate: Gate::Always,
+    },
+    Spec {
+        class: "stripe-key",
+        pattern: r"\b[rs]k_live_[0-9A-Za-z]{16,}\b",
+        group: 0,
+        gate: Gate::Always,
+    },
+    Spec {
+        class: "google-api-key",
+        pattern: r"\bAIza[0-9A-Za-z_-]{35}",
+        group: 0,
+        gate: Gate::Always,
+    },
+    Spec {
+        class: "llm-api-key",
+        pattern: r"\bsk-(?:ant-|proj-|svcacct-)?[A-Za-z0-9_-]{20,}",
+        group: 0,
+        gate: Gate::NeedsDigit,
+    },
+    Spec {
+        class: "npm-token",
+        pattern: r"\bnpm_[A-Za-z0-9]{36}\b",
+        group: 0,
+        gate: Gate::Always,
+    },
+    Spec {
+        class: "jwt",
+        pattern: r"\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}",
+        group: 0,
+        gate: Gate::Always,
+    },
+    Spec {
+        class: "url-credentials",
+        pattern: r#"\b[a-zA-Z][a-zA-Z0-9+.-]*://[^\s/:@"']+:([^\s/@"']+)@"#,
+        group: 1,
+        gate: Gate::UrlPassword,
+    },
     Spec {
         class: "credential-assignment",
         pattern: r#"(?i)\b(?:api[_-]?key|secret|token|passwd|password|private[_-]?key|client[_-]?secret|access[_-]?key)["']?\s*[:=]\s*["']([A-Za-z0-9/+_=.-]{16,})["']"#,
         group: 1,
         gate: Gate::Credential,
     },
-    Spec { class: "high-entropy", pattern: r"[A-Za-z0-9+/_-]{32,}={0,2}", group: 0, gate: Gate::HighEntropy },
+    Spec {
+        class: "high-entropy",
+        pattern: r"[A-Za-z0-9+/_-]{32,}={0,2}",
+        group: 0,
+        gate: Gate::HighEntropy,
+    },
 ];
 
 struct Compiled {
@@ -64,7 +114,14 @@ fn compiled() -> &'static [Compiled] {
     CELL.get_or_init(|| {
         SPECS
             .iter()
-            .filter_map(|s| Regex::new(s.pattern).ok().map(|re| Compiled { class: s.class, re, group: s.group, gate: s.gate }))
+            .filter_map(|s| {
+                Regex::new(s.pattern).ok().map(|re| Compiled {
+                    class: s.class,
+                    re,
+                    group: s.group,
+                    gate: s.gate,
+                })
+            })
             .collect()
     })
 }
@@ -96,7 +153,9 @@ fn shannon(s: &str) -> f64 {
 fn is_placeholder(v: &str) -> bool {
     let lower = v.to_ascii_lowercase();
     let same = v.chars().next().is_some_and(|f| v.chars().all(|c| c == f));
-    same || ["example", "changeme", "placeholder", "your", "xxxxxxxx"].iter().any(|p| lower.contains(p))
+    same || ["example", "changeme", "placeholder", "your", "xxxxxxxx"]
+        .iter()
+        .any(|p| lower.contains(p))
 }
 
 fn high_entropy(v: &str) -> bool {
@@ -137,7 +196,11 @@ fn find_all(text: &str) -> Vec<Raw> {
         for caps in c.re.captures_iter(text) {
             let Some(m) = caps.get(c.group) else { continue };
             if passes(c.gate, m.as_str()) {
-                raws.push(Raw { start: m.start(), end: m.end(), class: c.class });
+                raws.push(Raw {
+                    start: m.start(),
+                    end: m.end(),
+                    class: c.class,
+                });
             }
         }
     }
@@ -160,7 +223,10 @@ fn line_col(text: &str, at: usize) -> (u32, u32) {
     let head = text.get(..at).unwrap_or("");
     let line = head.matches('\n').count() + 1;
     let col = head.rsplit('\n').next().map_or(0, |l| l.chars().count()) + 1;
-    (u32::try_from(line).unwrap_or(u32::MAX), u32::try_from(col).unwrap_or(u32::MAX))
+    (
+        u32::try_from(line).unwrap_or(u32::MAX),
+        u32::try_from(col).unwrap_or(u32::MAX),
+    )
 }
 
 /// Scan `text` for secret-like values. Offsets are byte offsets into `text`; line and column
@@ -193,7 +259,9 @@ pub fn has_secret(text: &str) -> bool {
 /// `[secrets] allow` clears a hit by fingerprint (R-AGT-024). An allow entry matches when it is
 /// the 8-character prefix the diagnostic printed, or a longer fingerprint that starts with it.
 pub fn is_allowed(hit: &SecretHit, allow: &[String]) -> bool {
-    allow.iter().any(|a| a.len() >= hit.fp_prefix.len() && a.starts_with(&hit.fp_prefix))
+    allow
+        .iter()
+        .any(|a| a.len() >= hit.fp_prefix.len() && a.starts_with(&hit.fp_prefix))
 }
 
 /// Replace every secret range by `[redacted:<class>]` (R-AGT-023). Idempotent.
@@ -217,7 +285,13 @@ pub fn redact(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+    #![allow(
+        non_snake_case,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )]
     use super::*;
 
     const ALNUM: &str = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -233,7 +307,9 @@ mod tests {
         let mut state = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1);
         (0..len)
             .map(|_| {
-                state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+                state = state
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
                 chars[((state >> 33) as usize) % chars.len()]
             })
             .collect()
@@ -253,12 +329,27 @@ mod tests {
     /// 50 seeded secret-like values: 10 private keys, 10 AWS, 10 GitHub, 10 LLM keys, 10 mixed.
     fn corpus() -> Vec<Case> {
         let mut cases = Vec::new();
-        let heads = ["RSA ", "EC ", "OPENSSH ", "DSA ", "", "ENCRYPTED ", "PGP ", "RSA ", "EC ", ""];
+        let heads = [
+            "RSA ",
+            "EC ",
+            "OPENSSH ",
+            "DSA ",
+            "",
+            "ENCRYPTED ",
+            "PGP ",
+            "RSA ",
+            "EC ",
+            "",
+        ];
         for (i, head) in heads.iter().enumerate() {
             let payload = body(100 + i as u64, 64, B64);
             let block = if *head == "PGP " { " BLOCK" } else { "" };
             // The last one has no END line: an unterminated block is still a private key.
-            let end = if i == 9 { String::new() } else { format!("-----END {head}PRIVATE KEY{block}-----\n") };
+            let end = if i == 9 {
+                String::new()
+            } else {
+                format!("-----END {head}PRIVATE KEY{block}-----\n")
+            };
             cases.push(Case {
                 class: "private-key",
                 needle: take(&payload, 0, 12),
@@ -267,54 +358,140 @@ mod tests {
         }
         for i in 0..10u64 {
             let key = format!("AKIA{}", body(200 + i, 16, UPNUM));
-            cases.push(Case { class: "aws-access-key", needle: take(&key, 4, 12), text: format!("aws_access_key_id = {key}\n") });
+            cases.push(Case {
+                class: "aws-access-key",
+                needle: take(&key, 4, 12),
+                text: format!("aws_access_key_id = {key}\n"),
+            });
         }
-        let gh = ["ghp_", "gho_", "ghu_", "ghs_", "ghr_", "ghp_", "ghp_", "gho_", "github_pat_", "github_pat_"];
+        let gh = [
+            "ghp_",
+            "gho_",
+            "ghu_",
+            "ghs_",
+            "ghr_",
+            "ghp_",
+            "ghp_",
+            "gho_",
+            "github_pat_",
+            "github_pat_",
+        ];
         for (i, prefix) in gh.iter().enumerate() {
-            let (len, alphabet) = if prefix.starts_with("github_pat_") { (40, ALNUM_US) } else { (36, ALNUM) };
+            let (len, alphabet) = if prefix.starts_with("github_pat_") {
+                (40, ALNUM_US)
+            } else {
+                (36, ALNUM)
+            };
             let payload = body(300 + i as u64, len, alphabet);
-            cases.push(Case { class: "github-token", needle: take(&payload, 5, 12), text: format!("GITHUB_TOKEN={prefix}{payload}\n") });
+            cases.push(Case {
+                class: "github-token",
+                needle: take(&payload, 5, 12),
+                text: format!("GITHUB_TOKEN={prefix}{payload}\n"),
+            });
         }
-        let llm = ["sk-", "sk-ant-api03-", "sk-proj-", "sk-", "sk-ant-api03-", "sk-proj-", "sk-", "sk-svcacct-", "sk-proj-", "sk-ant-api03-"];
+        let llm = [
+            "sk-",
+            "sk-ant-api03-",
+            "sk-proj-",
+            "sk-",
+            "sk-ant-api03-",
+            "sk-proj-",
+            "sk-",
+            "sk-svcacct-",
+            "sk-proj-",
+            "sk-ant-api03-",
+        ];
         for (i, prefix) in llm.iter().enumerate() {
             let payload = format!("7{}", body(400 + i as u64, 40, B64URL));
-            cases.push(Case { class: "llm-api-key", needle: take(&payload, 1, 12), text: format!("OPENAI_API_KEY={prefix}{payload}\n") });
+            cases.push(Case {
+                class: "llm-api-key",
+                needle: take(&payload, 1, 12),
+                text: format!("OPENAI_API_KEY={prefix}{payload}\n"),
+            });
         }
         for i in 0..2u64 {
             let tail = body(500 + i, 24, ALNUM);
-            let tok = format!("xoxb-{}-{}-{tail}", body(510 + i, 10, DIGITS), body(520 + i, 12, DIGITS));
-            cases.push(Case { class: "slack-token", needle: take(&tail, 6, 12), text: format!("SLACK_BOT={tok}\n") });
+            let tok = format!(
+                "xoxb-{}-{}-{tail}",
+                body(510 + i, 10, DIGITS),
+                body(520 + i, 12, DIGITS)
+            );
+            cases.push(Case {
+                class: "slack-token",
+                needle: take(&tail, 6, 12),
+                text: format!("SLACK_BOT={tok}\n"),
+            });
         }
         for (i, prefix) in ["sk_live_", "rk_live_"].iter().enumerate() {
             let tail = body(600 + i as u64, 24, ALNUM);
-            cases.push(Case { class: "stripe-key", needle: take(&tail, 4, 12), text: format!("STRIPE={prefix}{tail}\n") });
+            cases.push(Case {
+                class: "stripe-key",
+                needle: take(&tail, 4, 12),
+                text: format!("STRIPE={prefix}{tail}\n"),
+            });
         }
         for i in 0..2u64 {
             let tail = body(700 + i, 35, B64URL);
-            cases.push(Case { class: "google-api-key", needle: take(&tail, 5, 12), text: format!("MAPS=AIza{tail}\n") });
+            cases.push(Case {
+                class: "google-api-key",
+                needle: take(&tail, 5, 12),
+                text: format!("MAPS=AIza{tail}\n"),
+            });
         }
         let npm = body(800, 36, ALNUM);
-        cases.push(Case { class: "npm-token", needle: take(&npm, 5, 12), text: format!("//registry:_authToken=npm_{npm}\n") });
-        let (a, b, c) = (body(900, 20, B64URL), body(901, 20, B64URL), body(902, 20, B64URL));
-        cases.push(Case { class: "jwt", needle: take(&c, 3, 12), text: format!("Authorization: Bearer eyJ{a}.eyJ{b}.{c}\n") });
+        cases.push(Case {
+            class: "npm-token",
+            needle: take(&npm, 5, 12),
+            text: format!("//registry:_authToken=npm_{npm}\n"),
+        });
+        let (a, b, c) = (
+            body(900, 20, B64URL),
+            body(901, 20, B64URL),
+            body(902, 20, B64URL),
+        );
+        cases.push(Case {
+            class: "jwt",
+            needle: take(&c, 3, 12),
+            text: format!("Authorization: Bearer eyJ{a}.eyJ{b}.{c}\n"),
+        });
         let pw = body(910, 16, ALNUM);
-        cases.push(Case { class: "url-credentials", needle: take(&pw, 0, 12), text: format!("DATABASE_URL=postgres://app:{pw}@db.internal:5432/main\n") });
+        cases.push(Case {
+            class: "url-credentials",
+            needle: take(&pw, 0, 12),
+            text: format!("DATABASE_URL=postgres://app:{pw}@db.internal:5432/main\n"),
+        });
         let v = body(920, 24, ALNUM);
-        cases.push(Case { class: "credential-assignment", needle: take(&v, 4, 12), text: format!("client_secret = \"{v}\"\n") });
+        cases.push(Case {
+            class: "credential-assignment",
+            needle: take(&v, 4, 12),
+            text: format!("client_secret = \"{v}\"\n"),
+        });
         cases
     }
 
     #[test]
     fn r_agt_022__all_patterns_compile() {
-        assert_eq!(compiled().len(), SPECS.len(), "a pattern failed to compile: the scan would fail open");
+        assert_eq!(
+            compiled().len(),
+            SPECS.len(),
+            "a pattern failed to compile: the scan would fail open"
+        );
     }
 
     #[test]
     fn r_agt_022__seeded_corpus_50_of_50_detected() {
         let cases = corpus();
         assert_eq!(cases.len(), 50);
-        let missed: Vec<usize> = cases.iter().enumerate().filter(|(_, c)| scan_secrets(&c.text).is_empty()).map(|(i, _)| i).collect();
-        assert!(missed.is_empty(), "undetected seeded secrets (case indexes): {missed:?}");
+        let missed: Vec<usize> = cases
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| scan_secrets(&c.text).is_empty())
+            .map(|(i, _)| i)
+            .collect();
+        assert!(
+            missed.is_empty(),
+            "undetected seeded secrets (case indexes): {missed:?}"
+        );
     }
 
     #[test]
@@ -328,20 +505,20 @@ mod tests {
     #[test]
     fn r_agt_022__benign_corpus_has_no_hits() {
         let benign = [
-            "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",                              // git sha (hex)
-            "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262",      // blake3 hex
-            "550e8400-e29b-41d4-a716-446655440000",                                  // uuid
-            "k3m9q2x7a1bz4n8r5t6w",                                                  // body hash
-            "apps/web/src/components/organisms/sidebar/sidebar.css",                // long path
-            "ThisIsAVeryLongPascalCaseIdentifierNameThatKeepsGoingAndGoingOn",      // no digit
-            "value=env:API_KEY",                                                     // env-var name only
+            "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", // git sha (hex)
+            "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262", // blake3 hex
+            "550e8400-e29b-41d4-a716-446655440000",     // uuid
+            "k3m9q2x7a1bz4n8r5t6w",                     // body hash
+            "apps/web/src/components/organisms/sidebar/sidebar.css", // long path
+            "ThisIsAVeryLongPascalCaseIdentifierNameThatKeepsGoingAndGoingOn", // no digit
+            "value=env:API_KEY",                        // env-var name only
             "api_key = env:STRIPE_API_KEY",
             "// fairlead: def tok.primary role=brand policy=sealed css=--primary",
-            "task-force-management-committee-notes-2026-q3-roadmap-review",         // contains 'sk-' inside a word
+            "task-force-management-committee-notes-2026-q3-roadmap-review", // contains 'sk-' inside a word
             "https://example.com/path?x=1&y=2",
             "git@github.com:org/repo.git",
             "token_budget = 4000",
-            "password = \"changeme-please-change-it\"",                              // placeholder
+            "password = \"changeme-please-change-it\"", // placeholder
             "-----BEGIN CERTIFICATE-----",
             "ghp_short",
             "postgres://postgres:${DB_PASSWORD}@localhost:5432/app",
@@ -356,10 +533,18 @@ mod tests {
         for case in corpus() {
             let hits = scan_secrets(&case.text);
             let shown = format!("{hits:?}");
-            assert!(!shown.contains(&case.needle), "debug output leaks the value for class {}", case.class);
+            assert!(
+                !shown.contains(&case.needle),
+                "debug output leaks the value for class {}",
+                case.class
+            );
             for h in &hits {
                 assert_eq!(h.fp_prefix.chars().count(), 8);
-                assert!(h.fp_prefix.chars().all(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c)));
+                assert!(
+                    h.fp_prefix
+                        .chars()
+                        .all(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c))
+                );
             }
         }
     }
@@ -369,10 +554,16 @@ mod tests {
         let key = format!("AKIA{}", body(1, 16, UPNUM));
         let hit = scan_secrets(&format!("id = {key}\n")).remove(0);
         assert!(is_allowed(&hit, &[hit.fp_prefix.clone()]));
-        assert!(is_allowed(&hit, &[format!("{}abcd", hit.fp_prefix)]), "a 12-character fingerprint starting with the prefix also clears it");
+        assert!(
+            is_allowed(&hit, &[format!("{}abcd", hit.fp_prefix)]),
+            "a 12-character fingerprint starting with the prefix also clears it"
+        );
         assert!(!is_allowed(&hit, &["zzzzzzzz".to_string()]));
         assert!(!is_allowed(&hit, &[]));
-        assert!(!is_allowed(&hit, &[hit.fp_prefix[..4].to_string()]), "a shorter string is not a fingerprint");
+        assert!(
+            !is_allowed(&hit, &[hit.fp_prefix[..4].to_string()]),
+            "a shorter string is not a fingerprint"
+        );
     }
 
     #[test]
@@ -391,7 +582,11 @@ mod tests {
 
         let text = format!("\u{e9} key {key}");
         let h = &scan_secrets(&text)[0];
-        assert_eq!((h.span.line, h.span.col), (1, 7), "column counts scalar values");
+        assert_eq!(
+            (h.span.line, h.span.col),
+            (1, 7),
+            "column counts scalar values"
+        );
         assert_eq!(h.span.start, 7, "offset counts bytes");
     }
 
@@ -405,8 +600,16 @@ mod tests {
     fn r_agt_023__redact_removes_every_seeded_value() {
         for (i, case) in corpus().iter().enumerate() {
             let out = redact(&case.text);
-            assert!(!out.contains(&case.needle), "case {i} ({}) survived redaction", case.class);
-            assert!(out.contains("[redacted:"), "case {i} ({}) left no marker", case.class);
+            assert!(
+                !out.contains(&case.needle),
+                "case {i} ({}) survived redaction",
+                case.class
+            );
+            assert!(
+                out.contains("[redacted:"),
+                "case {i} ({}) left no marker",
+                case.class
+            );
         }
     }
 
@@ -424,6 +627,9 @@ mod tests {
     #[test]
     fn r_agt_023__only_the_url_password_is_replaced() {
         let out = redact("postgres://app:Zq8vKd3LmP0xTn5R@db:5432/main");
-        assert_eq!(out, "postgres://app:[redacted:url-credentials]@db:5432/main");
+        assert_eq!(
+            out,
+            "postgres://app:[redacted:url-credentials]@db:5432/main"
+        );
     }
 }

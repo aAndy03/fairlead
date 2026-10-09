@@ -10,15 +10,15 @@ use crate::check::codes::all_specs;
 use crate::check::floor::is_floor;
 use crate::check::{Finding, FindingState};
 use crate::config::ApprovalsFile;
-use crate::render::sanitize::sanitize_data;
-use crate::time::AsOf;
 use crate::diag::DiagCode;
 use crate::discover::Edition;
-use crate::generate::header::{parse_header, render_file, HeaderKind};
-use crate::generate::{verify_header, HeaderVerdict};
+use crate::generate::header::{HeaderKind, parse_header, render_file};
+use crate::generate::{HeaderVerdict, verify_header};
 use crate::hash::Fingerprint;
 use crate::path::RepoPath;
 use crate::render::line::TerseLine;
+use crate::render::sanitize::sanitize_data;
+use crate::time::AsOf;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct BaselineEntry {
@@ -53,10 +53,16 @@ impl BaselineIssue {
             BaselineIssue::MissingHeader => "baseline header is missing or garbled".to_string(),
             BaselineIssue::HashMismatch => "baseline hash mismatch (hand-edited)".to_string(),
             BaselineIssue::ConflictMarkers => "baseline contains git conflict markers".to_string(),
-            BaselineIssue::FloorEntry { line, code } => format!("baseline line {line} holds floor finding {code}"),
+            BaselineIssue::FloorEntry { line, code } => {
+                format!("baseline line {line} holds floor finding {code}")
+            }
             BaselineIssue::BadLine { line, reason } => format!("baseline line {line}: {reason}"),
-            BaselineIssue::DuplicateFingerprint { line } => format!("baseline line {line}: duplicate fingerprint"),
-            BaselineIssue::NotCanonical => "baseline is not in canonical form (hand-edited)".to_string(),
+            BaselineIssue::DuplicateFingerprint { line } => {
+                format!("baseline line {line}: duplicate fingerprint")
+            }
+            BaselineIssue::NotCanonical => {
+                "baseline is not in canonical form (hand-edited)".to_string()
+            }
         }
     }
 }
@@ -84,7 +90,9 @@ impl Baseline {
     pub fn body(&self) -> String {
         let mut out = String::new();
         for (fp, e) in &self.entries {
-            let mut line = TerseLine::new(fp.as_str()).with("code", e.code.0).with("path", e.path.as_str());
+            let mut line = TerseLine::new(fp.as_str())
+                .with("code", e.code.0)
+                .with("path", e.path.as_str());
             if let Some(d) = e.accepted {
                 line = line.with("acc", &d.to_string());
             }
@@ -108,7 +116,11 @@ impl Baseline {
             HeaderVerdict::HasConflictMarkers => return Err(BaselineIssue::ConflictMarkers),
             HeaderVerdict::HandEdited => {
                 let first = text.split('\n').next().unwrap_or("");
-                return Err(if parse_header(first).is_some() { BaselineIssue::HashMismatch } else { BaselineIssue::MissingHeader });
+                return Err(if parse_header(first).is_some() {
+                    BaselineIssue::HashMismatch
+                } else {
+                    BaselineIssue::MissingHeader
+                });
             }
         }
         let (first, body) = text.split_once('\n').unwrap_or((text, ""));
@@ -126,16 +138,33 @@ impl Baseline {
             }
             let fp = Fingerprint::parse(&t.id).map_err(|_| bad("bad fingerprint"))?;
             let code_text = t.get("code").ok_or(bad("missing code"))?;
-            let spec = all_specs().iter().find(|s| s.code.0 == code_text).ok_or(bad("unknown code"))?;
+            let spec = all_specs()
+                .iter()
+                .find(|s| s.code.0 == code_text)
+                .ok_or(bad("unknown code"))?;
             if is_floor(spec.code) {
-                return Err(BaselineIssue::FloorEntry { line: at, code: code_text.to_string() });
+                return Err(BaselineIssue::FloorEntry {
+                    line: at,
+                    code: code_text.to_string(),
+                });
             }
-            let path = RepoPath::new(t.get("path").ok_or(bad("missing path"))?).map_err(|_| bad("bad path"))?;
+            let path = RepoPath::new(t.get("path").ok_or(bad("missing path"))?)
+                .map_err(|_| bad("bad path"))?;
             let accepted = match t.get("acc") {
                 None => None,
                 Some(d) => Some(d.parse::<Date>().map_err(|_| bad("bad acc date"))?),
             };
-            if entries.insert(fp, BaselineEntry { code: spec.code, path, accepted }).is_some() {
+            if entries
+                .insert(
+                    fp,
+                    BaselineEntry {
+                        code: spec.code,
+                        path,
+                        accepted,
+                    },
+                )
+                .is_some()
+            {
                 return Err(BaselineIssue::DuplicateFingerprint { line: at });
             }
         }
@@ -152,9 +181,13 @@ impl Baseline {
 pub enum AcceptRefusal {
     MissingWhy,
     /// Floor findings are never accepted (R-CHK-032, R-CHK-008).
-    FloorFinding { codes: Vec<DiagCode> },
+    FloorFinding {
+        codes: Vec<DiagCode>,
+    },
     /// Authority-family findings need an `approve` record per fingerprint (R-CHK-052).
-    NeedsApproval { fingerprints: Vec<Fingerprint> },
+    NeedsApproval {
+        fingerprints: Vec<Fingerprint>,
+    },
 }
 
 impl AcceptRefusal {
@@ -167,7 +200,11 @@ impl AcceptRefusal {
             ),
             AcceptRefusal::NeedsApproval { fingerprints } => format!(
                 "authority findings need an approve record: {}",
-                fingerprints.iter().map(Fingerprint::as_str).collect::<Vec<_>>().join(", ")
+                fingerprints
+                    .iter()
+                    .map(Fingerprint::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
         }
     }
@@ -175,14 +212,20 @@ impl AcceptRefusal {
 
 /// `HN-X*`, `HN-A*`, `HN-C*` (R-CHK-052).
 fn is_authority_family(code: DiagCode) -> bool {
-    ["HN-X", "HN-A", "HN-C"].iter().any(|p| code.0.starts_with(p))
+    ["HN-X", "HN-A", "HN-C"]
+        .iter()
+        .any(|p| code.0.starts_with(p))
 }
 
 impl Baseline {
     /// Fingerprints in the baseline with no current finding: fixed, prune candidates (`HN-B001`).
     pub fn stale_fingerprints(&self, current: &[Finding]) -> Vec<Fingerprint> {
         let live: BTreeSet<&Fingerprint> = current.iter().map(|f| &f.fingerprint).collect();
-        self.entries.keys().filter(|fp| !live.contains(fp)).cloned().collect()
+        self.entries
+            .keys()
+            .filter(|fp| !live.contains(fp))
+            .cloned()
+            .collect()
     }
 
     /// `sync --baseline`: drop fixed entries, never add (R-CHK-032).
@@ -215,7 +258,11 @@ impl Baseline {
             .filter(|f| matches!(f.state, FindingState::New | FindingState::WaiverIneffective))
             .filter(|f| !self.contains(&f.fingerprint))
             .collect();
-        let mut floors: Vec<DiagCode> = candidates.iter().filter(|f| is_floor(f.code)).map(|f| f.code).collect();
+        let mut floors: Vec<DiagCode> = candidates
+            .iter()
+            .filter(|f| is_floor(f.code))
+            .map(|f| f.code)
+            .collect();
         floors.sort();
         floors.dedup();
         if !floors.is_empty() {
@@ -230,13 +277,19 @@ impl Baseline {
         missing.sort();
         missing.dedup();
         if !missing.is_empty() {
-            return Err(AcceptRefusal::NeedsApproval { fingerprints: missing });
+            return Err(AcceptRefusal::NeedsApproval {
+                fingerprints: missing,
+            });
         }
         let mut entries = self.entries.clone();
         for f in candidates {
             entries.insert(
                 f.fingerprint.clone(),
-                BaselineEntry { code: f.code, path: f.location.path.clone(), accepted: Some(as_of.0) },
+                BaselineEntry {
+                    code: f.code,
+                    path: f.location.path.clone(),
+                    accepted: Some(as_of.0),
+                },
             );
         }
         Ok(Baseline { entries })
@@ -246,11 +299,21 @@ impl Baseline {
     /// findings (those must be fixed or approved) and without `acc=`.
     pub fn seed(findings: &[Finding]) -> Baseline {
         let mut entries = BTreeMap::new();
-        for f in findings.iter().filter(|f| matches!(f.state, FindingState::New)) {
+        for f in findings
+            .iter()
+            .filter(|f| matches!(f.state, FindingState::New))
+        {
             if is_floor(f.code) || is_authority_family(f.code) {
                 continue;
             }
-            entries.insert(f.fingerprint.clone(), BaselineEntry { code: f.code, path: f.location.path.clone(), accepted: None });
+            entries.insert(
+                f.fingerprint.clone(),
+                BaselineEntry {
+                    code: f.code,
+                    path: f.location.path.clone(),
+                    accepted: None,
+                },
+            );
         }
         Baseline { entries }
     }
@@ -258,10 +321,16 @@ impl Baseline {
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+    #![allow(
+        non_snake_case,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )]
     use super::*;
     use crate::diag::codes::{HN_F001, HN_R001, HN_T001};
-    use crate::generate::header::{render_file, HeaderKind};
+    use crate::generate::header::{HeaderKind, render_file};
     use crate::render::testkit::fp;
 
     fn n(i: u32) -> Fingerprint {
@@ -269,13 +338,21 @@ mod tests {
     }
 
     fn entry(code: DiagCode, path: &str, acc: Option<Date>) -> BaselineEntry {
-        BaselineEntry { code, path: RepoPath::new(path).unwrap(), accepted: acc }
+        BaselineEntry {
+            code,
+            path: RepoPath::new(path).unwrap(),
+            accepted: acc,
+        }
     }
 
     fn two() -> Baseline {
         let mut b = Baseline::default();
-        b.entries.insert(n(2), entry(HN_T001, "apps/web/src/Panel.tsx", None));
-        b.entries.insert(n(1), entry(HN_R001, "a b/c.rs", Some(jiff::civil::date(2026, 10, 9))));
+        b.entries
+            .insert(n(2), entry(HN_T001, "apps/web/src/Panel.tsx", None));
+        b.entries.insert(
+            n(1),
+            entry(HN_R001, "a b/c.rs", Some(jiff::civil::date(2026, 10, 9))),
+        );
         b
     }
 
@@ -288,8 +365,14 @@ mod tests {
         let text = two().render(Edition(1));
         let lines: Vec<&str> = text.lines().collect();
         assert!(lines[0].starts_with("# baseline edition=1 body="));
-        assert_eq!(lines[1], "000000000001 code=HN-R001 path=\"a b/c.rs\" acc=2026-10-09");
-        assert_eq!(lines[2], "000000000002 code=HN-T001 path=apps/web/src/Panel.tsx");
+        assert_eq!(
+            lines[1],
+            "000000000001 code=HN-R001 path=\"a b/c.rs\" acc=2026-10-09"
+        );
+        assert_eq!(
+            lines[2],
+            "000000000002 code=HN-T001 path=apps/web/src/Panel.tsx"
+        );
         assert!(text.ends_with('\n') && !text.contains('\r'));
     }
 
@@ -298,7 +381,11 @@ mod tests {
         let b = two();
         let text = b.render(Edition(1));
         assert_eq!(Baseline::parse(text.as_bytes()), Ok(b.clone()));
-        assert_eq!(Baseline::parse(text.replace('\n', "\r\n").as_bytes()), Ok(b), "a CRLF checkout parses too");
+        assert_eq!(
+            Baseline::parse(text.replace('\n', "\r\n").as_bytes()),
+            Ok(b),
+            "a CRLF checkout parses too"
+        );
     }
 
     #[test]
@@ -311,15 +398,24 @@ mod tests {
     #[test]
     fn r_chk_024__a_hand_edit_is_a_hash_mismatch() {
         let text = two().render(Edition(1)).replace("HN-T001", "HN-R001");
-        assert_eq!(Baseline::parse(text.as_bytes()), Err(BaselineIssue::HashMismatch));
+        assert_eq!(
+            Baseline::parse(text.as_bytes()),
+            Err(BaselineIssue::HashMismatch)
+        );
     }
 
     #[test]
     fn r_chk_024__missing_header_and_conflict_markers_are_reported() {
-        assert_eq!(Baseline::parse(b"000000000001 code=HN-T001 path=a.rs\n"), Err(BaselineIssue::MissingHeader));
+        assert_eq!(
+            Baseline::parse(b"000000000001 code=HN-T001 path=a.rs\n"),
+            Err(BaselineIssue::MissingHeader)
+        );
         let good = two().render(Edition(1));
         let conflicted = format!("<<<<<<< HEAD\n{good}=======\n{good}>>>>>>> b\n");
-        assert_eq!(Baseline::parse(conflicted.as_bytes()), Err(BaselineIssue::ConflictMarkers));
+        assert_eq!(
+            Baseline::parse(conflicted.as_bytes()),
+            Err(BaselineIssue::ConflictMarkers)
+        );
         assert_eq!(Baseline::parse(&[0xff, 0xfe]), Err(BaselineIssue::NotUtf8));
     }
 
@@ -328,22 +424,43 @@ mod tests {
         let bytes = file("000000000003 code=HN-F001 path=a.rs\n");
         assert_eq!(
             Baseline::parse(&bytes),
-            Err(BaselineIssue::FloorEntry { line: 2, code: "HN-F001".to_string() })
+            Err(BaselineIssue::FloorEntry {
+                line: 2,
+                code: "HN-F001".to_string()
+            })
         );
         assert!(is_floor(HN_F001));
     }
 
     #[test]
     fn r_chk_030__malformed_unknown_duplicate_and_unsorted_lines_are_rejected() {
-        assert!(matches!(Baseline::parse(&file("garbage\n")), Err(BaselineIssue::BadLine { line: 2, .. })));
-        assert!(matches!(Baseline::parse(&file("000000000004 code=HN-Z999 path=a.rs\n")), Err(BaselineIssue::BadLine { .. })));
-        assert!(matches!(Baseline::parse(&file("000000000004 code=HN-T001\n")), Err(BaselineIssue::BadLine { .. })));
+        assert!(matches!(
+            Baseline::parse(&file("garbage\n")),
+            Err(BaselineIssue::BadLine { line: 2, .. })
+        ));
+        assert!(matches!(
+            Baseline::parse(&file("000000000004 code=HN-Z999 path=a.rs\n")),
+            Err(BaselineIssue::BadLine { .. })
+        ));
+        assert!(matches!(
+            Baseline::parse(&file("000000000004 code=HN-T001\n")),
+            Err(BaselineIssue::BadLine { .. })
+        ));
         let dup = "000000000004 code=HN-T001 path=a.rs\n000000000004 code=HN-T001 path=a.rs\n";
-        assert_eq!(Baseline::parse(&file(dup)), Err(BaselineIssue::DuplicateFingerprint { line: 3 }));
+        assert_eq!(
+            Baseline::parse(&file(dup)),
+            Err(BaselineIssue::DuplicateFingerprint { line: 3 })
+        );
         let unsorted = "000000000005 code=HN-T001 path=a.rs\n000000000004 code=HN-T001 path=b.rs\n";
-        assert_eq!(Baseline::parse(&file(unsorted)), Err(BaselineIssue::NotCanonical));
+        assert_eq!(
+            Baseline::parse(&file(unsorted)),
+            Err(BaselineIssue::NotCanonical)
+        );
         let extra_key = "000000000004 code=HN-T001 path=a.rs note=x\n";
-        assert_eq!(Baseline::parse(&file(extra_key)), Err(BaselineIssue::NotCanonical));
+        assert_eq!(
+            Baseline::parse(&file(extra_key)),
+            Err(BaselineIssue::NotCanonical)
+        );
     }
 
     #[test]
@@ -361,8 +478,8 @@ mod tests {
 
     use crate::check::FindingState;
     use crate::config::{Approval, ApprovalsFile};
-    use crate::diag::codes::{HN_A001, HN_X004};
     use crate::diag::Severity;
+    use crate::diag::codes::{HN_A001, HN_X004};
     use crate::render::testkit::{finding, with};
     use crate::time::AsOf;
 
@@ -375,7 +492,9 @@ mod tests {
     }
 
     fn no_approvals() -> ApprovalsFile {
-        ApprovalsFile { approvals: Vec::new() }
+        ApprovalsFile {
+            approvals: Vec::new(),
+        }
     }
 
     #[test]
@@ -383,13 +502,18 @@ mod tests {
         let keep = f(HN_T001, "a.rs");
         let gone = n(8);
         let mut b = Baseline::default();
-        b.entries.insert(keep.fingerprint.clone(), entry(HN_T001, "a.rs", None));
-        b.entries.insert(gone.clone(), entry(HN_T001, "old.rs", None));
+        b.entries
+            .insert(keep.fingerprint.clone(), entry(HN_T001, "a.rs", None));
+        b.entries
+            .insert(gone.clone(), entry(HN_T001, "old.rs", None));
         let brand_new = f(HN_R001, "new.rs");
         let pruned = b.prune(&[keep.clone(), brand_new.clone()]);
         assert!(pruned.contains(&keep.fingerprint));
         assert!(!pruned.contains(&gone));
-        assert!(!pruned.contains(&brand_new.fingerprint), "prune never adds (R-CHK-032)");
+        assert!(
+            !pruned.contains(&brand_new.fingerprint),
+            "prune never adds (R-CHK-032)"
+        );
         assert_eq!(b.stale_fingerprints(&[keep, brand_new]), vec![gone]);
     }
 
@@ -404,24 +528,44 @@ mod tests {
         let new = f(HN_T001, "a.rs");
         let mut b = Baseline::default();
         b.entries.insert(n(1), entry(HN_R001, "old.rs", None));
-        let out = b.accept_new(&[new.clone()], "legacy panel", day(), &no_approvals()).unwrap();
+        let out = b
+            .accept_new(&[new.clone()], "legacy panel", day(), &no_approvals())
+            .unwrap();
         assert_eq!(out.len(), 2);
-        assert_eq!(out.entries[&new.fingerprint].accepted, Some(jiff::civil::date(2026, 10, 9)));
-        assert_eq!(out.entries[&n(1)], b.entries[&n(1)], "existing entries are untouched");
+        assert_eq!(
+            out.entries[&new.fingerprint].accepted,
+            Some(jiff::civil::date(2026, 10, 9))
+        );
+        assert_eq!(
+            out.entries[&n(1)],
+            b.entries[&n(1)],
+            "existing entries are untouched"
+        );
     }
 
     #[test]
     fn r_chk_032__floor_findings_are_never_accepted() {
         let b = Baseline::default();
-        let r = b.accept_new(&[f(HN_T001, "a.rs"), f(HN_F001, "b.rs")], "because", day(), &no_approvals());
-        assert_eq!(r, Err(AcceptRefusal::FloorFinding { codes: vec![HN_F001] }));
+        let r = b.accept_new(
+            &[f(HN_T001, "a.rs"), f(HN_F001, "b.rs")],
+            "because",
+            day(),
+            &no_approvals(),
+        );
+        assert_eq!(
+            r,
+            Err(AcceptRefusal::FloorFinding {
+                codes: vec![HN_F001]
+            })
+        );
     }
 
     #[test]
     fn r_chk_052__authority_family_needs_an_approve_record_covering_the_line() {
         let x = f(HN_X004, "a.rs");
         let a = f(HN_A001, "AGENTS.md");
-        let r = Baseline::default().accept_new(&[x.clone(), a.clone()], "why", day(), &no_approvals());
+        let r =
+            Baseline::default().accept_new(&[x.clone(), a.clone()], "why", day(), &no_approvals());
         let mut want = vec![x.fingerprint.clone(), a.fingerprint.clone()];
         want.sort();
         assert_eq!(r, Err(AcceptRefusal::NeedsApproval { fingerprints: want }));
@@ -434,8 +578,12 @@ mod tests {
             date: jiff::civil::date(2026, 10, 8),
             renewal: 0,
         };
-        let covered = ApprovalsFile { approvals: vec![approval(&x.fingerprint), approval(&a.fingerprint)] };
-        let out = Baseline::default().accept_new(&[x, a], "why", day(), &covered).unwrap();
+        let covered = ApprovalsFile {
+            approvals: vec![approval(&x.fingerprint), approval(&a.fingerprint)],
+        };
+        let out = Baseline::default()
+            .accept_new(&[x, a], "why", day(), &covered)
+            .unwrap();
         assert_eq!(out.len(), 2);
     }
 
@@ -443,10 +591,13 @@ mod tests {
     fn r_chk_032__already_baselined_waived_and_known_findings_are_not_added() {
         let known = f(HN_T001, "a.rs");
         let mut b = Baseline::default();
-        b.entries.insert(known.fingerprint.clone(), entry(HN_T001, "a.rs", None));
+        b.entries
+            .insert(known.fingerprint.clone(), entry(HN_T001, "a.rs", None));
         let waived = with(f(HN_R001, "w.rs"), |x| x.state = FindingState::Waived);
         let baselined = with(f(HN_R001, "b.rs"), |x| x.state = FindingState::Baselined);
-        let out = b.accept_new(&[known, waived, baselined], "why", day(), &no_approvals()).unwrap();
+        let out = b
+            .accept_new(&[known, waived, baselined], "why", day(), &no_approvals())
+            .unwrap();
         assert_eq!(out, b);
     }
 

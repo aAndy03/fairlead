@@ -47,14 +47,19 @@ pub fn policy_word(p: &Policy) -> &'static str {
 
 /// `kind.name pol=<policy> [sum="..."] <field>=<value>...` with fields in key order.
 pub fn item_line(item: &ShardItem) -> TerseLine {
-    let mut line = TerseLine::new(&format!("{}.{}", item.kind, item.name)).with("pol", policy_word(&item.policy));
+    let mut line = TerseLine::new(&format!("{}.{}", item.kind, item.name))
+        .with("pol", policy_word(&item.policy));
     if let Some(sum) = &item.sum {
         line = line.with("sum", &clean_data(sum, 160));
     }
     for (key, value) in &item.fields {
         let text = match value {
             FieldValue::Scalar(s) => clean_data(s, 240),
-            FieldValue::List(l) => l.iter().map(|s| clean_data(s, 240)).collect::<Vec<_>>().join(","),
+            FieldValue::List(l) => l
+                .iter()
+                .map(|s| clean_data(s, 240))
+                .collect::<Vec<_>>()
+                .join(","),
         };
         line = line.with(key, &text);
     }
@@ -63,11 +68,17 @@ pub fn item_line(item: &ShardItem) -> TerseLine {
 
 fn is_dark(context: &str) -> bool {
     let c = context.to_ascii_lowercase();
-    c.contains(".dark") || c.contains("data-theme=\"dark\"") || c.contains("data-theme=dark") || c.contains("prefers-color-scheme: dark")
+    c.contains(".dark")
+        || c.contains("data-theme=\"dark\"")
+        || c.contains("data-theme=dark")
+        || c.contains("prefers-color-scheme: dark")
 }
 
 fn is_base_context(context: &str) -> bool {
-    matches!(context.trim(), "" | ":root" | "html" | "*" | "@theme" | "@theme inline")
+    matches!(
+        context.trim(),
+        "" | ":root" | "html" | "*" | "@theme" | "@theme inline"
+    )
 }
 
 fn index_value(value: &str, mode: &IndexValues) -> String {
@@ -79,7 +90,10 @@ fn index_value(value: &str, mode: &IndexValues) -> String {
 
 fn token_line(item: &ShardItem, mode: &IndexValues) -> TerseLine {
     let mut line = item_line(item);
-    let light = item.sites.iter().find(|s| !is_dark(&s.context) && is_base_context(&s.context));
+    let light = item
+        .sites
+        .iter()
+        .find(|s| !is_dark(&s.context) && is_base_context(&s.context));
     let dark = item.sites.iter().find(|s| is_dark(&s.context));
     if let Some(s) = light {
         line = line.with("light", &index_value(&s.value, mode));
@@ -113,7 +127,10 @@ fn split_bucket(kind: &str, rows: Vec<(String, String)>, depth: usize, out: &mut
         if group.len() > SHARD_LINE_LIMIT && can_split {
             split_bucket(kind, group, depth + 1, out);
         } else {
-            out.push(ShardOut { file_name: format!("{kind}-{}.reg", key.replace('.', "_")), body: join_lines(&group) });
+            out.push(ShardOut {
+                file_name: format!("{kind}-{}.reg", key.replace('.', "_")),
+                body: join_lines(&group),
+            });
         }
     }
 }
@@ -125,7 +142,11 @@ pub fn shard_kind(kind: &str, items: &[ShardItem], mode: &IndexValues) -> Vec<Sh
         .iter()
         .filter(|i| i.kind == kind)
         .map(|i| {
-            let line = if i.sites.is_empty() { item_line(i) } else { token_line(i, mode) };
+            let line = if i.sites.is_empty() {
+                item_line(i)
+            } else {
+                token_line(i, mode)
+            };
             (i.name.clone(), line.render())
         })
         .collect();
@@ -134,7 +155,10 @@ pub fn shard_kind(kind: &str, items: &[ShardItem], mode: &IndexValues) -> Vec<Sh
     }
     rows.sort_by(|a, b| a.0.cmp(&b.0));
     if rows.len() <= SHARD_LINE_LIMIT {
-        return vec![ShardOut { file_name: format!("{kind}.reg"), body: join_lines(&rows) }];
+        return vec![ShardOut {
+            file_name: format!("{kind}.reg"),
+            body: join_lines(&rows),
+        }];
     }
     let mut out = Vec::new();
     split_bucket(kind, rows, 1, &mut out);
@@ -188,7 +212,13 @@ pub fn exc_body(rows: &[ExcRow]) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+    #![allow(
+        non_snake_case,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )]
     use super::*;
 
     fn item(kind: &str, name: &str) -> ShardItem {
@@ -213,7 +243,10 @@ mod tests {
         it.sum = Some("tokens not hex".to_string());
         it.fields.insert("stage".to_string(), scalar("enforce"));
         it.fields.insert("sev".to_string(), scalar("error"));
-        it.fields.insert("glob".to_string(), FieldValue::List(vec!["**/*.tsx".to_string(), "**/*.css".to_string()]));
+        it.fields.insert(
+            "glob".to_string(),
+            FieldValue::List(vec!["**/*.tsx".to_string(), "**/*.css".to_string()]),
+        );
         assert_eq!(
             item_line(&it).render(),
             "rule.no-raw-hex pol=sealed sum=\"tokens not hex\" glob=**/*.tsx,**/*.css sev=error stage=enforce"
@@ -222,11 +255,18 @@ mod tests {
 
     #[test]
     fn r_file_022__small_kind_is_one_file_sorted_bytewise_by_id() {
-        let items = vec![item("tok", "zeta"), item("tok", "alpha"), item("tok", "mid")];
+        let items = vec![
+            item("tok", "zeta"),
+            item("tok", "alpha"),
+            item("tok", "mid"),
+        ];
         let out = shard_kind("tok", &items, &IndexValues::Value);
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].file_name, "tok.reg");
-        assert_eq!(out[0].body, "tok.alpha pol=open\ntok.mid pol=open\ntok.zeta pol=open\n");
+        assert_eq!(
+            out[0].body,
+            "tok.alpha pol=open\ntok.mid pol=open\ntok.zeta pol=open\n"
+        );
     }
 
     #[test]
@@ -237,8 +277,14 @@ mod tests {
 
     #[test]
     fn r_file_022__over_500_lines_splits_by_first_slug_character() {
-        let items: Vec<ShardItem> =
-            (0..1200).map(|i| item("tok", &format!("{}{:03}", ['a', 'b', 'c'][i / 400], i % 400))).collect();
+        let items: Vec<ShardItem> = (0..1200)
+            .map(|i| {
+                item(
+                    "tok",
+                    &format!("{}{:03}", ['a', 'b', 'c'][i / 400], i % 400),
+                )
+            })
+            .collect();
         let out = shard_kind("tok", &items, &IndexValues::Value);
         let names: Vec<&str> = out.iter().map(|o| o.file_name.as_str()).collect();
         assert_eq!(names, vec!["tok-a.reg", "tok-b.reg", "tok-c.reg"]);
@@ -250,9 +296,25 @@ mod tests {
         let items: Vec<ShardItem> = (0..600).map(|i| item("tok", &format!("a{i:04}"))).collect();
         let out = shard_kind("tok", &items, &IndexValues::Value);
         let names: Vec<&str> = out.iter().map(|o| o.file_name.as_str()).collect();
-        assert_eq!(names, vec!["tok-a00.reg", "tok-a01.reg", "tok-a02.reg", "tok-a03.reg", "tok-a04.reg", "tok-a05.reg"]);
-        assert_eq!(out.iter().map(|o| o.body.lines().count()).sum::<usize>(), 600);
-        assert!(out.iter().all(|o| o.body.lines().count() <= SHARD_LINE_LIMIT));
+        assert_eq!(
+            names,
+            vec![
+                "tok-a00.reg",
+                "tok-a01.reg",
+                "tok-a02.reg",
+                "tok-a03.reg",
+                "tok-a04.reg",
+                "tok-a05.reg"
+            ]
+        );
+        assert_eq!(
+            out.iter().map(|o| o.body.lines().count()).sum::<usize>(),
+            600
+        );
+        assert!(
+            out.iter()
+                .all(|o| o.body.lines().count() <= SHARD_LINE_LIMIT)
+        );
     }
 
     #[test]
@@ -260,19 +322,29 @@ mod tests {
         let a = vec![item("tok", "b"), item("tok", "a"), item("tok", "c")];
         let mut b = a.clone();
         b.reverse();
-        assert_eq!(shard_kind("tok", &a, &IndexValues::Value), shard_kind("tok", &b, &IndexValues::Value));
+        assert_eq!(
+            shard_kind("tok", &a, &IndexValues::Value),
+            shard_kind("tok", &b, &IndexValues::Value)
+        );
     }
 
     #[test]
     fn r_agt_022__secrets_in_field_values_never_reach_a_shard() {
         let mut it = item("tok", "x");
-        it.fields.insert("note".to_string(), scalar(&format!("key ghp_{}", "a1B2".repeat(9))));
+        it.fields.insert(
+            "note".to_string(),
+            scalar(&format!("key ghp_{}", "a1B2".repeat(9))),
+        );
         let line = item_line(&it).render();
         assert_eq!(line, "tok.x pol=open note=\"key [redacted:github-token]\"");
     }
 
     fn site(value: &str, context: &str) -> TokSite {
-        TokSite { value: value.to_string(), context: context.to_string(), src: "app/globals.css".to_string() }
+        TokSite {
+            value: value.to_string(),
+            context: context.to_string(),
+            src: "app/globals.css".to_string(),
+        }
     }
 
     fn token() -> ShardItem {
@@ -297,7 +369,10 @@ mod tests {
         let mut it = token();
         it.sites.clear();
         let out = shard_kind("tok", &[it], &IndexValues::Value);
-        assert_eq!(out[0].body, "tok.radius-base pol=needs-exception css=--radius\n");
+        assert_eq!(
+            out[0].body,
+            "tok.radius-base pol=needs-exception css=--radius\n"
+        );
     }
 
     #[test]
@@ -307,7 +382,9 @@ mod tests {
         let h_dark = base32(&hash_raw(b"0.4rem").0, 8);
         assert_eq!(
             out[0].body,
-            format!("tok.radius-base pol=needs-exception css=--radius light=h:{h_light} dark=h:{h_dark} src=app/globals.css\n")
+            format!(
+                "tok.radius-base pol=needs-exception css=--radius light=h:{h_light} dark=h:{h_dark} src=app/globals.css\n"
+            )
         );
         assert!(!out[0].body.contains("0.5rem"));
     }

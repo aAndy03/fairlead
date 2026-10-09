@@ -1,13 +1,19 @@
 //! Line-independent finding identity (R-CHK-031, R-ARCH-053).
-use fairlead_syntax::diag::DiagCode;
 use crate::{check::finding::RuleId, hash::Fingerprint, path::RepoPath, registry::ScopeId};
+use fairlead_syntax::diag::DiagCode;
 
 pub struct FingerprintInput<'a> {
-    pub code: DiagCode, pub rule: Option<&'a RuleId>, pub scope: &'a ScopeId,
-    pub path: &'a RepoPath, pub text: &'a str, pub occurrence: u32,
+    pub code: DiagCode,
+    pub rule: Option<&'a RuleId>,
+    pub scope: &'a ScopeId,
+    pub path: &'a RepoPath,
+    pub text: &'a str,
+    pub occurrence: u32,
 }
 
-pub fn collapse_whitespace(s: &str) -> String { s.split_whitespace().collect::<Vec<_>>().join(" ") }
+pub fn collapse_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
 
 /// blake3 over length-framed (code, rule, scope, path, collapsed text, occurrence), first 60 bits, 12 base32 chars.
 pub fn fingerprint(i: &FingerprintInput<'_>) -> Fingerprint {
@@ -36,24 +42,46 @@ mod tests {
     use crate::{check::finding::rule_id, diag::codes as c};
     use fairlead_syntax::ids::ScopeSlug;
 
-    fn fp(code: DiagCode, rule: Option<&RuleId>, scope: &str, path: &str, text: &str, occ: u32) -> String {
+    fn fp(
+        code: DiagCode,
+        rule: Option<&RuleId>,
+        scope: &str,
+        path: &str,
+        text: &str,
+        occ: u32,
+    ) -> String {
         let scope = ScopeId(ScopeSlug::parse(scope).unwrap());
         let path = RepoPath::new(path).unwrap();
-        fingerprint(&FingerprintInput { code, rule, scope: &scope, path: &path, text, occurrence: occ }).as_str().to_string()
+        fingerprint(&FingerprintInput {
+            code,
+            rule,
+            scope: &scope,
+            path: &path,
+            text,
+            occurrence: occ,
+        })
+        .as_str()
+        .to_string()
     }
 
     #[test]
     fn r_chk_031__twelve_base32_chars_and_stable() {
         let a = fp(c::HN_T001, None, "web", "a.tsx", "#2563eb", 0);
         assert_eq!(a.len(), 12);
-        assert!(a.chars().all(|ch| "0123456789abcdefghjkmnpqrstvwxyz".contains(ch)));
+        assert!(
+            a.chars()
+                .all(|ch| "0123456789abcdefghjkmnpqrstvwxyz".contains(ch))
+        );
         assert_eq!(a, fp(c::HN_T001, None, "web", "a.tsx", "#2563eb", 0));
     }
 
     #[test]
     fn r_chk_031__whitespace_is_collapsed_in_the_offending_text() {
         assert_eq!(collapse_whitespace("a  b\n\t c "), "a b c");
-        assert_eq!(fp(c::HN_T001, None, "web", "a", "a  b", 0), fp(c::HN_T001, None, "web", "a", "a b", 0));
+        assert_eq!(
+            fp(c::HN_T001, None, "web", "a", "a  b", 0),
+            fp(c::HN_T001, None, "web", "a", "a b", 0)
+        );
     }
 
     #[test]
@@ -61,14 +89,22 @@ mod tests {
         let r = rule_id("no-raw-hex").unwrap();
         let base = fp(c::HN_U001, Some(&r), "web", "a", "t", 0);
         for other in [
-            fp(c::HN_T001, Some(&r), "web", "a", "t", 0), fp(c::HN_U001, None, "web", "a", "t", 0),
-            fp(c::HN_U001, Some(&r), "ui", "a", "t", 0), fp(c::HN_U001, Some(&r), "web", "b", "t", 0),
-            fp(c::HN_U001, Some(&r), "web", "a", "u", 0), fp(c::HN_U001, Some(&r), "web", "a", "t", 1),
-        ] { assert_ne!(base, other); }
+            fp(c::HN_T001, Some(&r), "web", "a", "t", 0),
+            fp(c::HN_U001, None, "web", "a", "t", 0),
+            fp(c::HN_U001, Some(&r), "ui", "a", "t", 0),
+            fp(c::HN_U001, Some(&r), "web", "b", "t", 0),
+            fp(c::HN_U001, Some(&r), "web", "a", "u", 0),
+            fp(c::HN_U001, Some(&r), "web", "a", "t", 1),
+        ] {
+            assert_ne!(base, other);
+        }
     }
 
     #[test]
     fn r_arch_053__field_boundaries_cannot_be_confused() {
-        assert_ne!(fp(c::HN_T001, None, "web", "ab", "c", 0), fp(c::HN_T001, None, "web", "a", "bc", 0));
+        assert_ne!(
+            fp(c::HN_T001, None, "web", "ab", "c", 0),
+            fp(c::HN_T001, None, "web", "a", "bc", 0)
+        );
     }
 }

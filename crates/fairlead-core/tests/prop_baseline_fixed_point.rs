@@ -1,4 +1,10 @@
-#![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+#![allow(
+    non_snake_case,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 //! Property tests: the baseline only shrinks, pruning is a fixed point, the file round-trips.
 
 use std::collections::BTreeSet;
@@ -20,7 +26,11 @@ fn baseline(fps: &BTreeSet<String>) -> Baseline {
     for f in fps {
         b.entries.insert(
             Fingerprint::parse(f).unwrap(),
-            BaselineEntry { code: HN_T001, path: RepoPath::new("a.rs").unwrap(), accepted: None },
+            BaselineEntry {
+                code: HN_T001,
+                path: RepoPath::new("a.rs").unwrap(),
+                accepted: None,
+            },
         );
     }
     b
@@ -31,7 +41,11 @@ fn finding(fp: &str) -> Finding {
         code: HN_T001,
         severity: Severity::Error,
         stage: Stage::Enforce,
-        location: Location { path: RepoPath::new("a.rs").unwrap(), line: 1, col: 1 },
+        location: Location {
+            path: RepoPath::new("a.rs").unwrap(),
+            line: 1,
+            col: 1,
+        },
         scope: ScopeId(fairlead_syntax::ids::ScopeSlug::parse("web").unwrap()),
         rule: None,
         related: None,

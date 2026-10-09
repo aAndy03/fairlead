@@ -87,8 +87,7 @@ fn run(dir: &Utf8Path, cwd: &str, threads: usize, use_cache: bool) -> Vec<String
     .unwrap();
     let set = load_controls(&d.root, &w).unwrap();
     let w = apply_child_excludes(w, &set).unwrap();
-    let plan =
-        ExtractPlan::from_controls(&d.root, &set).unwrap();
+    let plan = ExtractPlan::from_controls(&d.root, &set).unwrap();
     let key = CacheKey {
         fairlead_version: "0.1.0".into(),
         grammar: 1,

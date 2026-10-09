@@ -99,20 +99,35 @@ pub fn clean_data(text: &str, cap_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+    #![allow(
+        non_snake_case,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )]
     use super::*;
 
     #[test]
     fn r_chk_037__ansi_csi_and_osc_sequences_are_removed() {
-        assert_eq!(sanitize_data("\u{1b}[31mred\u{1b}[0m text", 240), "red text");
+        assert_eq!(
+            sanitize_data("\u{1b}[31mred\u{1b}[0m text", 240),
+            "red text"
+        );
         assert_eq!(sanitize_data("a\u{1b}]0;window title\u{7}b", 240), "ab");
-        assert_eq!(sanitize_data("a\u{1b}]8;;http://x\u{1b}\\link\u{1b}]8;;\u{1b}\\", 240), "alink");
+        assert_eq!(
+            sanitize_data("a\u{1b}]8;;http://x\u{1b}\\link\u{1b}]8;;\u{1b}\\", 240),
+            "alink"
+        );
         assert_eq!(sanitize_data("x\u{1b}", 240), "x");
     }
 
     #[test]
     fn r_agt_017__bidi_overrides_and_invisible_format_characters_are_removed() {
-        assert_eq!(sanitize_data("a\u{202e}b\u{2066}c\u{200b}d\u{feff}e\u{200f}f", 240), "abcdef");
+        assert_eq!(
+            sanitize_data("a\u{202e}b\u{2066}c\u{200b}d\u{feff}e\u{200f}f", 240),
+            "abcdef"
+        );
     }
 
     #[test]
@@ -124,7 +139,10 @@ mod tests {
     #[test]
     fn r_agt_017__controls_are_dropped_and_newlines_become_spaces() {
         assert_eq!(sanitize_data("a\u{0}b\u{7}c\u{7f}d", 240), "abcd");
-        assert_eq!(sanitize_data("line1\nline2\r\nline3\rend\tx", 240), "line1 line2 line3 end x");
+        assert_eq!(
+            sanitize_data("line1\nline2\r\nline3\rend\tx", 240),
+            "line1 line2 line3 end x"
+        );
         assert!(!sanitize_data("a\u{2028}b", 240).contains('\u{2028}'));
     }
 
@@ -164,7 +182,10 @@ mod tests {
         let token = format!("ghp_{}", "a1B2".repeat(9));
         // a zero-width character inside the token must not hide it from the scan
         let hidden = format!("leaked g\u{200b}{}", &token[1..]);
-        assert_eq!(clean_data(&hidden, LINE_CAP), "leaked [redacted:github-token]");
+        assert_eq!(
+            clean_data(&hidden, LINE_CAP),
+            "leaked [redacted:github-token]"
+        );
     }
 
     #[test]

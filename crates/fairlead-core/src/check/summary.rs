@@ -41,7 +41,9 @@ pub(crate) fn count(fs: &[Finding]) -> Summary {
         match f.state {
             FindingState::Baselined => s.baselined += 1,
             FindingState::Waived => s.waived += 1,
-            FindingState::New | FindingState::WaiverIneffective if f.stage == Stage::Observe => s.observe += 1,
+            FindingState::New | FindingState::WaiverIneffective if f.stage == Stage::Observe => {
+                s.observe += 1
+            }
             FindingState::New | FindingState::WaiverIneffective => match f.severity {
                 Severity::Error => s.errors += 1,
                 Severity::Warn => s.warns += 1,
@@ -59,11 +61,15 @@ fn family(code: DiagCode) -> Option<u8> {
 impl CheckReport {
     /// R-CHK-040 mapping, exactly as C-22; precedence is `ExitCode::resolve`'s.
     pub fn outcome(&self, opts: &CheckOptions) -> VerbOutcome {
-        let live = |f: &&Finding| matches!(f.state, FindingState::New | FindingState::WaiverIneffective) && f.stage != Stage::Observe;
+        let live = |f: &&Finding| {
+            matches!(f.state, FindingState::New | FindingState::WaiverIneffective)
+                && f.stage != Stage::Observe
+        };
         let (mut usage, mut findings, mut stale) = (!self.unknown_scopes.is_empty(), false, false);
         for f in self.findings.iter().filter(live) {
             usage |= f.severity == Severity::Error && matches!(family(f.code), Some(b'S' | b'C'));
-            findings |= (f.severity == Severity::Error && f.stage == Stage::Enforce) || (opts.ramp.deny_warnings && f.severity >= Severity::Warn);
+            findings |= (f.severity == Severity::Error && f.stage == Stage::Enforce)
+                || (opts.ramp.deny_warnings && f.severity >= Severity::Warn);
             stale |= f.code == HN_G001;
         }
         findings |= self.zero_declarations && opts.require_declarations;

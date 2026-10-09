@@ -59,12 +59,20 @@ pub fn parse_header(line: &str) -> Option<Header> {
         return None;
     };
     let mut parts = rest.split(' ');
-    let edition = parts.next()?.strip_prefix("edition=")?.parse::<u32>().ok()?;
+    let edition = parts
+        .next()?
+        .strip_prefix("edition=")?
+        .parse::<u32>()
+        .ok()?;
     let body = parts.next()?.strip_prefix("body=")?.to_string();
     if parts.next().is_some() || body.chars().count() != BODY_HASH_CHARS {
         return None;
     }
-    Some(Header { kind, edition, body })
+    Some(Header {
+        kind,
+        edition,
+        body,
+    })
 }
 
 /// Both a start and an end marker line are required, so a lone `=======` is not a conflict.
@@ -98,7 +106,13 @@ pub fn verify_header(bytes: &[u8]) -> HeaderVerdict {
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+    #![allow(
+        non_snake_case,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )]
     use super::*;
 
     const BODY: &str = "tok.a pol=open\ntok.b pol=open\n";
@@ -111,7 +125,10 @@ mod tests {
     fn r_chk_024__body_hash_is_20_base32_chars_and_ignores_cr() {
         let h = body_hash("a\n");
         assert_eq!(h.chars().count(), 20);
-        assert!(h.chars().all(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c)));
+        assert!(
+            h.chars()
+                .all(|c| "0123456789abcdefghjkmnpqrstvwxyz".contains(c))
+        );
         assert_eq!(h, body_hash("a\r\n"));
         assert_ne!(h, body_hash("b\n"));
     }
@@ -121,10 +138,17 @@ mod tests {
         let text = render_file(&web(), 1, BODY);
         let (first, rest) = text.split_once('\n').unwrap();
         assert_eq!(rest, BODY);
-        assert_eq!(first, format!("# scope web edition=1 body={}", body_hash(BODY)));
+        assert_eq!(
+            first,
+            format!("# scope web edition=1 body={}", body_hash(BODY))
+        );
         assert_eq!(
             parse_header(first),
-            Some(Header { kind: web(), edition: 1, body: body_hash(BODY) })
+            Some(Header {
+                kind: web(),
+                edition: 1,
+                body: body_hash(BODY)
+            })
         );
         let base = render_file(&HeaderKind::Baseline, 1, "");
         assert!(base.starts_with("# baseline edition=1 body="));
@@ -142,7 +166,10 @@ mod tests {
     fn r_chk_024__untouched_file_verifies_ok() {
         let text = render_file(&web(), 1, BODY);
         assert_eq!(verify_header(text.as_bytes()), HeaderVerdict::Ok);
-        assert_eq!(verify_header(render_file(&HeaderKind::Baseline, 1, "").as_bytes()), HeaderVerdict::Ok);
+        assert_eq!(
+            verify_header(render_file(&HeaderKind::Baseline, 1, "").as_bytes()),
+            HeaderVerdict::Ok
+        );
     }
 
     #[test]
@@ -150,25 +177,45 @@ mod tests {
         let text = render_file(&web(), 1, BODY).replace("tok.b", "tok.c");
         assert_eq!(verify_header(text.as_bytes()), HeaderVerdict::HandEdited);
         let appended = format!("{}tok.z pol=open\n", render_file(&web(), 1, BODY));
-        assert_eq!(verify_header(appended.as_bytes()), HeaderVerdict::HandEdited);
+        assert_eq!(
+            verify_header(appended.as_bytes()),
+            HeaderVerdict::HandEdited
+        );
     }
 
     #[test]
     fn r_file_007__missing_or_garbled_header_counts_as_hand_edited() {
         assert_eq!(verify_header(b""), HeaderVerdict::HandEdited);
-        assert_eq!(verify_header(b"tok.a pol=open\n"), HeaderVerdict::HandEdited);
-        assert_eq!(verify_header(b"# scope web edition=x body=aaaaaaaaaaaaaaaaaaaa\n"), HeaderVerdict::HandEdited);
-        assert_eq!(verify_header(&[0xff, 0xfe, 0x00]), HeaderVerdict::HandEdited);
+        assert_eq!(
+            verify_header(b"tok.a pol=open\n"),
+            HeaderVerdict::HandEdited
+        );
+        assert_eq!(
+            verify_header(b"# scope web edition=x body=aaaaaaaaaaaaaaaaaaaa\n"),
+            HeaderVerdict::HandEdited
+        );
+        assert_eq!(
+            verify_header(&[0xff, 0xfe, 0x00]),
+            HeaderVerdict::HandEdited
+        );
         let no_newline = format!("# scope web edition=1 body={}", body_hash(""));
-        assert_eq!(verify_header(no_newline.as_bytes()), HeaderVerdict::HandEdited);
+        assert_eq!(
+            verify_header(no_newline.as_bytes()),
+            HeaderVerdict::HandEdited
+        );
     }
 
     #[test]
     fn r_chk_024__conflict_markers_are_regenerable() {
         let good = render_file(&web(), 1, BODY);
         let conflicted = format!("<<<<<<< HEAD\n{good}=======\n{good}>>>>>>> branch\n");
-        assert_eq!(verify_header(conflicted.as_bytes()), HeaderVerdict::HasConflictMarkers);
-        assert!(!has_conflict_markers("a line with ======= alone\n=======\n"));
+        assert_eq!(
+            verify_header(conflicted.as_bytes()),
+            HeaderVerdict::HasConflictMarkers
+        );
+        assert!(!has_conflict_markers(
+            "a line with ======= alone\n=======\n"
+        ));
     }
 
     #[test]

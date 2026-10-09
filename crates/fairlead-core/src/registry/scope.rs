@@ -413,7 +413,10 @@ pub fn parse_members(bytes: &[u8]) -> Vec<MemberLine> {
     crate::generate::members::parse_members(&text)
         .children
         .into_iter()
-        .map(|(id, dir)| MemberLine { id, path: (!dir.is_empty()).then_some(dir) })
+        .map(|(id, dir)| MemberLine {
+            id,
+            path: (!dir.is_empty()).then_some(dir),
+        })
         .collect()
 }
 

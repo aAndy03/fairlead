@@ -13,9 +13,14 @@ pub mod summary;
 pub use baseline::{AcceptRefusal, Baseline, BaselineEntry, BaselineIssue};
 pub use finding::{Finding, FindingState, RuleId};
 pub use options::{CheckOptions, MaxFindings};
+pub use rules::{Check, DeclaredRule, RuleCheck, RuleSet};
 pub use summary::{Summary, WaiverCount};
 
 use crate::discover::Edition;
+use crate::extract::Corpus;
+use crate::facts::Facts;
+use crate::generate::GeneratedSet;
+use crate::registry::Registry;
 use crate::time::AsOf;
 
 pub struct ReportHeader {
@@ -38,6 +43,16 @@ pub struct CheckReport {
     pub unknown_scopes: Vec<crate::registry::ScopeId>,
     /// Zero declarations notice (R-CHK-003).
     pub zero_declarations: bool,
+}
+
+/// Read-only bundle handed to each `Check` (everything pure).
+pub struct CheckCx<'a> {
+    pub registry: &'a Registry,
+    pub corpus: &'a Corpus,
+    pub facts: &'a Facts,
+    pub generated: &'a GeneratedSet,
+    pub rules: &'a RuleSet,
+    pub options: &'a CheckOptions,
 }
 
 #[cfg(test)]

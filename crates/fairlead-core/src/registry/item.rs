@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use fairlead_syntax::diag::Severity;
 use fairlead_syntax::directive::{Arg, ArgOp, ArgValue, Carrier, Directive, Verb, known_keys};
 
-use crate::config::{ControlFile, KindDecl, Stage};
+use crate::config::{ControlFile, KindDecl, RuleCheckDecl, Stage};
 use crate::diag::{Diagnostic, Location, codes};
 use crate::extract::Corpus;
 use crate::registry::Dg;
@@ -326,6 +326,37 @@ fn control_cands(
         );
         fields.insert("glob".to_string(), FieldValue::List(r.glob.clone()));
         fields.insert("exclude".to_string(), FieldValue::List(r.exclude.clone()));
+        // What `check` needs to evaluate the rule (P5a-T11); `ovr` may touch only sev/stage/glob/exclude.
+        match &r.check {
+            RuleCheckDecl::Leak { tokens } => {
+                fields.insert("check".to_string(), FieldValue::Scalar("leak".to_string()));
+                fields.insert("tokens".to_string(), FieldValue::List(tokens.clone()));
+            }
+            RuleCheckDecl::Pattern { forbid, msg } => {
+                fields.insert(
+                    "check".to_string(),
+                    FieldValue::Scalar("pattern".to_string()),
+                );
+                fields.insert("forbid".to_string(), FieldValue::Scalar(forbid.clone()));
+                fields.insert("msg".to_string(), FieldValue::Scalar(msg.clone()));
+            }
+            RuleCheckDecl::Builtin => {
+                fields.insert(
+                    "check".to_string(),
+                    FieldValue::Scalar("builtin".to_string()),
+                );
+            }
+        }
+        fields.insert(
+            "waivable".to_string(),
+            FieldValue::Scalar(r.waivable.to_string()),
+        );
+        if let Some(why) = &r.why {
+            fields.insert("why".to_string(), FieldValue::Scalar(why.clone()));
+        }
+        if let Some(since) = r.since {
+            fields.insert("since".to_string(), FieldValue::Scalar(since.to_string()));
+        }
         out.push(Cand {
             policy: policy_for(root, "rule", id.name.as_str(), None, r.waivable),
             kind: id.kind,

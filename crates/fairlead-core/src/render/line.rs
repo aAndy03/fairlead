@@ -37,7 +37,9 @@ impl TerseValue {
 }
 
 fn is_word(s: &str) -> bool {
-    !s.is_empty() && s.chars().all(|c| c.is_ascii_graphic() && c != '"' && c != '\\')
+    !s.is_empty()
+        && s.chars()
+            .all(|c| c.is_ascii_graphic() && c != '"' && c != '\\')
 }
 
 /// Always-quoted form with escapes: `\\`, `\"`, `\n`, `\r`, `\t`, other controls as `\u{hex}`.
@@ -79,7 +81,10 @@ pub enum LineError {
 
 impl TerseLine {
     pub fn new(id: &str) -> TerseLine {
-        TerseLine { id: id.to_string(), pairs: Vec::new() }
+        TerseLine {
+            id: id.to_string(),
+            pairs: Vec::new(),
+        }
     }
 
     pub fn with(mut self, key: &str, value: &str) -> TerseLine {
@@ -88,7 +93,10 @@ impl TerseLine {
     }
 
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.pairs.iter().find(|(k, _)| k == key).map(|(_, v)| v.text())
+        self.pairs
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.text())
     }
 
     pub fn render(&self) -> String {
@@ -202,12 +210,20 @@ impl TerseLine {
 
 #[cfg(test)]
 mod tests {
-    #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+    #![allow(
+        non_snake_case,
+        clippy::unwrap_used,
+        clippy::expect_used,
+        clippy::indexing_slicing,
+        clippy::panic
+    )]
     use super::*;
 
     #[test]
     fn r_file_003__word_values_are_bare() {
-        let line = TerseLine::new("tok.radius-base").with("css", "--radius").with("light", "0.25rem");
+        let line = TerseLine::new("tok.radius-base")
+            .with("css", "--radius")
+            .with("light", "0.25rem");
         assert_eq!(line.render(), "tok.radius-base css=--radius light=0.25rem");
     }
 
@@ -240,9 +256,14 @@ mod tests {
     #[test]
     fn r_file_003__parse_inverts_render() {
         let samples = [
-            TerseLine::new("tok.a").with("css", "--a").with("note", "x y").with("e", ""),
+            TerseLine::new("tok.a")
+                .with("css", "--a")
+                .with("note", "x y")
+                .with("e", ""),
             TerseLine::new("exc.k3m9q2x7a1bz").with("why", "line1\nline2 \"q\" \\ end\u{1b}"),
-            TerseLine::new("aaaaaaaaaaaa").with("code", "HN-T001").with("path", "dir with space/f.rs"),
+            TerseLine::new("aaaaaaaaaaaa")
+                .with("code", "HN-T001")
+                .with("path", "dir with space/f.rs"),
         ];
         for line in samples {
             let parsed = TerseLine::parse(&line.render()).unwrap();
@@ -256,10 +277,22 @@ mod tests {
 
     #[test]
     fn r_file_012__parse_rejects_unterminated_quote_and_bad_escape() {
-        assert_eq!(TerseLine::parse("a.b k=\"open"), Err(LineError::UnterminatedQuote));
-        assert!(matches!(TerseLine::parse("a.b k=\"x\\q\""), Err(LineError::BadEscape { .. })));
-        assert!(matches!(TerseLine::parse("a.b k=\"x\"junk"), Err(LineError::TrailingAfterQuote { .. })));
+        assert_eq!(
+            TerseLine::parse("a.b k=\"open"),
+            Err(LineError::UnterminatedQuote)
+        );
+        assert!(matches!(
+            TerseLine::parse("a.b k=\"x\\q\""),
+            Err(LineError::BadEscape { .. })
+        ));
+        assert!(matches!(
+            TerseLine::parse("a.b k=\"x\"junk"),
+            Err(LineError::TrailingAfterQuote { .. })
+        ));
         assert_eq!(TerseLine::parse(""), Err(LineError::Empty));
-        assert!(matches!(TerseLine::parse("a.b novalue"), Err(LineError::BadKey { .. })));
+        assert!(matches!(
+            TerseLine::parse("a.b novalue"),
+            Err(LineError::BadKey { .. })
+        ));
     }
 }
