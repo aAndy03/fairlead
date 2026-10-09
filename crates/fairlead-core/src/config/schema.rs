@@ -503,6 +503,26 @@ pub(crate) fn take_date_string(
     }
 }
 
+/// Like `take_date_string` but without the YYYY-MM-DD check: a version-shaped `exp` is judged by
+/// `resolve` (HN-S012, R-SCOPE-045) instead of failing the whole control file.
+pub(crate) fn take_loose_date_string(
+    cx: &mut Ctx<'_>,
+    t: &mut toml::Table,
+    prefix: &str,
+    key: &str,
+) -> Option<String> {
+    let k = join_key(prefix, key);
+    match t.remove(key) {
+        None => None,
+        Some(toml::Value::String(s)) => Some(s),
+        Some(toml::Value::Datetime(d)) => Some(d.to_string()),
+        Some(_) => {
+            cx.error(&k, format!("`{k}` must be a date such as 2026-12-31"));
+            None
+        }
+    }
+}
+
 /// NFC and `/` separators; rejects `..`. Used for scan patterns (gitignore syntax: leading `/`,
 /// trailing `/` and `!` are legal).
 pub(crate) fn clean_pattern(cx: &mut Ctx<'_>, key: &str, raw: &str) -> Option<String> {
@@ -1026,7 +1046,7 @@ pub(crate) fn parse_ovrs(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec<OvrDec
         let applies = take_string(cx, &mut t, "ovr", "applies");
         let why = take_string(cx, &mut t, "ovr", "why");
         let owner = take_string(cx, &mut t, "ovr", "owner");
-        let exp = take_date_string(cx, &mut t, "ovr", "exp");
+        let exp = take_loose_date_string(cx, &mut t, "ovr", "exp");
         let base = take_string(cx, &mut t, "ovr", "base");
         let mut set = BTreeMap::new();
         for (k, v) in std::mem::take(&mut t) {
@@ -1379,6 +1399,6 @@ mod tests {
         let o = parse_ovrs(&mut c, &mut t);
         assert_eq!(o.len(), 1);
         assert_eq!(o[0].op, OvrOp::Set);
-        assert_eq!(c.diags.len(), 3, "missing target, bad op, bad exp");
+        assert_eq!(c.diags.len(), 2, "missing target, bad op; a non-date exp is judged by resolve (HN-S012)");
     }
 }

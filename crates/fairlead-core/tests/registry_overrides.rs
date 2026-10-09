@@ -160,3 +160,102 @@ fn r_scope_038__inert_lines_never_abort_the_valid_ones() {
     assert_eq!(state_of(&reg, "nosuch"), OvrState::Inert(InertReason::UnknownField));
     assert_eq!(state_of(&reg, "kw"), OvrState::Effective);
 }
+
+use fairlead_core::diag::codes::{HN_S012, HN_X012};
+use fairlead_core::registry::{ovr_fingerprint, ApprovalStatus};
+
+fn tok_line(exp: &str, owner: &str, why: &str) -> String {
+    format!("// fairlead: ovr tok.primary value=#fff why=\"{why}\" owner={owner} exp={exp}")
+}
+
+fn tok_state(kit: Kit, line: &str) -> (OvrState, ApprovalStatus) {
+    let reg = with_lines(kit, &[line]);
+    let o = &reg.overrides()[0];
+    (o.state, o.approval)
+}
+
+#[test]
+fn r_scope_046__expired_exception_is_ineffective_and_the_boundary_day_is_live() {
+    let (s, _) = tok_state(rooted(""), &tok_line("2026-10-08", "@andy", "brand"));
+    assert_eq!(s, OvrState::Expired);
+    let (s, _) = tok_state(rooted(""), &tok_line("2026-10-09", "@andy", "brand"));
+    assert_eq!(s, OvrState::Effective); // exp == as_of is not yet expired
+}
+
+#[test]
+fn r_scope_045__version_shaped_expiry_is_inert_with_hn_s012() {
+    let ctl = child_toml("web", &ovr_table("tok.primary", "value = \"#fff\"\nwhy = \"x\"\nowner = \"@andy\"\nexp = \"1.3.0\""));
+    let reg = Kit::new(&root_toml(""))
+        .file("fairlead/docs/c.md", &doc(&["def tok.primary applies=color"]))
+        .scope("apps/web", "web", &ctl)
+        .resolve();
+    assert_eq!(reg.overrides()[0].state, OvrState::Inert(InertReason::VersionExpiry));
+    assert!(reg.diagnostics().iter().any(|d| d.code == HN_S012));
+}
+
+#[test]
+fn r_chk_053__owner_must_be_a_handle_in_owners() {
+    let reg = with_lines(rooted(""), &[&tok_line("2026-12-31", "@nobody", "brand")]);
+    assert_eq!(reg.overrides()[0].state, OvrState::Inert(InertReason::UnknownOwner));
+    assert!(reg.diagnostics().iter().any(|d| d.code == HN_X012));
+}
+
+#[test]
+fn r_chk_025__needs_exception_waiver_needs_a_matching_approval() {
+    let target = iid("root", "tok.primary");
+    let (s, a) = tok_state(rooted(""), &tok_line("2026-12-31", "@andy", "brand"));
+    assert_eq!((s, a), (OvrState::Effective, ApprovalStatus::Missing));
+    let fp = ovr_fingerprint(&target, &sid("web"), "brand", "@andy", Some(&date("2026-12-31")));
+    let (s, a) = tok_state(rooted("").approve(fp, &target, 0), &tok_line("2026-12-31", "@andy", "brand"));
+    assert_eq!((s, a), (OvrState::Effective, ApprovalStatus::Approved { renewal: 0 }));
+    let (_, a) = tok_state(rooted(""), "// fairlead: ovr cmp.button size=sm");
+    assert_eq!(a, ApprovalStatus::NotRequired); // open
+}
+
+#[test]
+fn r_chk_026__re_dating_a_waiver_invalidates_its_approval() {
+    let target = iid("root", "tok.primary");
+    let old = ovr_fingerprint(&target, &sid("web"), "brand", "@andy", Some(&date("2026-12-31")));
+    let (_, a) = tok_state(rooted("").approve(old, &target, 0), &tok_line("2027-01-05", "@andy", "brand"));
+    assert_eq!(a, ApprovalStatus::Missing);
+}
+
+#[test]
+fn r_agt_012__renewals_are_counted_in_the_approval_status() {
+    let target = iid("root", "tok.primary");
+    let fp = ovr_fingerprint(&target, &sid("web"), "brand", "@andy", Some(&date("2026-12-31")));
+    let (_, a) = tok_state(rooted("").approve(fp, &target, 2), &tok_line("2026-12-31", "@andy", "brand"));
+    assert_eq!(a, ApprovalStatus::Approved { renewal: 2 });
+}
+
+#[test]
+fn r_scope_049__prose_claiming_approval_is_data() {
+    let (_, a) = tok_state(rooted(""), &tok_line("2026-12-31", "@andy", "approved by lead -- ok by lead"));
+    assert_eq!(a, ApprovalStatus::Missing);
+}
+
+#[test]
+fn r_syn_011__why_owner_exp_are_required_only_where_the_policy_asks() {
+    let open = with_lines(rooted(""), &["// fairlead: ovr cmp.button size=sm"]);
+    assert_eq!(open.overrides()[0].state, OvrState::Effective);
+    let tok = with_lines(rooted(""), &["// fairlead: ovr tok.primary value=#fff why=\"b\" exp=2026-12-31"]); // no owner
+    assert_eq!(tok.overrides()[0].state, OvrState::Inert(InertReason::Incomplete));
+    let sealed = with_lines(rooted(ALLOW), &["// fairlead: ovr rule.r1 sev=info why=\"x\" exp=2026-12-31"]);
+    assert_eq!(sealed.overrides()[0].state, OvrState::Inert(InertReason::Incomplete));
+}
+
+#[test]
+fn r_scope_047__pin_mismatch_marks_the_exception_stale() {
+    let line = |pin: &str| format!("// fairlead: ovr rule.r1 sev=error x-pin={pin}");
+    let probe = with_lines(rooted(""), &[&line("aaaaaaaaaaaa")]);
+    assert_eq!(probe.overrides()[0].state, OvrState::Stale);
+    let pin = fairlead_core::hash::base32(&probe.overrides()[0].target_hash.as_ref().unwrap().0, 12);
+    let ok = with_lines(rooted(""), &[&line(&pin)]);
+    assert_eq!(ok.overrides()[0].state, OvrState::Effective);
+    // the ancestor changes the declared form: the pinned exception goes stale, it is not deleted
+    let changed = Kit::new(&root_toml(&format!("\n{}", rule("r1", "info", "observe", false))))
+        .scope("apps/web", "web", &child_toml("web", ""))
+        .file("apps/web/src/a.ts", &format!("{}\nexport const a = 1;\n", line(&pin)))
+        .resolve();
+    assert_eq!(changed.overrides()[0].state, OvrState::Stale);
+}

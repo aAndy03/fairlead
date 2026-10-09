@@ -14,7 +14,7 @@ use fairlead_syntax::ids::Id;
 use crate::config::{Approval, ControlFile, OvrDecl, Policy, WaiverPolicy};
 use crate::diag::{Diagnostic, codes};
 use crate::extract::Corpus;
-use crate::hash::hash_raw;
+use crate::hash::{base32, hash_raw};
 use crate::path::RepoPath;
 use crate::registry::Dg;
 use crate::registry::grant::{Allow, matching_grants};
@@ -434,8 +434,40 @@ fn judge(ev: &Eval<'_>, p: &Pre, item: Option<&Item>, working: &EffectiveView, d
             );
         }
     }
-    // [T10: owner, expiry, stale, approval]
-    Verdict { state: OvrState::Effective, approval: ApprovalStatus::NotRequired, tighten, used_grants: used, diag: None }
+    // [T10] owner, expiry, stale, approval
+    if let Some(owner) = p.raw.owner.as_deref().filter(|_| !tighten) {
+        let known = table
+            .chain_ids(scope)
+            .into_iter()
+            .filter_map(|s| table.get(s))
+            .any(|s| s.owners.iter().any(|o| o.handle == owner));
+        if !known {
+            return Verdict::inert(
+                InertReason::UnknownOwner,
+                Some((codes::HN_X012, format!("owner \"{owner}\" is not a handle in `owners`"),
+                    "use a handle from the root [settings] owners list")),
+            );
+        }
+    }
+    let exp = exp_text.and_then(|s| s.parse::<jiff::civil::Date>().ok());
+    if exp.is_some_and(|d| d < ev.as_of.0) {
+        return Verdict::plain(OvrState::Expired); // HN-X001 is derived by P5
+    }
+    if let Some(pin) = p.raw.pin.as_deref() {
+        let now = base32(&target_pin(Some(it), &p.target, &p.touched).0, 12);
+        if pin != now {
+            return Verdict::plain(OvrState::Stale); // HN-X010 is derived by P5
+        }
+    }
+    let approval = if need_complete && ev.waiver.approval_required {
+        match ev.approvals.iter().filter(|a| a.fp == p.id.0).map(|a| a.renewal).max() {
+            Some(renewal) => ApprovalStatus::Approved { renewal },
+            None => ApprovalStatus::Missing,
+        }
+    } else {
+        ApprovalStatus::NotRequired
+    };
+    Verdict { state: OvrState::Effective, approval, tighten, used_grants: used, diag: None }
 }
 
 pub(crate) fn evaluate_scope(
@@ -487,7 +519,9 @@ pub(crate) fn evaluate_scope(
         };
         let whole = matches!(&p.raw.extent, OvrExtent::Scope(None))
             || matches!(&p.raw.extent, OvrExtent::Scope(Some(a)) if a == "**");
-        let applied = verdict.state == OvrState::Effective && verdict.approval != ApprovalStatus::Missing;
+        let applied = verdict.state == OvrState::Effective
+            && verdict.approval != ApprovalStatus::Missing
+            && !beyond_horizon(ev, exp);
         out.push(Evaluated {
             ovr: Override {
                 id: p.id.clone(),
@@ -511,4 +545,22 @@ pub(crate) fn evaluate_scope(
         let _ = verdict.tighten;
     }
     out
+}
+
+impl Verdict {
+    fn plain(state: OvrState) -> Verdict {
+        Verdict { state, approval: ApprovalStatus::NotRequired, tighten: false, used_grants: Vec::new(), diag: None }
+    }
+}
+
+pub fn max_horizon_days(root: Option<&ControlFile>) -> i64 {
+    let a = root.map(|c| i64::from(c.policies.waiver.max_exp_days)).unwrap_or(90);
+    let b = root.and_then(|c| c.exceptions.max_days).map(i64::from).unwrap_or(a);
+    a.min(b)
+}
+
+fn beyond_horizon(ev: &Eval<'_>, exp: Option<jiff::civil::Date>) -> bool {
+    exp.is_some_and(|d| {
+        d.since(ev.as_of.0).map(|s| i64::from(s.get_days())).unwrap_or(i64::MAX) > ev.horizon_days
+    }) // Verify: jiff 0.2 Date::since returns Result<Span, Error>; Span::get_days() -> i32
 }

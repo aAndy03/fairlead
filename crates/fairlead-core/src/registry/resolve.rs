@@ -18,7 +18,7 @@ use crate::diag::Diagnostic;
 use crate::config::WaiverPolicy;
 use crate::registry::item::{Index, KindTable, collect_items, collect_refs, doc_cands};
 use crate::registry::grant::{collect_grants, collect_proposals, collect_requests};
-use crate::registry::ovr::{Eval, collect_raw};
+use crate::registry::ovr::{Eval, collect_raw, max_horizon_days};
 use crate::registry::scope::build_scope_table;
 use crate::registry::{view, Registry};
 
@@ -46,7 +46,7 @@ pub fn resolve(input: &ResolveInput<'_>) -> Registry {
         as_of: input.as_of,
         grants: &grants,
         approvals: &input.facts.approvals.approvals,
-        horizon_days: i64::from(waiver.max_exp_days),
+        horizon_days: max_horizon_days(table.root_control()),
         waiver,
     };
     let built = view::build_views(&ev, &decls.locs, raws, &mut diags);

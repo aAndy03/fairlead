@@ -15,7 +15,7 @@ pub use grant::{Allow, Proposal, Req};
 pub use item::{Edge, FieldValue, Item, ItemId, Lookup, Origin, Site};
 pub use ledger::{LedgerEntry, LedgerView};
 pub use ovr::{
-    ApprovalStatus, FieldChange, InertReason, Override, OvrId, OvrOp, OvrState,
+    ApprovalStatus, FieldChange, InertReason, Override, OvrId, OvrOp, OvrState, ovr_fingerprint,
 };
 pub use resolve::ResolveInput;
 pub use scope::{Scope, ScopeId, ScopeState};
