@@ -67,7 +67,6 @@ pub(crate) fn edition_of(reg: &Registry) -> crate::discover::Edition {
             .unwrap_or(1),
     )
 }
-#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
 pub(crate) fn control_path(reg: &Registry, s: &ScopeId) -> Option<RepoPath> {
     reg.scope(s)?.control.as_ref().map(|c| c.path.clone())
 }
