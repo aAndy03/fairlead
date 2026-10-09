@@ -102,7 +102,7 @@ impl Renderer for JsonRenderer {
             fairlead: clean_data(&report.header.fairlead_version, 40),
             edition: report.header.edition.0,
             as_of: report.header.as_of.0.to_string(),
-            findings: slice.iter().map(json_finding).collect(),
+            findings: slice.iter().map(|f| json_finding(f)).collect(),
             summary: JsonSummary {
                 errors: s.errors,
                 warns: s.warns,
@@ -143,6 +143,18 @@ impl Renderer for JsonRenderer {
             },
         };
         finish(serde_json::to_string_pretty(&doc).unwrap_or_default())
+    }
+
+    fn context(&self, out: &crate::context::ContextOutput) -> Option<String> {
+        serde_json::to_string_pretty(&out.to_json_value())
+            .ok()
+            .map(|s| super::finish_text(&s))
+    }
+
+    fn explain(&self, out: &crate::explain::ExplainOutput) -> Option<String> {
+        serde_json::to_string_pretty(&out.to_json_value())
+            .ok()
+            .map(|s| super::finish_text(&s))
     }
 }
 

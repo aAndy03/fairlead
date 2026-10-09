@@ -150,6 +150,14 @@ impl Renderer for TerseRenderer {
             render_plain(report, opts)
         }
     }
+
+    fn context(&self, out: &crate::context::ContextOutput) -> Option<String> {
+        Some(super::finish_text(&out.render_terse()))
+    }
+
+    fn explain(&self, out: &crate::explain::ExplainOutput) -> Option<String> {
+        Some(super::finish_text(&out.render_terse()))
+    }
 }
 
 #[cfg(test)]

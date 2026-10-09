@@ -13,8 +13,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::check::floor::is_floor;
 use crate::check::{CheckReport, Finding, FindingState, MaxFindings};
 use crate::config::Stage;
+use crate::context::ContextOutput;
 use crate::diag::codes::HN_N001;
 use crate::diag::{DiagCode, Diagnostic, Severity};
+use crate::explain::ExplainOutput;
 use sanitize::{LINE_CAP, clean_data};
 
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
@@ -40,6 +42,27 @@ pub trait Renderer {
     /// LF-only, repo-relative `/` paths, no timestamps (R-ARCH-052). Truncation and grouping
     /// per R-CHK-038/039 happen here.
     fn check(&self, report: &CheckReport, opts: &RenderOptions) -> String;
+    /// Terse and Json only; `None` otherwise (C-28).
+    fn context(&self, out: &ContextOutput) -> Option<String>;
+    fn explain(&self, out: &ExplainOutput) -> Option<String>;
+}
+
+pub fn renderer(format: OutputFormat) -> &'static dyn Renderer {
+    static HUMAN: human::HumanRenderer = human::HumanRenderer;
+    static TERSE: terse::TerseRenderer = terse::TerseRenderer;
+    static JSON: json::JsonRenderer = json::JsonRenderer;
+    static SARIF: sarif::SarifRenderer = sarif::SarifRenderer;
+    match format {
+        OutputFormat::Human => &HUMAN,
+        OutputFormat::Terse => &TERSE,
+        OutputFormat::Json => &JSON,
+        OutputFormat::Sarif => &SARIF,
+    }
+}
+
+/// Last safety net for text built by P6/P7: redact secrets, LF-only, one final newline.
+pub(crate) fn finish_text(text: &str) -> String {
+    finish(crate::secrets::redact(text))
 }
 
 pub(crate) fn sev_word(s: Severity) -> &'static str {
@@ -370,16 +393,17 @@ pub fn diagnostic_lines(diags: &[Diagnostic]) -> String {
 pub(crate) fn machine_slice<'a>(
     report: &'a CheckReport,
     opts: &RenderOptions,
-) -> (&'a [Finding], usize) {
+) -> (Vec<&'a Finding>, usize) {
     let n = match opts.max {
         MaxFindings::Limit(n) if n > 0 => usize::try_from(n).unwrap_or(usize::MAX),
         _ => usize::MAX,
     };
-    let take = report.findings.len().min(n);
-    (
-        report.findings.get(..take).unwrap_or(&[]),
-        report.findings.len() - take,
-    )
+    // R-CHK-011: the total order of `Finding`, whatever order the report arrived in.
+    let mut all: Vec<&Finding> = report.findings.iter().collect();
+    all.sort();
+    let omitted = all.len().saturating_sub(n);
+    all.truncate(n);
+    (all, omitted)
 }
 
 /// LF-only, exactly one final newline (R-ARCH-052).
@@ -672,5 +696,121 @@ mod tests {
             diagnostic_lines(&[d]),
             "error HN-R001  fairlead/control.toml:3:9\n  unknown id cmp.sync-buton\n  | cmp.sync-buton\n  | ^^^^^^^^^^^^^^\n  fix:    did you mean cmp.sync-button\n"
         );
+    }
+
+    fn all_formats() -> [OutputFormat; 4] {
+        [
+            OutputFormat::Human,
+            OutputFormat::Terse,
+            OutputFormat::Json,
+            OutputFormat::Sarif,
+        ]
+    }
+    fn opts_for(f: OutputFormat) -> RenderOptions {
+        RenderOptions {
+            format: f,
+            ..opts()
+        }
+    }
+    fn sample() -> CheckReport {
+        report(vec![
+            finding(
+                HN_T001,
+                Severity::Error,
+                "apps/web/src/Panel.tsx",
+                44,
+                18,
+                "literal #2563eb",
+            ),
+            finding(
+                HN_R001,
+                Severity::Error,
+                "apps/web/src/Sync.tsx",
+                7,
+                3,
+                "unknown id",
+            ),
+            finding(
+                HN_X004,
+                Severity::Warn,
+                "apps/web/src/Legacy.tsx",
+                12,
+                0,
+                "stale ovr",
+            ),
+        ])
+    }
+
+    #[test]
+    fn r_arch_054__all_four_formats_are_available() {
+        for f in all_formats() {
+            assert_eq!(renderer(f).format(), f);
+        }
+    }
+
+    #[test]
+    fn r_agt_023__context_and_explain_text_is_redacted_and_lf_only() {
+        let text = format!("a\r\nkey ghp_{}\r\n\r\n", "a1B2".repeat(9));
+        assert_eq!(finish_text(&text), "a\nkey [redacted:github-token]\n");
+    }
+
+    #[test]
+    fn r_chk_011__every_format_is_byte_stable_order_independent_and_machine_free() {
+        let a = sample();
+        let mut b = a.clone();
+        b.findings.reverse();
+        for f in all_formats() {
+            let o = opts_for(f);
+            let out = renderer(f).check(&a, &o);
+            assert_eq!(out, renderer(f).check(&a, &o), "{f:?} twice");
+            assert_eq!(out, renderer(f).check(&b, &o), "{f:?} input order");
+            assert!(
+                !out.contains('\r') && out.ends_with('\n') && !out.ends_with("\n\n"),
+                "{f:?}"
+            );
+            assert!(
+                !out.contains(":\\\\") && !out.contains("/Users/") && !out.contains("/home/"),
+                "{f:?} leaks a machine path"
+            );
+        }
+    }
+
+    #[test]
+    fn r_chk_001__every_format_prints_the_diagnostics_and_a_summary() {
+        let r = sample();
+        for f in [OutputFormat::Human, OutputFormat::Terse] {
+            let out = renderer(f).check(&r, &opts_for(f));
+            assert!(
+                out.contains("errors 2 warn 1 info 0")
+                    && out.contains("HN-T001")
+                    && out.contains("exceptions: +0"),
+                "{f:?}"
+            );
+        }
+        let json = renderer(OutputFormat::Json).check(&r, &opts_for(OutputFormat::Json));
+        assert!(json.contains("\"errors\": 2"));
+        let sarif = renderer(OutputFormat::Sarif).check(&r, &opts_for(OutputFormat::Sarif));
+        assert!(sarif.contains("\"ruleId\": \"HN-T001\""));
+    }
+
+    #[test]
+    fn r_cli_035__explain_output_renders_terse_and_json_only() {
+        use crate::explain::{ExplainOutput, ExplainSection, ExplainTarget};
+        let out = ExplainOutput {
+            target: ExplainTarget::Topic("syntax".into()),
+            sections: vec![ExplainSection {
+                title: "syntax".into(),
+                prose: vec!["six verbs".into()],
+                lines: vec![crate::render::line::TerseLine::new("def").with("k", "v")],
+            }],
+        };
+        assert_eq!(
+            renderer(OutputFormat::Terse).explain(&out).as_deref(),
+            Some("syntax:\nsix verbs\n  def k=v\n")
+        );
+        let json = renderer(OutputFormat::Json).explain(&out).unwrap();
+        assert!(json.contains("\"target\": \"syntax\""), "{json}");
+        assert!(renderer(OutputFormat::Human).explain(&out).is_none());
+        assert!(renderer(OutputFormat::Sarif).explain(&out).is_none());
     }
 }

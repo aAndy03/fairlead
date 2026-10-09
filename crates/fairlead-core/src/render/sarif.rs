@@ -250,7 +250,7 @@ impl Renderer for SarifRenderer {
                         rules: codes.into_iter().map(rule_desc).collect(),
                     },
                 },
-                results: slice.iter().map(result).collect(),
+                results: slice.iter().map(|f| result(f)).collect(),
                 properties: RunProps {
                     fairlead: version,
                     edition: report.header.edition.0,
@@ -266,6 +266,14 @@ impl Renderer for SarifRenderer {
             }],
         };
         finish(serde_json::to_string_pretty(&doc).unwrap_or_default())
+    }
+
+    fn context(&self, _out: &crate::context::ContextOutput) -> Option<String> {
+        None
+    }
+
+    fn explain(&self, _out: &crate::explain::ExplainOutput) -> Option<String> {
+        None
     }
 }
 

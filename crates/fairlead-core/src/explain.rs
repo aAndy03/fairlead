@@ -30,6 +30,55 @@ pub struct ExplainOutput {
     pub sections: Vec<ExplainSection>,
 }
 
+impl ExplainTarget {
+    /// The argument as the user would type it.
+    pub fn text(&self) -> String {
+        match self {
+            ExplainTarget::File(p) => p.as_str().to_string(),
+            ExplainTarget::Id(id) => id.to_string(),
+            ExplainTarget::Code(c) => c.0.to_string(),
+            ExplainTarget::Topic(t) => t.clone(),
+        }
+    }
+}
+
+impl ExplainOutput {
+    /// A-20: terse text. Each section is `<title>:`, then its prose, then its `ID k=v` lines indented.
+    pub fn render_terse(&self) -> String {
+        let mut out = String::new();
+        for s in &self.sections {
+            out.push_str(&s.title);
+            out.push_str(":\n");
+            for p in &s.prose {
+                out.push_str(p);
+                out.push('\n');
+            }
+            for l in &s.lines {
+                out.push_str("  ");
+                out.push_str(&l.render());
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    /// A-20: the same sections as a JSON value (lines rendered in their terse form).
+    pub fn to_json_value(&self) -> serde_json::Value {
+        let sections: Vec<serde_json::Value> = self
+            .sections
+            .iter()
+            .map(|s| {
+                serde_json::json!({
+                    "title": s.title,
+                    "prose": s.prose,
+                    "lines": s.lines.iter().map(TerseLine::render).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        serde_json::json!({ "target": self.target.text(), "sections": sections })
+    }
+}
+
 pub fn parse_explain_target(
     arg: &str,
     exists: &dyn Fn(&RepoPath) -> bool,

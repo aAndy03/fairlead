@@ -93,6 +93,14 @@ impl Renderer for HumanRenderer {
         out.extend(tail_lines(report, opts));
         finish(out.join("\n"))
     }
+
+    fn context(&self, _out: &crate::context::ContextOutput) -> Option<String> {
+        None
+    }
+
+    fn explain(&self, _out: &crate::explain::ExplainOutput) -> Option<String> {
+        None
+    }
 }
 
 #[cfg(test)]
