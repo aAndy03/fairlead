@@ -98,6 +98,7 @@ pub fn parse_duration(s: &str) -> Result<Duration, String> {
 pub struct Deadline {
     at: Option<Instant>,
 }
+#[allow(clippy::disallowed_methods)] // reason: check/options.rs is the designated clock module for the --budget deadline (R-ARCH-090)
 impl Deadline {
     pub fn start(budget: Option<Duration>) -> Deadline {
         Deadline {

@@ -53,10 +53,9 @@ pub fn parse_header(line: &str) -> Option<Header> {
     let (kind, rest) = if let Some(r) = line.strip_prefix("# scope ") {
         let (id, rest) = r.split_once(' ')?;
         (HeaderKind::Scope(id.to_string()), rest)
-    } else if let Some(r) = line.strip_prefix("# baseline ") {
-        (HeaderKind::Baseline, r)
     } else {
-        return None;
+        let r = line.strip_prefix("# baseline ")?;
+        (HeaderKind::Baseline, r)
     };
     let mut parts = rest.split(' ');
     let edition = parts

@@ -186,10 +186,10 @@ impl TerseLine {
                         }
                     }
                 }
-                if let Some(c) = chars.get(i) {
-                    if *c != ' ' {
-                        return Err(LineError::TrailingAfterQuote { at: i });
-                    }
+                if let Some(c) = chars.get(i)
+                    && *c != ' '
+                {
+                    return Err(LineError::TrailingAfterQuote { at: i });
                 }
                 pairs.push((key, TerseValue::Quoted(val)));
             } else {

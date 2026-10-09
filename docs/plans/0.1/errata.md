@@ -16,3 +16,8 @@ Deviations of the actual implementation from the phase plans, recorded as they h
 - E-7: `RuleSet::applies` goes through `Registry::glob_matches` (A-27); rule defaults are `sev=error stage=observe` for every kind (A-52).
 - E-8: `HN-G001` diffs bodies only (the header hash always differs when the body does); the first three differing lines are shown.
 - Safe stop point: P5a tasks 1-17 are done (Check trait, syntax, refs, tokens, leak, pattern rules, generated). Next: T18 exceptions, T19 controls, T20 scopes, T21 vendor, T22 paths, T23 agents, T24 notices, T25-T29 apply/summarize/run, then P5b render, P6-P9.
+
+## Verification audit (2026-10-09, before P5a-T18)
+
+- E-9: P2, P3 and P4 have every planned test name; the workspace tests pass. P1 was incomplete: `fairlead/control.toml` (P1-T12) was missing and the xtask tests did not carry the `r_arch_123__` names; both fixed. `fuzz.yml`, `bench.yml`, `dogfood.yml`, `release.yml` and the PR template stay deferred to the phases that fill them (E-1).
+- E-10: `cargo clippy -D warnings` and `cargo fmt --check` were failing at `05be41e` (32 lint errors from P5a-T12..T17). Fixed; helpers that only P5a-T25..T29 consume carry a temporary `#[allow(dead_code, reason = ...)]`, removed as they are wired. The `--budget` `Deadline` carries the local clock allow that clippy.toml requires.

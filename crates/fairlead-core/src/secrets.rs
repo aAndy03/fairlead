@@ -553,7 +553,7 @@ mod tests {
     fn r_agt_024__allow_list_clears_by_fingerprint_prefix_only() {
         let key = format!("AKIA{}", body(1, 16, UPNUM));
         let hit = scan_secrets(&format!("id = {key}\n")).remove(0);
-        assert!(is_allowed(&hit, &[hit.fp_prefix.clone()]));
+        assert!(is_allowed(&hit, std::slice::from_ref(&hit.fp_prefix)));
         assert!(
             is_allowed(&hit, &[format!("{}abcd", hit.fp_prefix)]),
             "a 12-character fingerprint starting with the prefix also clears it"

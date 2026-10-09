@@ -72,6 +72,7 @@ impl PartialOrd for Finding {
 }
 
 /// `rule.<name>` text or bare name to a `RuleId`.
+#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
 pub(crate) fn rule_id(name: &str) -> Option<RuleId> {
     let bare = name.strip_prefix("rule.").unwrap_or(name);
     Id::parse(&format!("rule.{bare}"))

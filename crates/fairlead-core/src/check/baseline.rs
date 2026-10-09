@@ -529,7 +529,12 @@ mod tests {
         let mut b = Baseline::default();
         b.entries.insert(n(1), entry(HN_R001, "old.rs", None));
         let out = b
-            .accept_new(&[new.clone()], "legacy panel", day(), &no_approvals())
+            .accept_new(
+                std::slice::from_ref(&new),
+                "legacy panel",
+                day(),
+                &no_approvals(),
+            )
             .unwrap();
         assert_eq!(out.len(), 2);
         assert_eq!(

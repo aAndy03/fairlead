@@ -1,0 +1,11 @@
+# Root managerial folder of this repository (R-ARCH-160; decisions D-31 and D-33).
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder        = "fairlead"
+fairlead-version = "0.1.0"
+purpose       = "The repository's own rules, dogfooded with fairlead."

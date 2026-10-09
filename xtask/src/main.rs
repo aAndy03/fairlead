@@ -95,28 +95,85 @@ fn main() -> ExitCode {
 }
 
 #[cfg(test)]
+#[allow(non_snake_case)] // reason: test names start with the rule id
 mod tests {
     use super::*;
 
-    const LOCK: &str = "version = 4\n\n[[package]]\nname = \"serde\"\nversion = \"1.0.0\"\n\n[[package]]\nname = \"reqwest\"\nversion = \"0.12.0\"\n\n[[package]]\nname = \"bincode\"\nversion = \"1.3.3\"\n";
+    const REQWEST_LOCK: &str = "version = 4
 
-    #[test]
-    fn lists_package_names_in_order() {
-        assert_eq!(
-            lock_package_names(LOCK),
-            vec!["serde", "reqwest", "bincode"]
-        );
+[[package]]
+name = \"reqwest\"
+version = \"0.12.0\"
+";
+
+    fn names(hits: &[(String, &str)]) -> Vec<String> {
+        hits.iter().map(|(n, _)| n.clone()).collect()
     }
 
     #[test]
-    fn finds_forbidden_crates() {
-        let hits = forbidden_in_lock(LOCK);
-        let names: Vec<&str> = hits.iter().map(|(n, _)| n.as_str()).collect();
-        assert_eq!(names, vec!["bincode", "reqwest"]);
+    fn r_arch_123__detects_an_http_client_in_the_lock() {
+        assert_eq!(names(&forbidden_in_lock(REQWEST_LOCK)), vec!["reqwest"]);
     }
 
     #[test]
-    fn clean_lock_has_no_hits() {
-        assert!(forbidden_in_lock("[[package]]\nname = \"serde\"\n").is_empty());
+    fn r_arch_123__dependency_lists_do_not_count() {
+        let text = "[[package]]
+name = \"app\"
+version = \"0.1.0\"
+dependencies = [
+ \"reqwest\",
+]
+";
+        assert!(forbidden_in_lock(text).is_empty());
+    }
+
+    #[test]
+    fn r_arch_123__contract_forbidden_names_are_all_listed() {
+        for name in [
+            "serde_yaml",
+            "serde_yml",
+            "serde_yaml_ng",
+            "bincode",
+            "sled",
+            "jwalk",
+            "serde-sarif",
+            "reqwest",
+            "ureq",
+            "hyper",
+            "openssl",
+            "rustls",
+            "native-tls",
+        ] {
+            assert!(
+                FORBIDDEN.iter().any(|(n, _)| *n == name),
+                "{name} must be forbidden"
+            );
+        }
+    }
+
+    #[test]
+    fn r_arch_123__clean_lock_has_no_hits_and_names_are_read() {
+        let text = "[[package]]
+name = \"serde\"
+version = \"1.0.229\"
+
+[[package]]
+name = \"blake3\"
+";
+        assert!(forbidden_in_lock(text).is_empty());
+        assert_eq!(lock_package_names(text), vec!["serde", "blake3"]);
+    }
+
+    #[test]
+    fn r_arch_123__each_hit_is_reported_once() {
+        let text = "[[package]]
+name = \"hyper\"
+version = \"1.0.0\"
+
+[[package]]
+name = \"hyper\"
+version = \"0.14.0\"
+";
+        assert_eq!(names(&forbidden_in_lock(text)), vec!["hyper"]);
     }
 }

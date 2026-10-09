@@ -35,6 +35,7 @@ pub struct Summary {
     pub oldest_request_days: Option<u32>,
 }
 
+#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
 pub(crate) fn count(fs: &[Finding]) -> Summary {
     let mut s = Summary::default();
     for f in fs {

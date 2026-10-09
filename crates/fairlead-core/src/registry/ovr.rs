@@ -381,12 +381,12 @@ fn field_allowed(ev: &Eval<'_>, item: &Item, key: &str) -> bool {
     if item.fields.contains_key(key) {
         return true;
     }
-    (known_keys(Verb::Def).contains(&key)
+    known_keys(Verb::Def).contains(&key)
         || ev
             .idx
             .kinds
             .decl(ev.idx.table, &item.id.scope, kind)
-            .is_some_and(|k| k.keys.contains_key(key)))
+            .is_some_and(|k| k.keys.contains_key(key))
 }
 
 struct Verdict {

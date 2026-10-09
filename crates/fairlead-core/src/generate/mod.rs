@@ -107,6 +107,7 @@ fn to_hex(bytes: &[u8; 32]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
 fn from_hex(s: &str) -> Option<[u8; 32]> {
     if s.len() != 64 {
         return None;
@@ -187,10 +188,10 @@ fn ovr_state_word(s: &OvrState) -> Option<String> {
 
 fn tool_for(vendors: &[VendorDecl], rel: &str) -> String {
     for v in vendors {
-        if let Ok(g) = globset::Glob::new(&v.path) {
-            if g.compile_matcher().is_match(rel) {
-                return v.tool.clone();
-            }
+        if let Ok(g) = globset::Glob::new(&v.path)
+            && g.compile_matcher().is_match(rel)
+        {
+            return v.tool.clone();
         }
     }
     String::new()
@@ -270,7 +271,7 @@ pub fn generate(
         .filter(|g| !g.is_empty())
         .unwrap_or_else(|| "gen".to_string());
     let mode = root_ctl
-        .map(|c| c.settings.index_values.clone())
+        .map(|c| c.settings.index_values)
         .unwrap_or(IndexValues::Value);
     let tokens = token_sites(reg, corpus);
 
@@ -305,7 +306,7 @@ pub fn generate(
             entry.1.push(ShardItem {
                 kind: kind_text,
                 name: item.id.name.as_str().to_string(),
-                policy: effective.map_or_else(|| item.policy.clone(), |e| e.policy.clone()),
+                policy: effective.map_or_else(|| item.policy, |e| e.policy),
                 sum: item.sum.clone(),
                 fields,
                 sites,
@@ -380,31 +381,31 @@ pub fn generate(
         );
 
         // 4. vendor lock (R-FILE-040)
-        if let Some(ctl) = scope.control.as_ref() {
-            if !ctl.vendors.is_empty() {
-                let rows: Vec<VendorRow> = facts
-                    .vendor_hashes
-                    .iter()
-                    .filter(|(p, _)| reg.scope_of(p) == Some(&scope.id))
-                    .map(|(p, h)| {
-                        let rel = rel_to(dir, p.as_str());
-                        VendorRow {
-                            tool: tool_for(&ctl.vendors, &rel),
-                            path: rel,
-                            hash: h.clone(),
-                        }
-                    })
-                    .collect();
-                if !rows.is_empty() {
-                    put(
-                        &mut files,
-                        dir,
-                        &format!("{folder}/vendored.lock"),
-                        &scope.id,
-                        GenKind::VendorLock,
-                        vendor_lock_body(&rows),
-                    );
-                }
+        if let Some(ctl) = scope.control.as_ref()
+            && !ctl.vendors.is_empty()
+        {
+            let rows: Vec<VendorRow> = facts
+                .vendor_hashes
+                .iter()
+                .filter(|(p, _)| reg.scope_of(p) == Some(&scope.id))
+                .map(|(p, h)| {
+                    let rel = rel_to(dir, p.as_str());
+                    VendorRow {
+                        tool: tool_for(&ctl.vendors, &rel),
+                        path: rel,
+                        hash: *h,
+                    }
+                })
+                .collect();
+            if !rows.is_empty() {
+                put(
+                    &mut files,
+                    dir,
+                    &format!("{folder}/vendored.lock"),
+                    &scope.id,
+                    GenKind::VendorLock,
+                    vendor_lock_body(&rows),
+                );
             }
         }
     }

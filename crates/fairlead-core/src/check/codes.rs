@@ -810,7 +810,7 @@ static TABLE: LazyLock<Vec<DiagnosticSpec>> = LazyLock::new(|| {
         s.floor = is_floor(s.code);
         s.waivable = WAIVABLE.contains(&s.code);
     }
-    v.sort_by(|a, b| a.code.cmp(&b.code));
+    v.sort_by_key(|a| a.code);
     v
 });
 

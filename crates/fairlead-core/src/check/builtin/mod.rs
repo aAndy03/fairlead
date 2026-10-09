@@ -51,20 +51,39 @@ pub(crate) fn field_str<'a>(it: &'a Item, k: &str) -> Option<&'a str> {
 pub(crate) fn field_list(it: &Item, k: &str) -> Vec<String> {
     match it.fields.get(k) {
         Some(FieldValue::List(v)) => v.clone(),
-        Some(FieldValue::Scalar(s)) => s.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect(),
+        Some(FieldValue::Scalar(s)) => s
+            .split(',')
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .collect(),
         None => Vec::new(),
     }
 }
 
 pub(crate) fn edition_of(reg: &Registry) -> crate::discover::Edition {
-    crate::discover::Edition(root_control(reg).and_then(|c| c.fairlead.edition.as_ref().map(|e| e.0)).unwrap_or(1))
+    crate::discover::Edition(
+        root_control(reg)
+            .and_then(|c| c.fairlead.edition.as_ref().map(|e| e.0))
+            .unwrap_or(1),
+    )
 }
-pub(crate) fn control_path(reg: &Registry, s: &ScopeId) -> Option<RepoPath> { reg.scope(s)?.control.as_ref().map(|c| c.path.clone()) }
+#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
+pub(crate) fn control_path(reg: &Registry, s: &ScopeId) -> Option<RepoPath> {
+    reg.scope(s)?.control.as_ref().map(|c| c.path.clone())
+}
 
 /// The baseline file the root control configures, else `<folder>/<gen>/baseline.txt` (as `generate`).
 pub(crate) fn baseline_rel(reg: &Registry) -> String {
     let ctl = root_control(reg);
-    let folder = ctl.and_then(|c| c.settings.folder.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| "fairlead".to_string());
-    let gen_dir = ctl.map(|c| c.layout.r#gen.clone()).filter(|g| !g.is_empty()).unwrap_or_else(|| "gen".to_string());
-    ctl.map(|c| c.baseline.file.clone()).filter(|f| !f.is_empty()).unwrap_or_else(|| format!("{folder}/{gen_dir}/baseline.txt"))
+    let folder = ctl
+        .and_then(|c| c.settings.folder.clone())
+        .filter(|f| !f.is_empty())
+        .unwrap_or_else(|| "fairlead".to_string());
+    let gen_dir = ctl
+        .map(|c| c.layout.r#gen.clone())
+        .filter(|g| !g.is_empty())
+        .unwrap_or_else(|| "gen".to_string());
+    ctl.map(|c| c.baseline.file.clone())
+        .filter(|f| !f.is_empty())
+        .unwrap_or_else(|| format!("{folder}/{gen_dir}/baseline.txt"))
 }

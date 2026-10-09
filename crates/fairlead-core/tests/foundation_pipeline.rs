@@ -5,7 +5,7 @@ use camino::{Utf8Path, Utf8PathBuf};
 use fairlead_core::cache::{Cache, CacheKey};
 use fairlead_core::config::{config_hash_of, control_diagnostics, load_controls};
 use fairlead_core::discover::{DiscoverRequest, discover};
-use fairlead_core::extract::{ExtractPlan, StyleKinds, extract_files};
+use fairlead_core::extract::{ExtractPlan, extract_files};
 use fairlead_core::facts::collect_facts;
 use fairlead_core::walk::{WalkOptions, apply_child_excludes, walk};
 use semver::Version;
@@ -247,4 +247,14 @@ fn r_cli_010__the_pipeline_changes_nothing_outside_dot_fairlead() {
         dir.join(".fairlead").exists(),
         "the cache itself was written"
     );
+}
+
+/// The repository's own root control file (P1-T12) parses as a root.
+#[test]
+fn r_arch_160__repo_root_control_file_parses() {
+    let path = Utf8Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fairlead/control.toml");
+    let bytes = std::fs::read(&path).unwrap();
+    let rp = fairlead_core::path::RepoPath::new("fairlead/control.toml").unwrap();
+    let cf = fairlead_core::config::parse_control(&rp, &bytes, true).unwrap();
+    assert!(cf.fairlead.root);
 }

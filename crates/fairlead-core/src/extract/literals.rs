@@ -143,10 +143,10 @@ fn blank_comments(text: &str, f: Flavour, line_comments: bool) -> String {
     let mut out = b.to_vec();
     let blank = |out: &mut Vec<u8>, from: usize, to: usize| {
         for k in from..to.min(out.len()) {
-            if let Some(o) = out.get_mut(k) {
-                if *o != b'\n' {
-                    *o = b' ';
-                }
+            if let Some(o) = out.get_mut(k)
+                && *o != b'\n'
+            {
+                *o = b' ';
             }
         }
     };
@@ -207,10 +207,10 @@ fn components(v: &str) -> Vec<(usize, &str)> {
                 start.get_or_insert(i);
             }
             c if (c.is_whitespace() || c == ',') && depth <= 0 => {
-                if let Some(s) = start.take() {
-                    if let Some(x) = v.get(s..i) {
-                        out.push((s, x));
-                    }
+                if let Some(s) = start.take()
+                    && let Some(x) = v.get(s..i)
+                {
+                    out.push((s, x));
                 }
             }
             _ => {
@@ -218,10 +218,10 @@ fn components(v: &str) -> Vec<(usize, &str)> {
             }
         }
     }
-    if let Some(s) = start {
-        if let Some(x) = v.get(s..) {
-            out.push((s, x));
-        }
+    if let Some(s) = start
+        && let Some(x) = v.get(s..)
+    {
+        out.push((s, x));
     }
     out
 }
@@ -249,10 +249,10 @@ impl Sink<'_> {
                 continue;
             }
             let mut p = prop.to_string();
-            if is_colour(comp) {
-                if let Some((_, long)) = SHORTHAND.iter().find(|(s, _)| *s == prop) {
-                    p = (*long).to_string();
-                }
+            if is_colour(comp)
+                && let Some((_, long)) = SHORTHAND.iter().find(|(s, _)| *s == prop)
+            {
+                p = (*long).to_string();
             }
             if !self.props.contains(p.as_str()) {
                 continue;
