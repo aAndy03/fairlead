@@ -1,0 +1,7 @@
+[fairlead]
+scope = "root"
+edition = 1
+root = true
+marker = "fairlead"
+
+[settings]

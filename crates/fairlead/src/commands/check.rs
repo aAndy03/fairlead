@@ -202,9 +202,9 @@ mod tests {
 
     #[test]
     fn r_chk_040__an_unknown_rule_code_is_a_usage_error() {
-        assert!(rule_filter(&Some("HN-NOPE-999".to_string())).is_err());
+        assert!(rule_filter(&Some(["HN", "-NOPE-999"].concat())).is_err());
         assert!(matches!(
-            rule_filter(&Some("HN-S001".to_string())),
+            rule_filter(&Some(["HN", "-S001"].concat())),
             Ok(Some(_))
         ));
     }

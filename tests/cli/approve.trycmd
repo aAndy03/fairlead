@@ -1,0 +1,9 @@
+```console
+$ fairlead approve --list
+...
+
+$ fairlead approve abcdef012345 --as @andy
+? 4
+...
+
+```

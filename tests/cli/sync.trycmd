@@ -1,0 +1,12 @@
+```console
+$ fairlead sync --baseline --accept-new
+? 2
+--accept-new needs --why TEXT
+
+$ fairlead sync --dry-run
+...
+
+$ fairlead sync --yes
+...
+
+```

@@ -24,3 +24,8 @@ semver = "1.0.28"
 
 [dev-dependencies]
 tempfile = "3.27.0"
+trycmd = "1.2.1"
+
+[[test]]
+name = "cli"
+path = "../../tests/cli.rs"

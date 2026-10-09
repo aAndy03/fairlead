@@ -1,0 +1,21 @@
+```console
+$ fairlead context --format terse
+...
+
+$ fairlead context --format terse --digest
+...
+
+$ fairlead context "add a progress bar"
+? 2
+no match: task queries need 0.3; pass a path or an ID
+
+$ fairlead context --budget abc
+? 2
+error: invalid value 'abc' for '--budget <N>': invalid digit found in string
+...
+
+$ fairlead context apps/web/../../../../outside
+? 2
+...
+
+```

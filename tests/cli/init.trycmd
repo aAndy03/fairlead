@@ -1,0 +1,10 @@
+```console
+$ fairlead init --dry-run
+...
+
+$ fairlead init
+? 4
+...
+not applied; apply with: fairlead init --yes
+
+```

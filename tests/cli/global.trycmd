@@ -1,0 +1,23 @@
+```console
+$ fairlead --version
+fairlead 0.1.0
+
+$ fairlead --threads 0 check
+? 2
+the thread count must be at least 1
+
+$ fairlead --format yaml check
+? 2
+error: invalid value 'yaml' for '--format <FORMAT>'
+...
+
+$ fairlead --color sometimes check
+? 2
+error: invalid value 'sometimes' for '--color <WHEN>'
+...
+
+$ fairlead --quiet
+? 2
+no verb given; run `fairlead --help`
+
+```

@@ -1,0 +1,12 @@
+```console
+$ fairlead explain HN-S001
+...
+
+$ fairlead explain syntax
+...
+
+$ fairlead explain no-such-thing
+? 2
+...
+
+```

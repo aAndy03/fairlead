@@ -1,0 +1,11 @@
+[fairlead]
+scope = "root"
+edition = 1
+root = true
+marker = "fairlead"
+
+[settings]
+
+[kinds.cmp]
+title = "Component"
+shape = "code"

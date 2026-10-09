@@ -1,0 +1,10 @@
+```console
+$ fairlead check --format terse
+? 1
+...
+
+$ fairlead check --format terse --rule HN-R001
+? 1
+...
+
+```

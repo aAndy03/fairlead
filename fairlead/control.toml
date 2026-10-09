@@ -9,3 +9,6 @@ marker  = "fairlead"
 folder        = "fairlead"
 fairlead-version = "0.1.0"
 purpose       = "The repository's own rules, dogfooded with fairlead."
+
+[scan]
+exclude = ["tests/cli/"]

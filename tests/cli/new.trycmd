@@ -1,0 +1,17 @@
+```console
+$ fairlead new rule no-raw-hex --field no-equals
+? 2
+--field takes K=V, got "no-equals"
+
+$ fairlead new rule Bad_Name
+? 2
+...
+
+$ fairlead new approval x
+? 2
+...
+
+$ fairlead new rule no-raw-hex --dry-run
+...
+
+```

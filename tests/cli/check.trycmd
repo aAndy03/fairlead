@@ -1,0 +1,27 @@
+```console
+$ fairlead check --format terse
+...
+
+$ fairlead check --format terse --require-declarations
+? 1
+...
+
+$ fairlead check --budget 0ms --format terse
+? 2
+...
+
+$ fairlead check --budget 1h
+? 2
+--budget takes an integer with ms, s or m (90s, 2m); got "1h"
+
+$ fairlead check --rule HN-NOPE-999
+? 2
+unknown diagnostic code HN-NOPE-999
+
+$ fairlead check --max 0 --format terse
+...
+
+$ fairlead check --format sarif --for-agent
+...
+
+```
