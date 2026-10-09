@@ -36,6 +36,7 @@ tempfile = "3.27.0"
 semver = "1.0.28"
 thiserror = "2"                  # UNVERIFIED (C-2)
 unicode-normalization = "0.1"    # UNVERIFIED (C-2): RepoPath::fold_key and control-file path hygiene
+sysinfo = { version = "0.38.4", default-features = false, features = ["system"] }
 
 [dev-dependencies]
 proptest = "1"

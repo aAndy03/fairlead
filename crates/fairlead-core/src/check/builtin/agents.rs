@@ -8,7 +8,7 @@ use crate::{
     },
     diag::{Diagnostic, codes::*},
     registry::ScopeId,
-    write::init::pointer_block,
+    write::pointer_block,
 };
 use fairlead_syntax::diag::DiagCode;
 use globset::{Glob, GlobSetBuilder};
