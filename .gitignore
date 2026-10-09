@@ -1,0 +1,6 @@
+target/
+.fairlead/
+.remember/
+*.rs.bk
+.DS_Store
+Thumbs.db
