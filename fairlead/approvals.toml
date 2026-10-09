@@ -1,2 +1,10 @@
 # fairlead/approvals.toml: [[approval]] records written by `fairlead approve` (D-34).
 # Human-only: reviewed through CODEOWNERS on fairlead/.
+
+[[approval]]
+fp = "nj8sq2vb05ea"
+target = "root:rule.no-clock"
+scope = "core"
+approver = "@aAndy03"
+date = "2026-10-09"
+renewal = 0
