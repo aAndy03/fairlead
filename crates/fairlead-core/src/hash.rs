@@ -181,7 +181,19 @@ short_id!(
     BodyHash, 20
 );
 
+impl std::str::FromStr for Fingerprint {
+    type Err = HashParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Fingerprint::parse(s)
+    }
+}
+
 impl Fingerprint {
+    /// First 12 base32 symbols of a raw 32-byte digest (amendment A-01).
+    pub fn from_digest(d: &[u8; 32]) -> Self {
+        Self::from_hash(&ContentHash(*d))
+    }
+
     /// Parse the 12-character text form (approvals, baseline lines).
     pub fn parse(s: &str) -> Result<Self, HashParseError> {
         let n = s.chars().count();

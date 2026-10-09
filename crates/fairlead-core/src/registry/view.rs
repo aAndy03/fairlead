@@ -7,6 +7,8 @@ use crate::config::Policy;
 use crate::registry::item::{FieldValue, ItemId};
 use crate::registry::ovr::OvrId;
 use crate::registry::scope::ScopeId;
+use crate::registry::ovr::{Eval, Evaluated, RawOvr, evaluate_scope};
+use crate::diag::Diagnostic;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Provenance {
@@ -72,14 +74,20 @@ fn effective_item(item: &Item, loc: &Location) -> EffectiveItem {
     }
 }
 
-/// Depth-first, memoised: a child starts from its parent's view (R-SCOPE-027). Unresolved scopes get
-/// an empty view and never inherit (R-SCOPE-054).
+pub(crate) struct Built {
+    pub(crate) views: BTreeMap<ScopeId, EffectiveView>,
+    pub(crate) evals: Vec<Evaluated>,
+}
+
 pub(crate) fn build_views(
-    table: &ScopeTable,
-    items: &BTreeMap<ItemId, Item>,
+    ev: &Eval<'_>,
     locs: &BTreeMap<ItemId, Location>,
-) -> BTreeMap<ScopeId, EffectiveView> {
+    mut raws: BTreeMap<ScopeId, Vec<RawOvr>>,
+    diags: &mut Vec<Diagnostic>,
+) -> Built {
+    let (table, items) = (ev.idx.table, ev.idx.items);
     let mut views: BTreeMap<ScopeId, EffectiveView> = BTreeMap::new();
+    let mut evals = Vec::new();
     for scope in table.in_depth_order() {
         let mut v = empty_view(&scope.id, table);
         if scope.state == ScopeState::Resolved {
@@ -91,8 +99,10 @@ pub(crate) fn build_views(
                     v.items.insert(id.clone(), effective_item(item, loc));
                 }
             }
+            let mine = raws.remove(&scope.id).unwrap_or_default();
+            evals.extend(evaluate_scope(ev, &scope.id, &mut v, mine, diags));
         }
         views.insert(scope.id.clone(), v);
     }
-    views
+    Built { views, evals }
 }

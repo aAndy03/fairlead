@@ -42,6 +42,7 @@ pub struct Registry {
     pub(crate) empty_view: EffectiveView,
     pub(crate) kinds: item::KindTable,
     pub(crate) locs: BTreeMap<ItemId, Location>,
+    pub(crate) meta: Vec<ovr::OvrMeta>,
 }
 
 impl Registry {

@@ -15,36 +15,60 @@ pub struct ResolveInput<'a> {
 }
 
 use crate::diag::Diagnostic;
+use crate::config::WaiverPolicy;
 use crate::registry::item::{Index, KindTable, collect_items, collect_refs, doc_cands};
+use crate::registry::ovr::{Eval, collect_raw};
 use crate::registry::scope::build_scope_table;
 use crate::registry::{view, Registry};
 
 pub fn resolve(input: &ResolveInput<'_>) -> Registry {
     let mut diags: Vec<Diagnostic> = Vec::new();
+    let folder = input.root.folder.as_str();
     let table = build_scope_table(input.root, input.controls, input.facts, &mut diags);
     let kinds = KindTable::build(&table, &mut diags);
-    let docs = doc_cands(&table, &kinds, input.root.folder.as_str(), input.corpus, &mut diags);
+    let docs = doc_cands(&table, &kinds, folder, input.corpus, &mut diags);
     let decls = collect_items(&table, docs, &mut diags);
-    // ... at the end, before building the Registry (R-ARCH-051 style total order):
+    let idx = Index { table: &table, kinds: &kinds, items: &decls.items };
+    let refs = collect_refs(&idx, folder, input.corpus, &mut diags);
+    let raws = collect_raw(&idx, input.corpus, &mut diags);
+    let waiver = table.root_control().map(|c| c.policies.waiver.clone()).unwrap_or(WaiverPolicy {
+        max_exp_days: 90,
+        budget: 25,
+        max_renewals: 2,
+        approval_required: true,
+    });
+    let ev = Eval {
+        idx: &idx,
+        as_of: input.as_of,
+        grants: &[],
+        approvals: &input.facts.approvals.approvals,
+        horizon_days: i64::from(waiver.max_exp_days),
+        waiver,
+    };
+    let built = view::build_views(&ev, &decls.locs, raws, &mut diags);
+    let mut evals = built.evals;
+    evals.sort_by(|a, b| {
+        (&a.ovr.target, &a.ovr.declared_in, a.ovr.at.path.as_str(), a.ovr.at.line, a.ovr.at.col, &a.ovr.id)
+            .cmp(&(&b.ovr.target, &b.ovr.declared_in, b.ovr.at.path.as_str(), b.ovr.at.line, b.ovr.at.col, &b.ovr.id))
+    });
+    let (overrides, meta): (Vec<_>, Vec<_>) = evals.into_iter().map(|e| (e.ovr, e.meta)).unzip();
     diags.sort_by(|a, b| {
         (a.location.path.as_str(), a.location.line, a.location.col, a.code, a.message.as_str())
             .cmp(&(b.location.path.as_str(), b.location.line, b.location.col, b.code, b.message.as_str()))
     });
-    let idx = Index { table: &table, kinds: &kinds, items: &decls.items };
-    let refs = collect_refs(&idx, input.root.folder.as_str(), input.corpus, &mut diags);
-    let views = view::build_views(&table, &decls.items, &decls.locs);
     let empty_view = view::empty_view(&table.root, &table);
     Registry {
         table,
         kinds,
         items: decls.items,
         locs: decls.locs,
-        overrides: Vec::new(),
+        overrides,
+        meta,
         grants: Vec::new(),
         requests: Vec::new(),
         edges: refs.edges,
         sites: refs.sites,
-        views,
+        views: built.views,
         diagnostics: diags,
         as_of: input.as_of,
         empty_view,
