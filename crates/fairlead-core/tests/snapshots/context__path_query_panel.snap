@@ -1,0 +1,13 @@
+@web d=vt04239x ed=1 ^root:4k4h2ysc kids=1
+purpose: data apps/web/fairlead/control.toml@v1nc9r "Web UI: components and tokens."
+inh: ^root 4k4h2ysc 1err 1warn
+  rule.no-eval data fairlead/control.toml@t2tejw "no eval"
+rules:
+  rule.no-raw-hex sev=warn stage=enforce home=^root glob="**/*.tsx" data fairlead/control.toml@t2tejw "tokens not hex" (ovr web: data apps/web/fairlead/control.toml@v1nc9r "legacy charts")
+declares: cmp.panel
+uses: cmp.button tok.primary
+drift: new=2 baselined=1
+  HN-T001 rule.no-raw-hex apps/web/src/Panel.tsx:44,81 sev=error n=2
+@settings rel=child p=web d=wa50qdqa items=5 drift=0 data apps/web/src/settings/fairlead/control.toml@j1f4mq "user preferences UI"
+l1: ^root items=handoff:2,rule:3 exc=1 drift=2 data fairlead/control.toml@t2tejw "Sync app: desktop shell, web UI, core engines."
+=d 2s4156c2 est=218 next: fairlead explain HN-T001

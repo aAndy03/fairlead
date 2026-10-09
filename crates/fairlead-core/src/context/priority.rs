@@ -468,6 +468,106 @@ pub fn drift_candidates(
     }
 }
 
+use crate::context::Scene;
+
+/// R-CTX-011: rules of the scope's effective set that apply to the queried path (all of them for a scope card).
+pub(crate) fn gather_rules(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
+    let reg = scene.input.registry;
+    let views: Vec<RuleView> = scene
+        .rules
+        .for_scope(&scene.scope)
+        .iter()
+        .filter(|r| {
+            scene
+                .path
+                .as_ref()
+                .is_none_or(|p| scene.rules.applies(r, p, reg))
+        })
+        .map(|r| scene.rule_view(r))
+        .collect();
+    let mut split = split_rules(
+        &views,
+        &Scene::slug(&scene.scope),
+        &scene.ancestors(),
+        scene.input.request.full,
+        &scene.input.config.sev_weight,
+    );
+    out.append(&mut split.inh);
+    out.append(&mut split.rules);
+}
+
+use fairlead_syntax::ids::Id;
+
+use crate::registry::Lookup;
+
+/// P3 items for a path query (R-CTX-012). The home scope of each ID sets its proximity.
+pub(crate) fn gather_items(scene: &Scene<'_>, out: &mut Vec<Candidate>, pre: &mut Vec<Omission>) {
+    let Some(p) = &scene.path else { return };
+    let usage = collect_id_usage(scene.input.corpus, p);
+    let reg = scene.input.registry;
+    let dist = |id: &str| -> u32 {
+        Id::parse(id)
+            .ok()
+            .and_then(|i| match reg.lookup(&scene.scope, &i) {
+                Lookup::Found(item) => Some(scene.dist(&item.scope)),
+                _ => None,
+            })
+            .unwrap_or(0)
+    };
+    let (mut c, mut o) = id_candidates(&usage, &dist, &scene.input.config.sev_weight);
+    out.append(&mut c);
+    pre.append(&mut o);
+}
+
+/// P2 drift and waivers (R-CTX-013, R-CTX-010). The session-start card shows counts only.
+pub(crate) fn gather_drift(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
+    let report = scene.input.report;
+    let w = &scene.input.config.sev_weight;
+    let found: Vec<&Finding> = match &scene.path {
+        Some(p) => findings_under(report, p),
+        None => report.findings.iter().collect(),
+    };
+    let unknown: Vec<String> = report
+        .unknown_scopes
+        .iter()
+        .filter(|u| {
+            scene.chain.contains(u)
+                || scene
+                    .input
+                    .registry
+                    .scope(u)
+                    .and_then(|s| s.parent.as_ref())
+                    == Some(&scene.scope)
+        })
+        .map(Scene::slug)
+        .collect();
+    let include_groups = !matches!(
+        scene.input.request.target,
+        crate::context::ContextTarget::SessionStart
+    );
+    let explain = scene.explain_target();
+    let mut d = drift_candidates(
+        &found,
+        report.partial,
+        &unknown,
+        include_groups,
+        &explain,
+        w,
+    );
+    if d.waivers > 0 {
+        d.candidates.push(Candidate {
+            priority: Priority::P2Drift,
+            score: Score::new(w.error, Relevance::Direct, 0),
+            hint: 0,
+            key: "2waivers".to_string(),
+            explain,
+            block: Block::Drift,
+            entry: Entry::Waivers { count: d.waivers },
+        });
+    }
+    out.append(&mut d.candidates);
+}
+
 #[cfg(test)]
 #[allow(non_snake_case)] // reason: test names start with the rule id
 mod tests {

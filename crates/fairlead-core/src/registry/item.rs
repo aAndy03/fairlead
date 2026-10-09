@@ -586,6 +586,15 @@ pub(crate) fn undeclared_kind(
 }
 
 /// HN-S011 (C-5): keys known to the verb, `x-` extension keys and the kind's own keys are fine.
+/// Keys a built-in kind accepts besides the verb's own: `handoff` carries the once-only `created`
+/// stamp that `new` writes (A-41, C-33).
+pub(crate) fn builtin_kind_keys(kind: &str) -> &'static [&'static str] {
+    match kind {
+        "handoff" => &["created"],
+        _ => &[],
+    }
+}
+
 pub(crate) fn check_keys(
     d: &Directive,
     scope: &ScopeId,
@@ -601,7 +610,13 @@ pub(crate) fn check_keys(
         .and_then(|id| kinds.decl(table, scope, id.kind.as_str()));
     let mut keep = true;
     for a in &d.args {
+        let builtin = d
+            .ids
+            .first()
+            .filter(|_| d.verb == Verb::Def)
+            .is_some_and(|id| builtin_kind_keys(id.kind.as_str()).contains(&a.key.as_str()));
         let known = known_keys(d.verb).contains(&a.key.as_str())
+            || builtin
             || a.key.starts_with("x-")
             || kind_keys.is_some_and(|k| k.keys.contains_key(&a.key));
         if known {

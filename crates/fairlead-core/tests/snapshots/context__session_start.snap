@@ -1,0 +1,11 @@
+@root d=4k4h2ysc ed=1 kids=1
+purpose: data fairlead/control.toml@t2tejw "Sync app: desktop shell, web UI, core engines."
+rules:
+  rule.no-eval data fairlead/control.toml@t2tejw "no eval"
+  rule.no-raw-hex data fairlead/control.toml@t2tejw "tokens not hex"
+items: handoff=2 rule=3
+exceptions: 1
+drift: new=2 baselined=1
+handoff: handoff.0007 data fairlead/docs/handoff/0007.md@b5ssz2 "Autosave landed; next: review drift"
+@web rel=child p=root d=vt04239x items=5 drift=0 data apps/web/fairlead/control.toml@v1nc9r "Web UI: components and tokens."
+=d 2k155jey est=151 next: fairlead explain rule.no-eval

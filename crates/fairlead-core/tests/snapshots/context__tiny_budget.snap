@@ -1,0 +1,10 @@
+@settings d=wa50qdqa ed=1
+inh: ^root 4k4h2ysc 1err 1warn
+  rule.no-eval data fairlead/control.toml@t2tejw "no eval"
+inh: ^web vt04239x 0err 1warn
+  rule.no-raw-hex data fairlead/control.toml@t2tejw "tokens not hex" (ovr web: data apps/web/fairlead/control.toml@v1nc9r "legacy charts")
++3 more -> fairlead explain apps/web/src/settings
++1 more -> fairlead explain apps/web/src/settings
++2 more -> fairlead explain apps/web
+truncated-mandatory: minimum budget 127
+=d w290s2vq est=130 next: fairlead explain rule.no-eval

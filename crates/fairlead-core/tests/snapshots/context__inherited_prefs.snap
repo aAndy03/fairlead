@@ -1,0 +1,11 @@
+@settings d=wa50qdqa ed=1 ^root:4k4h2ysc ^web:vt04239x
+purpose: data apps/web/src/settings/fairlead/control.toml@j1f4mq "user preferences UI"
+inh: ^root 4k4h2ysc 1err 1warn
+  rule.no-eval data fairlead/control.toml@t2tejw "no eval"
+inh: ^web vt04239x 0err 1warn
+  rule.no-raw-hex data fairlead/control.toml@t2tejw "tokens not hex" (ovr web: data apps/web/fairlead/control.toml@v1nc9r "legacy charts")
+uses: cmp.panel tok.primary
+drift: new=0 baselined=0
+l1: ^root items=handoff:2,rule:3 exc=1 drift=2 data fairlead/control.toml@t2tejw "Sync app: desktop shell, web UI, core engines."
+l1: ^web items=handoff:2,rule:3 exc=0 drift=0 data apps/web/fairlead/control.toml@v1nc9r "Web UI: components and tokens."
+=d xhsgpntq est=191 next: fairlead explain rule.no-eval
