@@ -26,3 +26,4 @@ Deviations of the actual implementation from the phase plans, recorded as they h
 
 - E-11: `ControlsCheck` (T19) does not pass `ControlFile.violations` through: `config::control_diagnostics` already carries them into the load diagnostics (A-11), so passing them again would report each `HN-C003` twice.
 - E-12: `ScopesCheck` (T20) reads shards with `generate::members::parse_members` (A-36), not the plan's `<id> parent= dir=` parser: a `self.` line gives a scope's recorded parent (`up=`), a `scope.<child>` line records the shard's owner as the child's parent. Test fixtures use that format and their pattern rules carry `msg`.
+- E-13: `write::init::pointer_block` (P7-T7) and its three tests land before P7 so `HN-A001` (T23) can import it (A-25, A-64). `write/mod.rs` holds only `pub mod init;` until P7-T0.

@@ -34,3 +34,4 @@ pub mod render;
 pub mod secrets;
 pub mod time;
 pub mod walk;
+pub mod write;
