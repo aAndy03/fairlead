@@ -95,7 +95,7 @@ pub(crate) fn check_fields(
     Ok(())
 }
 
-fn directive_value(v: &str) -> String {
+pub(crate) fn directive_value(v: &str) -> String {
     if !v.is_empty()
         && v.chars()
             .all(|c| c.is_ascii_alphanumeric() || "-_.#/@%:*".contains(c))

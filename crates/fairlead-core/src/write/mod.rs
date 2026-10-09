@@ -7,8 +7,7 @@ mod new;
 mod sync;
 mod tx;
 mod writeset;
-// approve, new and sync join the re-exports as P7-T10..T16 fill them.
-pub use {init::*, journal::*, lock::*, new::*, tx::*, writeset::*};
+pub use {approve::*, init::*, journal::*, lock::*, new::*, sync::*, tx::*, writeset::*};
 
 use crate::error::{Error, IoFailure, Refusal, RefusalKind};
 use crate::path::RepoPath;
