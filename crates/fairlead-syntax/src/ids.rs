@@ -192,6 +192,18 @@ impl Id {
     }
 }
 
+/// A-02: the canonical text, as `as_str` returns it.
+macro_rules! display_as_str {
+    ($($t:ty),*) => {$(
+        impl fmt::Display for $t {
+            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                f.write_str(&self.0)
+            }
+        }
+    )*};
+}
+display_as_str!(ScopeSlug, Kind, Name);
+
 impl fmt::Display for Id {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match &self.qualifier {
@@ -333,5 +345,15 @@ mod tests {
     #[test]
     fn r_cli_031__placeholder_constant() {
         assert_eq!(PLACEHOLDER, "TODO(fairlead)");
+    }
+
+    #[test]
+    fn r_syn_007__kind_name_and_scope_display_their_text() {
+        let id = Id::parse("web:cmp.sync-button").unwrap();
+        assert_eq!(
+            (id.kind.to_string(), id.name.to_string()),
+            ("cmp".into(), "sync-button".into())
+        );
+        assert_eq!(ScopeSlug::parse("web").unwrap().to_string(), "web");
     }
 }
