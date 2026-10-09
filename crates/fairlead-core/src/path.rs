@@ -50,10 +50,11 @@ fn validate(s: &str) -> Result<(), PathError> {
         return Err(PathError::ControlChar);
     }
     let b = s.as_bytes();
-    if let (Some(first), Some(second)) = (b.first(), b.get(1)) {
-        if *second == b':' && first.is_ascii_alphabetic() {
-            return Err(PathError::DriveLetter);
-        }
+    if let (Some(first), Some(second)) = (b.first(), b.get(1))
+        && *second == b':'
+        && first.is_ascii_alphabetic()
+    {
+        return Err(PathError::DriveLetter);
     }
     for seg in s.split('/') {
         match seg {

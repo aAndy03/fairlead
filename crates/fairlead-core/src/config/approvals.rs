@@ -65,17 +65,17 @@ pub fn parse_approvals(bytes: &[u8]) -> Result<ApprovalsFile, ConfigFailure> {
         if approver.trim().is_empty() {
             cx.error("approval.approver", "approver must not be empty");
         }
-        if let (Some(fp), Some(target), Some(scope), Some(date)) = (fp, target, scope, date) {
-            if !approver.trim().is_empty() {
-                out.push(Approval {
-                    fp,
-                    target,
-                    scope,
-                    approver,
-                    date,
-                    renewal,
-                });
-            }
+        if let (Some(fp), Some(target), Some(scope), Some(date)) = (fp, target, scope, date)
+            && !approver.trim().is_empty()
+        {
+            out.push(Approval {
+                fp,
+                target,
+                scope,
+                approver,
+                date,
+                renewal,
+            });
         }
     }
     if cx.diags.is_empty() {

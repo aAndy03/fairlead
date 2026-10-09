@@ -752,10 +752,10 @@ pub(crate) fn parse_layout(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Layout {
             ("ledger", &mut out.ledger),
             ("ref", &mut out.reference),
         ] {
-            if let Some(v) = take_string(cx, &mut t, "layout", key) {
-                if let Some(clean) = clean_segment(cx, &join_key("layout", key), &v) {
-                    *slot = clean;
-                }
+            if let Some(v) = take_string(cx, &mut t, "layout", key)
+                && let Some(clean) = clean_segment(cx, &join_key("layout", key), &v)
+            {
+                *slot = clean;
             }
         }
         cx.unknown_in("layout", &t);
@@ -942,10 +942,10 @@ pub(crate) fn parse_files(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec<FileI
         if !check_id(cx, "file.id", &id, false) {
             continue;
         }
-        if let Some(e) = &extends {
-            if !check_id(cx, "file.extends", e, true) {
-                continue;
-            }
+        if let Some(e) = &extends
+            && !check_id(cx, "file.extends", e, true)
+        {
+            continue;
         }
         if let Some(path) = clean_rel_path(cx, "file.path", &path) {
             out.push(FileItemDecl {
@@ -968,10 +968,10 @@ pub(crate) fn parse_vendors(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec<Ven
         cx.unknown_in("vendor", &t);
         match (path, tool) {
             (Some(path), Some(tool)) => {
-                if let Some(path) = clean_rel_path(cx, "vendor.path", &path) {
-                    if check_glob(cx, "vendor.path", &path) {
-                        out.push(VendorDecl { path, tool });
-                    }
+                if let Some(path) = clean_rel_path(cx, "vendor.path", &path)
+                    && check_glob(cx, "vendor.path", &path)
+                {
+                    out.push(VendorDecl { path, tool });
                 }
             }
             _ => {

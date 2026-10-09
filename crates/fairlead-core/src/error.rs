@@ -51,6 +51,10 @@ pub enum RefusalKind {
     CiSet,
     UnbalancedBlock,
     Floor,
+    /// A root exists above (`init`) (A-22).
+    Nested,
+    /// The owner is not in `owners`, or an authority-family entry is unapproved (A-22).
+    Authority,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]

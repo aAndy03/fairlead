@@ -22,3 +22,25 @@ pub fn write_bytes(dir: &Utf8Path, rel: &str, bytes: &[u8]) {
     }
     fs::write(full.as_std_path(), bytes).expect("write file");
 }
+
+use crate::discover::{Edition, Pin, Root, RootSource};
+
+/// A minimal valid root control file.
+pub const ROOT_CONTROL: &str = "[fairlead]\nedition = 1\nroot = true\nscope = \"root\"\n";
+/// A minimal valid child control file.
+pub const CHILD_CONTROL: &str = "[fairlead]\nscope = \"web\"\n";
+
+/// A `Root` for tests that do not run discovery.
+pub fn test_root(dir: &Utf8Path) -> Root {
+    Root {
+        dir: dir.to_path_buf(),
+        folder: "fairlead".to_string(),
+        source: RootSource::Flag,
+        edition: Edition(1),
+        pin: Pin {
+            version: None,
+            edition: Edition(1),
+        },
+        config_hash: crate::hash::hash_raw(b""),
+    }
+}

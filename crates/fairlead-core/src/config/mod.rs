@@ -1,5 +1,6 @@
 //! Control-file parsing (lenient header pass, typed schema, rules, approvals).
 pub mod approvals;
+pub use approvals::{Approval, ApprovalsFile, parse_approvals};
 pub mod header;
 pub mod rules;
 pub mod schema;
@@ -268,6 +269,103 @@ pub fn parse_control(
         unknown,
         violations: sorted(violations),
     })
+}
+
+use crate::discover::Root;
+use crate::error::Error;
+use crate::walk::WalkResult;
+
+/// Every control file found by the walk; a file that cannot be parsed stays in the map as the
+/// failure so its subtree is unresolved (R-SYN-033).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct ControlSet {
+    pub files: BTreeMap<RepoPath, Result<ControlFile, ConfigFailure>>,
+}
+
+impl ControlSet {
+    pub fn ok_files(&self) -> impl Iterator<Item = &ControlFile> {
+        self.files.values().filter_map(|r| r.as_ref().ok())
+    }
+
+    /// The root directory's control file, when it parsed.
+    pub fn root_control(&self) -> Option<&ControlFile> {
+        self.ok_files().find(|c| c.dir.is_root())
+    }
+
+    /// Rules declared in all parsed control files (R-ARCH-012: zero means "nothing verified").
+    pub fn declared_rule_count(&self) -> usize {
+        self.ok_files().map(|c| c.rules.len()).sum()
+    }
+}
+
+/// S3: read and parse every `<folder>/control.toml` listed by the walk. Parse failures are data;
+/// only I/O failures are errors.
+pub fn load_controls(root: &Root, walk: &WalkResult) -> Result<ControlSet, Error> {
+    let mut files = BTreeMap::new();
+    for e in &walk.files {
+        if e.path.file_name() != "control.toml" {
+            continue;
+        }
+        let Some(folder_dir) = e.path.parent() else {
+            continue;
+        };
+        if folder_dir.file_name() != root.folder {
+            continue;
+        }
+        let abs = root.dir.join(e.path.as_str());
+        let bytes = std::fs::read(abs.as_std_path())
+            .map_err(|err| Error::io(e.path.as_str(), "read", &err, false))?;
+        let is_root_dir = folder_dir.parent().is_some_and(|d| d.is_root());
+        files.insert(e.path.clone(), parse_control(&e.path, &bytes, is_root_dir));
+    }
+    Ok(ControlSet { files })
+}
+
+/// All load-time diagnostics of the set, sorted: failures (`HN-C001`/`HN-P001`), unknown keys
+/// (`HN-C002`), non-delegable keys (`HN-C003`) and a second `root = true` below the root
+/// (`HN-C004`, ROOT-DUP).
+pub fn control_diagnostics(set: &ControlSet) -> Vec<Diagnostic> {
+    let mut out = Vec::new();
+    for r in set.files.values() {
+        match r {
+            Err(f) => out.extend(f.diags.iter().cloned()),
+            Ok(c) => {
+                out.extend(c.diagnostics());
+                if !c.dir.is_root() && c.fairlead.root {
+                    out.push(
+                        Diagnostic::new(
+                            codes::HN_C004,
+                            Severity::Error,
+                            Location::at(c.path.clone(), 1, 1),
+                            "a second `root = true` control file below the root (ROOT-DUP); mounted sub-roots arrive in 0.3",
+                        )
+                        .with_hint("remove `root = true`, or run fairlead from the real root"),
+                    );
+                }
+            }
+        }
+    }
+    crate::diag::sort_diagnostics(&mut out);
+    out
+}
+
+/// Hash over every control file (path and normalised content hash): the config part of the cache key.
+pub fn config_hash_of(set: &ControlSet) -> ContentHash {
+    let mut h = blake3::Hasher::new();
+    for (path, r) in &set.files {
+        h.update(path.as_str().as_bytes());
+        h.update(&[0]);
+        match r {
+            Ok(c) => {
+                h.update(&c.content_hash.0);
+            }
+            Err(_) => {
+                h.update(b"unparseable");
+            }
+        }
+        h.update(&[1]);
+    }
+    ContentHash(*h.finalize().as_bytes())
 }
 
 #[cfg(test)]
@@ -651,5 +749,142 @@ msg = "no TODO"
         let c = parse_control(&p("gov/control.toml"), text.as_bytes(), true).unwrap();
         assert_eq!(c.baseline.file, "gov/generated/baseline.txt");
         assert_eq!(c.layout.r#gen, "generated");
+    }
+
+    use crate::testutil::{CHILD_CONTROL, ROOT_CONTROL, test_root, utf8_tmp, write_file};
+    use crate::walk::{WalkOptions, walk};
+
+    fn load(t: &camino::Utf8Path) -> ControlSet {
+        let root = test_root(t);
+        let w = walk(&root, &WalkOptions::default()).unwrap();
+        load_controls(&root, &w).unwrap()
+    }
+
+    #[test]
+    fn r_scope_004__load_controls_finds_every_control_file_and_only_those() {
+        let (_g, t) = utf8_tmp();
+        write_file(&t, "fairlead/control.toml", ROOT_CONTROL);
+        write_file(&t, "web/fairlead/control.toml", CHILD_CONTROL);
+        write_file(&t, "api/fairlead/control.toml", "[fairlead\n");
+        write_file(&t, "docs/control.toml", "decoy");
+        write_file(&t, "web/fairlead/docs/control.toml", "decoy");
+        let set = load(&t);
+        let keys: Vec<&str> = set.files.keys().map(RepoPath::as_str).collect();
+        assert_eq!(
+            keys,
+            [
+                "api/fairlead/control.toml",
+                "fairlead/control.toml",
+                "web/fairlead/control.toml"
+            ]
+        );
+        assert!(set.files[&p("api/fairlead/control.toml")].is_err());
+        assert_eq!(set.root_control().unwrap().fairlead.scope.as_str(), "root");
+        assert_eq!(
+            set.files[&p("web/fairlead/control.toml")]
+                .as_ref()
+                .unwrap()
+                .dir,
+            p("web")
+        );
+    }
+
+    #[test]
+    fn r_arch_104__a_broken_file_is_reported_and_does_not_hide_the_others() {
+        let (_g, t) = utf8_tmp();
+        write_file(&t, "fairlead/control.toml", ROOT_CONTROL);
+        write_file(&t, "web/fairlead/control.toml", CHILD_CONTROL);
+        write_file(&t, "api/fairlead/control.toml", "[fairlead\n");
+        let set = load(&t);
+        assert_eq!(set.ok_files().count(), 2);
+        let d = control_diagnostics(&set);
+        assert_eq!(d.len(), 1);
+        assert_eq!(
+            (d[0].code, d[0].location.path.as_str()),
+            (codes::HN_C001, "api/fairlead/control.toml")
+        );
+    }
+
+    #[test]
+    fn r_scope_004__second_root_true_below_the_root_is_root_dup() {
+        let (_g, t) = utf8_tmp();
+        write_file(&t, "fairlead/control.toml", ROOT_CONTROL);
+        write_file(
+            &t,
+            "vendor/lib/fairlead/control.toml",
+            "[fairlead]\nscope = \"lib\"\nroot = true\n",
+        );
+        let d = control_diagnostics(&load(&t));
+        assert!(
+            d.iter().any(|x| x.code == codes::HN_C004
+                && x.location.path.as_str() == "vendor/lib/fairlead/control.toml"),
+            "{d:?}"
+        );
+    }
+
+    #[test]
+    fn r_syn_041__warnings_and_violations_flow_into_the_diagnostics() {
+        let (_g, t) = utf8_tmp();
+        write_file(
+            &t,
+            "fairlead/control.toml",
+            &format!("{ROOT_CONTROL}[mystery]\nx = 1\n"),
+        );
+        write_file(
+            &t,
+            "web/fairlead/control.toml",
+            "[fairlead]\nscope = \"web\"\nmarker = \"x\"\n",
+        );
+        let d = control_diagnostics(&load(&t));
+        let codes_seen: Vec<&str> = d.iter().map(|x| x.code.0).collect();
+        assert_eq!(
+            codes_seen,
+            ["HN-C002", "HN-C003"],
+            "sorted by path: fairlead/ before web/"
+        );
+    }
+
+    #[test]
+    fn r_arch_012__declared_rule_count_is_zero_for_a_ruleless_repository() {
+        let (_g, t) = utf8_tmp();
+        write_file(&t, "fairlead/control.toml", ROOT_CONTROL);
+        assert_eq!(
+            load(&t).declared_rule_count(),
+            0,
+            "P5 turns this into the HN-N001 notice, never a bare pass"
+        );
+        write_file(
+            &t,
+            "fairlead/control.toml",
+            &format!("{ROOT_CONTROL}[rules.a]\nsev = \"warn\"\n[rules.b]\n"),
+        );
+        write_file(
+            &t,
+            "web/fairlead/control.toml",
+            &format!("{CHILD_CONTROL}[rules.c]\n"),
+        );
+        assert_eq!(load(&t).declared_rule_count(), 3);
+    }
+
+    #[test]
+    fn r_arch_077__config_hash_changes_with_any_control_file_and_is_otherwise_stable() {
+        let (_g, t) = utf8_tmp();
+        write_file(&t, "fairlead/control.toml", ROOT_CONTROL);
+        write_file(&t, "web/fairlead/control.toml", CHILD_CONTROL);
+        let h1 = config_hash_of(&load(&t));
+        assert_eq!(h1, config_hash_of(&load(&t)));
+        write_file(
+            &t,
+            "web/fairlead/control.toml",
+            &format!("{CHILD_CONTROL}[settings]\npurpose = \"x\"\n"),
+        );
+        let h2 = config_hash_of(&load(&t));
+        assert_ne!(h1, h2);
+        write_file(&t, "api/fairlead/control.toml", "[fairlead\n");
+        assert_ne!(
+            h2,
+            config_hash_of(&load(&t)),
+            "a new (even broken) control file changes the key"
+        );
     }
 }

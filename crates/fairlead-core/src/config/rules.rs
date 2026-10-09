@@ -451,10 +451,10 @@ pub(crate) fn parse_context(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Context
 pub(crate) fn parse_baseline(cx: &mut Ctx<'_>, root: &mut toml::Table) -> BaselineConfig {
     let mut out = BaselineConfig::default();
     if let Some(mut t) = take_table(cx, root, "", "baseline") {
-        if let Some(f) = take_string(cx, &mut t, "baseline", "file") {
-            if let Some(clean) = clean_rel_path(cx, "baseline.file", &f) {
-                out.file = clean;
-            }
+        if let Some(f) = take_string(cx, &mut t, "baseline", "file")
+            && let Some(clean) = clean_rel_path(cx, "baseline.file", &f)
+        {
+            out.file = clean;
         }
         cx.unknown_in("baseline", &t);
     }

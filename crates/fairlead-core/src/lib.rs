@@ -14,12 +14,19 @@
 #[cfg(test)]
 pub(crate) mod testutil;
 
+pub mod cache;
 pub mod classify;
 pub mod config;
 pub mod diag;
 pub mod discover;
 pub mod error;
+pub mod extract;
+pub mod facts;
+pub mod git;
 pub mod hash;
+pub mod manifest;
 pub mod outcome;
 pub mod path;
+pub mod secrets;
 pub mod time;
+pub mod walk;
