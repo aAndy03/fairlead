@@ -1,4 +1,5 @@
 //! Check engine (P5a). Pure: no filesystem, no git, no clock (R-ARCH-050, R-CHK-004).
+#[allow(dead_code, reason = "wired by P5a-T29; remove once used")]
 pub(crate) mod apply;
 pub mod baseline;
 pub mod builtin;
