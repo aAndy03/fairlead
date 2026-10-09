@@ -1,0 +1,3 @@
++++
+directives = "not an array"
++++

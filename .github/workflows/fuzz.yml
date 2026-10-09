@@ -1,0 +1,39 @@
+name: fuzz
+
+# Weekly and on demand only (owner request: save Actions minutes, E-18).
+on:
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [directive, control_file, frontmatter, lexer]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspace: fuzz -> target
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Copy seeds
+        run: |
+          mkdir -p "fuzz/corpus/${{ matrix.target }}"
+          cp -r "fixtures/corpus/${{ matrix.target }}/." "fuzz/corpus/${{ matrix.target }}/"
+      - name: Run for 60 seconds (R-ARCH-150)
+        run: cargo fuzz run "${{ matrix.target }}" --fuzz-dir fuzz -- -max_total_time=60
+      - name: Keep crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/
+          if-no-files-found: ignore

@@ -1,0 +1,43 @@
+[package]
+name = "fairlead-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"          # Verify: maturity and licence under R-ARCH-120 before first use
+fairlead-syntax = { path = "../crates/fairlead-syntax" }
+fairlead-core = { path = "../crates/fairlead-core" }
+
+[[bin]]
+name = "directive"
+path = "fuzz_targets/directive.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "control_file"
+path = "fuzz_targets/control_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "frontmatter"
+path = "fuzz_targets/frontmatter.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lexer"
+path = "fuzz_targets/lexer.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]

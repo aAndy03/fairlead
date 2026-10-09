@@ -317,6 +317,25 @@ fn push_delimited(
 }
 
 /// Lexes `n` for the leaders of `ext`. Total and linear.
+/// A-28: original byte ranges of every comment token in `text`, in order, with the built-in
+/// leaders of `ext` (no leaders known: no spans). The entry point of the lexer fuzz target.
+pub fn comment_spans(text: &str, ext: &str) -> Vec<Range<usize>> {
+    let table = crate::delimiters::CommentTable::builtin();
+    let Some(leaders) = table.leaders_for(&ext.to_ascii_lowercase()) else {
+        return Vec::new();
+    };
+    let n = Normalized::new(text);
+    lex(&n, ext, leaders)
+        .comments
+        .iter()
+        .map(|c| {
+            let a = usize::try_from(n.orig_offset(c.start)).unwrap_or(usize::MAX);
+            let b = usize::try_from(n.orig_offset(c.end)).unwrap_or(usize::MAX);
+            a.min(text.len())..b.min(text.len())
+        })
+        .collect()
+}
+
 pub fn lex(n: &Normalized, ext: &str, leaders: &[Leader]) -> Lexed {
     let ext = ext.trim_start_matches('.').to_ascii_lowercase();
     if leaders.iter().any(|l| matches!(l, Leader::Html)) {
@@ -1072,5 +1091,21 @@ mod tests {
     fn r_syn_001__marker_in_a_string_is_not_a_candidate() {
         let (_, s) = scan("let s = \"// fairlead: use tt.b\";\n", "rs");
         assert!(s.candidates.is_empty());
+    }
+
+    #[test]
+    fn r_arch_150__comment_spans_are_ordered_in_bounds_and_skip_strings() {
+        let text = "let s = \"// fairlead: def fake\"; // fairlead: def real
+/* b */
+";
+        let spans = comment_spans(text, "rs");
+        assert_eq!(spans.len(), 2, "{spans:?}");
+        let mut last = 0;
+        for sp in &spans {
+            assert!(sp.start >= last && sp.start <= sp.end && sp.end <= text.len());
+            last = sp.end;
+        }
+        assert!(text[spans[0].clone()].contains("real"));
+        assert!(comment_spans(text, "nope").is_empty());
     }
 }

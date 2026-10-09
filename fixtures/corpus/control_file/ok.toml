@@ -1,0 +1,5 @@
+[fairlead]
+edition = 1
+root = true
+scope = "root"
+marker = "fairlead"

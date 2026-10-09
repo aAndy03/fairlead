@@ -4,3 +4,6 @@ target/
 *.rs.bk
 .DS_Store
 Thumbs.db
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/target/
