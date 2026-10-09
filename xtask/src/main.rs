@@ -3,6 +3,7 @@
 #![allow(clippy::print_stdout, clippy::print_stderr)] // reason: a developer command line prints
 
 mod ablation;
+mod golden;
 
 use std::process::ExitCode;
 
@@ -82,15 +83,28 @@ fn check_deps() -> ExitCode {
 }
 
 fn main() -> ExitCode {
-    let task = std::env::args().nth(1);
+    let mut args = std::env::args().skip(1);
+    let task = args.next();
     match task.as_deref() {
         Some("check-deps") => check_deps(),
+        Some("golden-bless") => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            match golden::bless(root, args.next().as_deref().unwrap_or("")) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("xtask golden-bless: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some(other) => {
             eprintln!("xtask: task `{other}` is not implemented in this build");
             ExitCode::from(2)
         }
         None => {
-            eprintln!("xtask: usage: cargo xtask <check-deps>");
+            eprintln!("xtask: usage: cargo xtask <check-deps | golden-bless NAME>");
             ExitCode::from(2)
         }
     }
