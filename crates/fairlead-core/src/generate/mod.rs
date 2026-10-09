@@ -55,7 +55,7 @@ impl GeneratedFile {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct GeneratedSet {
     pub files: BTreeMap<RepoPath, GeneratedFile>,
 }

@@ -54,6 +54,7 @@ pub(crate) fn finding(
         rule: None,
         related: None,
         message: message.to_string(),
+        excerpt: None,
         intent: None,
         fix: "fix it".to_string(),
         occurrence: 0,

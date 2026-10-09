@@ -210,6 +210,27 @@ pub(crate) struct Built {
     pub(crate) as_of: AsOf,
 }
 
+use crate::{check::{rules::Check, CheckCx, CheckOptions, RuleSet}, diag::Diagnostic, generate::GeneratedSet,
+            registry::ScopeState};
+use fairlead_syntax::diag::DiagCode;
+
+impl Built {
+    pub(crate) fn options(&self) -> CheckOptions { CheckOptions::new(self.as_of) }
+    pub(crate) fn run_check(&self, c: &dyn Check) -> Vec<Diagnostic> { self.run_check_with(c, &GeneratedSet::default()) }
+    /// One check over every resolved scope, sorted by (path, line, col, code, message).
+    pub(crate) fn run_check_with(&self, c: &dyn Check, generated: &GeneratedSet) -> Vec<Diagnostic> {
+        let (opts, rules) = (self.options(), RuleSet::collect(&self.registry));
+        let cx = CheckCx { registry: &self.registry, corpus: &self.corpus, facts: &self.facts,
+                           generated, rules: &rules, options: &opts };
+        let mut out = Vec::new();
+        for s in self.registry.scopes().filter(|s| matches!(s.state, ScopeState::Resolved)) { c.run(&cx, &s.id, &mut out); }
+        out.sort_by(|a, b| (&a.location.path, a.location.line, a.location.col, a.code, &a.message)
+            .cmp(&(&b.location.path, b.location.line, b.location.col, b.code, &b.message)));
+        out
+    }
+}
+pub(crate) fn of(ds: &[Diagnostic], c: DiagCode) -> Vec<&Diagnostic> { ds.iter().filter(|d| d.code == c).collect() }
+
 #[cfg(test)]
 mod tests {
 

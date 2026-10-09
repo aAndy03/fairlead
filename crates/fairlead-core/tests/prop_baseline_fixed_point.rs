@@ -50,6 +50,7 @@ fn finding(fp: &str) -> Finding {
         rule: None,
         related: None,
         message: "m".to_string(),
+        excerpt: None,
         intent: None,
         fix: "f".to_string(),
         occurrence: 0,
