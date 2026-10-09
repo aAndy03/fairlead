@@ -27,6 +27,7 @@ pub mod hash;
 pub mod manifest;
 pub mod outcome;
 pub mod path;
+pub mod registry;
 pub mod secrets;
 pub mod time;
 pub mod walk;
