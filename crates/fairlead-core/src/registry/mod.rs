@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use crate::time::AsOf;
 
-pub use grant::{Allow, Req};
+pub use grant::{Allow, Proposal, Req};
 pub use item::{Edge, FieldValue, Item, ItemId, Lookup, Origin, Site};
 pub use ledger::{LedgerEntry, LedgerView};
 pub use ovr::{
@@ -43,6 +43,7 @@ pub struct Registry {
     pub(crate) kinds: item::KindTable,
     pub(crate) locs: BTreeMap<ItemId, Location>,
     pub(crate) meta: Vec<ovr::OvrMeta>,
+    pub(crate) proposals: Vec<Proposal>,
 }
 
 impl Registry {
@@ -157,5 +158,11 @@ impl Registry {
     }
     pub fn resolve_target(&self, from: &ScopeId, text: &str) -> Option<(ItemId, Option<String>)> {
         self.index().resolve_target(from, text)
+    }
+}
+
+impl Registry {
+    pub fn proposals(&self) -> &[Proposal] {
+        &self.proposals
     }
 }

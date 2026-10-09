@@ -77,3 +77,86 @@ fn r_chk_026__ovr_id_binds_to_content_not_to_the_file_path() {
     let c = base().file("apps/web/src/a.ts", &line.replace("2026-12-31", "2027-01-31")).resolve();
     assert_ne!(a.overrides()[0].id, c.overrides()[0].id); // re-dating changes the fingerprint
 }
+
+use fairlead_core::diag::codes::{HN_C003, HN_S016};
+
+const ALLOW: &str = "[[allow]]\ntarget = \"rules.r1\"\nfield = \"sev\"\nfor = [\"web\"]\nwhy = \"migrating\"\nexp = \"2027-03-31\"\n";
+
+fn rooted(extra: &str) -> Kit {
+    Kit::new(&root_toml(&format!("\n{}{extra}", rule("r1", "warn", "observe", false))))
+        .file("fairlead/docs/c.md", &doc(&["def cmp.button size=md", "def tok.primary applies=color"]))
+        .scope("apps/web", "web", &child_toml("web", ""))
+        .scope("apps/admin", "admin", &child_toml("admin", ""))
+        .file("apps/admin/fairlead/docs/c.md", &doc(&["def cmp.card"]))
+}
+
+fn with_lines(kit: Kit, lines: &[&str]) -> Registry {
+    kit.file("apps/web/src/a.ts", &format!("{}\nexport const a = 1;\n", lines.join("\n"))).resolve()
+}
+
+fn state_of(reg: &Registry, field: &str) -> OvrState {
+    reg.overrides().iter().find(|o| o.set.contains_key(field)).unwrap().state
+}
+
+use fairlead_core::registry::Registry;
+
+#[test]
+fn r_scope_031__open_ovr_needs_no_reason() {
+    let reg = with_lines(rooted(""), &["// fairlead: ovr cmp.button size=sm"]);
+    assert_eq!(state_of(&reg, "size"), OvrState::Effective);
+}
+
+#[test]
+fn r_scope_032__needs_exception_ovr_without_exp_is_inert_and_hn_s016() {
+    let incomplete = with_lines(rooted(""), &["// fairlead: ovr tok.primary value=#fff why=\"brand\" owner=@andy"]);
+    assert_eq!(state_of(&incomplete, "value"), OvrState::Inert(InertReason::Incomplete));
+    assert!(incomplete.diagnostics().iter().any(|d| d.code == HN_S016));
+    let complete = with_lines(rooted(""), &["// fairlead: ovr tok.primary value=#fff why=\"brand\" owner=@andy exp=2026-12-31"]);
+    assert_eq!(state_of(&complete, "value"), OvrState::Effective);
+}
+
+#[test]
+fn r_scope_033__sealed_ovr_is_inert_until_a_matching_allow_exists() {
+    let line = "// fairlead: ovr rule.r1 sev=info why=\"x\" owner=@andy exp=2026-12-31";
+    let without = with_lines(rooted(""), &[line]);
+    assert_eq!(state_of(&without, "sev"), OvrState::Inert(InertReason::SealedNoAllow));
+    let with = with_lines(rooted(ALLOW), &[line]);
+    assert_eq!(state_of(&with, "sev"), OvrState::Effective);
+    // a grant covers its grantee only: the sibling stays inert
+    let sib = rooted(ALLOW).file("apps/admin/src/a.ts", &format!("{line}\nexport const a = 1;\n")).resolve();
+    let o = sib.overrides().iter().find(|o| o.declared_in == sid("admin")).unwrap();
+    assert_eq!(o.state, OvrState::Inert(InertReason::SealedNoAllow));
+}
+
+#[test]
+fn r_scope_034__tightening_is_free_on_every_policy_loosening_is_not() {
+    let up = with_lines(rooted(""), &["// fairlead: ovr rule.r1 sev=error stage=enforce"]);
+    assert_eq!(state_of(&up, "sev"), OvrState::Effective); // warn -> error, no why/owner/exp
+    let down = with_lines(rooted(""), &["// fairlead: ovr rule.r1 sev=info"]);
+    assert_eq!(state_of(&down, "sev"), OvrState::Inert(InertReason::SealedNoAllow));
+}
+
+#[test]
+fn r_scope_035__a_child_cannot_change_the_policy_of_an_inherited_item() {
+    let reg = with_lines(rooted(""), &["// fairlead: ovr cmp.button policy=sealed"]);
+    assert_eq!(state_of(&reg, "policy"), OvrState::Inert(InertReason::NonDelegable));
+    assert!(reg.diagnostics().iter().any(|d| d.code == HN_C003));
+}
+
+#[test]
+fn r_scope_038__inert_lines_never_abort_the_valid_ones() {
+    let reg = with_lines(
+        rooted(""),
+        &[
+            "// fairlead: ovr rule.secret-like sev=info why=\"x\" owner=@andy exp=2026-12-31",
+            "// fairlead: ovr admin:cmp.card size=sm",
+            "// fairlead: ovr cmp.button nosuch=1",
+            "// fairlead: ovr cmp.button kw+=a",
+        ],
+    );
+    assert_eq!(state_of(&reg, "sev"), OvrState::Inert(InertReason::FloorRule));
+    let outside = reg.overrides().iter().find(|o| o.target == iid("admin", "cmp.card")).unwrap();
+    assert_eq!(outside.state, OvrState::Inert(InertReason::OutsideSubtree));
+    assert_eq!(state_of(&reg, "nosuch"), OvrState::Inert(InertReason::UnknownField));
+    assert_eq!(state_of(&reg, "kw"), OvrState::Effective);
+}

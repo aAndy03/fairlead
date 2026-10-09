@@ -17,6 +17,7 @@ pub struct ResolveInput<'a> {
 use crate::diag::Diagnostic;
 use crate::config::WaiverPolicy;
 use crate::registry::item::{Index, KindTable, collect_items, collect_refs, doc_cands};
+use crate::registry::grant::{collect_grants, collect_proposals, collect_requests};
 use crate::registry::ovr::{Eval, collect_raw};
 use crate::registry::scope::build_scope_table;
 use crate::registry::{view, Registry};
@@ -30,6 +31,9 @@ pub fn resolve(input: &ResolveInput<'_>) -> Registry {
     let decls = collect_items(&table, docs, &mut diags);
     let idx = Index { table: &table, kinds: &kinds, items: &decls.items };
     let refs = collect_refs(&idx, folder, input.corpus, &mut diags);
+    let grants = collect_grants(&idx, input.as_of, &mut diags);
+    let requests = collect_requests(&table, &mut diags);
+    let proposals = collect_proposals(&table, &requests);
     let raws = collect_raw(&idx, input.corpus, &mut diags);
     let waiver = table.root_control().map(|c| c.policies.waiver.clone()).unwrap_or(WaiverPolicy {
         max_exp_days: 90,
@@ -40,7 +44,7 @@ pub fn resolve(input: &ResolveInput<'_>) -> Registry {
     let ev = Eval {
         idx: &idx,
         as_of: input.as_of,
-        grants: &[],
+        grants: &grants,
         approvals: &input.facts.approvals.approvals,
         horizon_days: i64::from(waiver.max_exp_days),
         waiver,
@@ -64,8 +68,9 @@ pub fn resolve(input: &ResolveInput<'_>) -> Registry {
         locs: decls.locs,
         overrides,
         meta,
-        grants: Vec::new(),
-        requests: Vec::new(),
+        grants,
+        requests,
+        proposals,
         edges: refs.edges,
         sites: refs.sites,
         views: built.views,

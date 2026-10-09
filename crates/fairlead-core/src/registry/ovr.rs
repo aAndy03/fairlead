@@ -7,17 +7,17 @@ use crate::registry::item::{FieldValue, ItemId};
 use crate::registry::scope::ScopeId;
 use std::collections::BTreeSet;
 
-use fairlead_syntax::diag::Severity;
+use fairlead_syntax::diag::{DiagCode, Severity};
 use fairlead_syntax::directive::{ArgOp, ArgValue, Verb, known_keys};
 use fairlead_syntax::ids::Id;
 
-use crate::config::{Approval, ControlFile, OvrDecl, WaiverPolicy};
+use crate::config::{Approval, ControlFile, OvrDecl, Policy, WaiverPolicy};
 use crate::diag::{Diagnostic, codes};
 use crate::extract::Corpus;
 use crate::hash::hash_raw;
 use crate::path::RepoPath;
 use crate::registry::Dg;
-use crate::registry::grant::Allow;
+use crate::registry::grant::{Allow, matching_grants};
 use crate::registry::item::{Index, Item, KindTable, Origin, Site, arg_items, arg_scalar, normalise_rules_alias, undeclared_kind};
 use crate::registry::scope::ScopeState;
 use crate::registry::view::EffectiveView;
@@ -271,12 +271,6 @@ struct Pre {
     touched: BTreeSet<String>,
 }
 
-struct Verdict {
-    state: OvrState,
-    approval: ApprovalStatus,
-    tighten: bool,
-    used_grants: Vec<String>,
-}
 
 fn policy_text(p: crate::config::Policy) -> &'static str {
     match p {
@@ -317,17 +311,131 @@ fn field_allowed(ev: &Eval<'_>, item: &Item, key: &str) -> bool {
             || ev.idx.kinds.decl(ev.idx.table, &item.id.scope, kind).is_some_and(|k| k.keys.contains_key(key)))
 }
 
-fn judge(ev: &Eval<'_>, p: &Pre, item: Option<&Item>, _working: &EffectiveView) -> Verdict {
-    let v = |state| Verdict { state, approval: ApprovalStatus::NotRequired, tighten: false, used_grants: Vec::new() };
-    // [T9: floor, outside subtree, non-delegable]
-    if let Some(it) = item {
-        if p.touched.iter().any(|k| !field_allowed(ev, it, k)) {
-            return v(OvrState::Inert(InertReason::UnknownField));
+struct Verdict {
+    state: OvrState,
+    approval: ApprovalStatus,
+    tighten: bool,
+    used_grants: Vec<String>,
+    diag: Option<(DiagCode, String, &'static str)>,
+}
+
+impl Verdict {
+    fn inert(reason: InertReason, diag: Option<(DiagCode, String, &'static str)>) -> Verdict {
+        Verdict { state: OvrState::Inert(reason), approval: ApprovalStatus::NotRequired, tighten: false, used_grants: Vec::new(), diag }
+    }
+}
+
+fn looks_like_version(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    parts.len() >= 2 && parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+}
+
+fn rank(field: &str, v: &str) -> Option<u8> {
+    match (field, v) {
+        ("sev", "info") | ("stage", "observe") => Some(0),
+        ("sev", "warn") | ("stage", "warn") => Some(1),
+        ("sev", "error") | ("stage", "enforce") => Some(2),
+        _ => None,
+    }
+}
+
+/// R-SCOPE-034, R-CHK-006: every touched field moves toward the stricter slot.
+fn tightening(it: &Item, working: &EffectiveView, p: &Pre) -> bool {
+    if it.id.kind.as_str() != "rule" || p.raw.set.is_empty() {
+        return false;
+    }
+    let cur = working.items.get(&it.id);
+    p.raw.set.iter().all(|(k, ch)| match (k.as_str(), ch) {
+        ("sev" | "stage", FieldChange::Replace(FieldValue::Scalar(new))) => {
+            let now = cur.and_then(|c| c.fields.get(k)).map(|f| &f.value).or(it.fields.get(k));
+            match (now, rank(k, new)) {
+                (Some(FieldValue::Scalar(c)), Some(n)) => rank(k, c).is_some_and(|cr| n > cr),
+                _ => false,
+            }
+        }
+        ("glob", FieldChange::Append(_)) => true,
+        ("exclude", _) => p.op == OvrOp::Remove,
+        _ => false,
+    })
+}
+
+fn judge(ev: &Eval<'_>, p: &Pre, item: Option<&Item>, working: &EffectiveView, dup: bool) -> Verdict {
+    let table = ev.idx.table;
+    let scope = &p.raw.scope;
+    let is_floor = p.target.kind.as_str() == "rule" && FLOOR_RULES.contains(&p.target.name.as_str());
+    let Some(it) = item.filter(|_| !is_floor) else {
+        return Verdict::inert(InertReason::FloorRule, None); // HN-X003 is derived by P5
+    };
+    if !table.is_ancestor_or_self(&it.id.scope, scope) {
+        return Verdict::inert(
+            InertReason::OutsideSubtree,
+            Some((codes::HN_C003, format!("`ovr {}` targets an item outside this scope's ancestry", p.raw.target_text),
+                "exceptions never escape their subtree; escalate with a [[req]]")),
+        );
+    }
+    // [T11: applies glob escaping the subtree]
+    if p.touched.contains("policy") {
+        return Verdict::inert(
+            InertReason::NonDelegable,
+            Some((codes::HN_C003, "only the home scope may set an item's policy".to_string(),
+                "set `policy=` on the def in the home scope, or escalate with a [[req]]")),
+        );
+    }
+    if p.touched.iter().any(|k| !field_allowed(ev, it, k)) {
+        return Verdict::inert(
+            InertReason::UnknownField,
+            Some((codes::HN_S009, format!("`ovr {}` names a field the item does not have", p.raw.target_text),
+                "use a field of the target or declare it under [kinds.<k>.keys]")),
+        );
+    }
+    let _ = dup; // [T11: duplicate]
+    let exp_text = p.raw.exp.as_deref();
+    if p.raw.until || exp_text.is_some_and(looks_like_version) {
+        return Verdict::inert(
+            InertReason::VersionExpiry,
+            Some((codes::HN_S012, "version-based expiry needs seals (0.2); the override is dropped".to_string(),
+                "write exp=YYYY-MM-DD")),
+        );
+    }
+    let bad_date = exp_text.is_some_and(|s| s.parse::<jiff::civil::Date>().is_err());
+    let bad_op = p.raw.op_text.as_deref().is_some_and(|s| parse_op(s).is_none());
+    if bad_date || bad_op {
+        return Verdict::inert(
+            InertReason::Incomplete,
+            Some((codes::HN_S016, format!("`ovr {}` has an invalid exp or op", p.raw.target_text),
+                "exp is an ISO date; op is loosen|tighten|set|replace|add|remove")),
+        );
+    }
+    let tighten = tightening(it, working, p);
+    let mut used = Vec::new();
+    let mut need_complete = false;
+    if !tighten {
+        match it.policy {
+            Policy::Open => {}
+            Policy::NeedsException => need_complete = true,
+            Policy::Sealed => {
+                let g = matching_grants(ev.grants, table, ev.as_of, &p.target, &p.touched, scope);
+                if g.is_empty() {
+                    return Verdict::inert(InertReason::SealedNoAllow, None); // HN-X005 is derived by P5
+                }
+                used = g.iter().map(|a| a.id.clone()).collect();
+                need_complete = true;
+            }
         }
     }
-    // [T11: duplicate]
-    // [T9, T10: expiry shapes, tighten, policy, owner, expiry, stale]
-    v(OvrState::Effective)
+    if need_complete {
+        let have = [("why", p.raw.why.is_some()), ("owner", p.raw.owner.is_some()), ("exp", exp_text.is_some())];
+        let missing: Vec<&str> = have.iter().filter(|t| !t.1).map(|t| t.0).collect();
+        if !missing.is_empty() {
+            return Verdict::inert(
+                InertReason::Incomplete,
+                Some((codes::HN_S016, format!("`ovr {}` is missing {}", p.raw.target_text, missing.join(", ")),
+                    "add why=, owner= and exp=YYYY-MM-DD")),
+            );
+        }
+    }
+    // [T10: owner, expiry, stale, approval]
+    Verdict { state: OvrState::Effective, approval: ApprovalStatus::NotRequired, tighten, used_grants: used, diag: None }
 }
 
 pub(crate) fn evaluate_scope(
@@ -361,13 +469,13 @@ pub(crate) fn evaluate_scope(
     let mut out = Vec::new();
     for p in &pres {
         let item = ev.idx.items.get(&p.target);
-        let verdict = judge(ev, p, item, working);
-        if verdict.state == OvrState::Inert(InertReason::UnknownField) {
+        let verdict = judge(ev, p, item, working, false); // Task 11 supplies `dup`
+        if let Some((code, msg, hint)) = &verdict.diag {
             diags.push(
-                Dg::new(codes::HN_S009, Severity::Error, &p.raw.at.path, p.raw.at.line, p.raw.at.col)
+                Dg::new(*code, Severity::Error, &p.raw.at.path, p.raw.at.line, p.raw.at.col)
                     .scope(scope)
-                    .msg(format!("`ovr {}` names a field the item does not have", p.raw.target_text))
-                    .hint("use a field of the target (see `fairlead explain` for the kind), or declare it under [kinds.<k>.keys]")
+                    .msg(msg.clone())
+                    .hint(*hint)
                     .text(p.raw.text.as_str())
                     .done(),
             );
