@@ -1,20 +1,38 @@
 [package]
 name = "fairlead-core"
-description = "The fairlead engine: discovery, walk, extraction, registry, checks, context and writes."
+description = "Core engine of fairlead: discovery, walk, extraction, registry, checks, context, writes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-publish.workspace = true
 repository.workspace = true
-
-[features]
-# git2 is built from vendored sources by default (R-GIT-077).
-default = ["vendored-libgit2"]
-vendored-libgit2 = []
+publish.workspace = true
 
 [lints]
 workspace = true
 
+[features]
+default = ["vendored-libgit2"]
+# R-GIT-077: never require a system libgit2.
+vendored-libgit2 = ["git2/vendored-libgit2"]
+
 [dependencies]
-fairlead-syntax.workspace = true
+fairlead-syntax = { path = "../fairlead-syntax" }
+ignore = "0.4.33"
+globset = "0.4.20"
+regex = "1"                      # UNVERIFIED version: confirm MSRV 1.88 and licence (C-2)
+blake3 = "1.8.7"
+rayon = "1.12.0"
+git2 = { version = "0.21.0", default-features = false }   # no https/ssh: no network stack (R-ARCH-123)
+toml = { version = "1.1.7", default-features = false, features = ["std", "parse", "display", "serde"] }   # UNVERIFIED feature names
+toml_edit = "0.25.16"            # used by P7; declared once so the lockfile is stable
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+jiff = { version = "0.2.38", default-features = false, features = ["std"] }   # UNVERIFIED feature names
+similar = "3.2.0"                # used by P5
+camino = "1.2.6"
+dunce = "1.0.5"
+tempfile = "3.27.0"
+semver = "1.0.28"
+thiserror = "2"                  # UNVERIFIED (C-2)
+unicode-normalization = "0.1"    # UNVERIFIED (C-2): RepoPath::fold_key and control-file path hygiene
