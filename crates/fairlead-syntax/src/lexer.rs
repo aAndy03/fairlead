@@ -115,6 +115,8 @@ struct Rules {
     triple: bool,
     rust_raw: bool,
     hash_needs_space: bool,
+    /// `"..."` may span lines (Rust string literals).
+    dq_spans_lines: bool,
 }
 
 fn rules_for(ext: &str) -> Rules {
@@ -125,9 +127,13 @@ fn rules_for(ext: &str) -> Rules {
         triple,
         rust_raw,
         hash_needs_space,
+        dq_spans_lines: false,
     };
     match ext {
-        "rs" => r(Sq::Char, false, false, true, false),
+        "rs" => Rules {
+            dq_spans_lines: true,
+            ..r(Sq::Char, false, false, true, false)
+        },
         "ts" | "tsx" | "js" | "jsx" | "mjs" => r(Sq::Str, true, false, false, false),
         "go" => r(Sq::Char, true, false, false, false),
         "java" | "kt" | "swift" | "cs" | "scala" => r(Sq::Char, false, true, false, false),
@@ -138,8 +144,9 @@ fn rules_for(ext: &str) -> Rules {
     }
 }
 
-/// `"..."` / `'...'` ending at the closing quote or the newline; triple quotes span lines.
-fn scan_quoted(b: &[u8], i: usize, q: u8, triple: bool) -> usize {
+/// `"..."` / `'...'` ending at the closing quote or the newline (unless `spans_lines`); triple
+/// quotes span lines.
+fn scan_quoted(b: &[u8], i: usize, q: u8, triple: bool, spans_lines: bool) -> usize {
     if triple && at(b, i + 1) == q && at(b, i + 2) == q {
         return find(b, i + 3, &[q, q, q]).map_or(b.len(), |p| p + 3);
     }
@@ -148,7 +155,7 @@ fn scan_quoted(b: &[u8], i: usize, q: u8, triple: bool) -> usize {
         match at(b, j) {
             b'\\' => j += 2,
             c if c == q => return j + 1,
-            b'\n' => return j,
+            b'\n' if !spans_lines => return j,
             _ => j += 1,
         }
     }
@@ -386,13 +393,13 @@ fn lex_code(n: &Normalized, ext: &str, leaders: &[Leader]) -> Lexed {
         }
         match at(b, i) {
             b'"' if rules.dq => {
-                let e = scan_quoted(b, i, b'"', rules.triple).max(i + 1);
+                let e = scan_quoted(b, i, b'"', rules.triple, rules.dq_spans_lines).max(i + 1);
                 out.strings.push(i..e);
                 i = e;
             }
             b'\'' => match rules.sq {
                 Sq::Str => {
-                    let e = scan_quoted(b, i, b'\'', rules.triple).max(i + 1);
+                    let e = scan_quoted(b, i, b'\'', rules.triple, false).max(i + 1);
                     out.strings.push(i..e);
                     i = e;
                 }
@@ -724,6 +731,13 @@ mod tests {
         let (n, l) = lex_str("let s = \"// fairlead: use x\";\n// real\n", "rs");
         assert_eq!(texts(&n, &l), vec!["real"]);
         assert_eq!(l.strings.len(), 1);
+    }
+
+    #[test]
+    fn r_file_013__rust_multi_line_strings_hide_comments() {
+        let src = "let s = \"x\n// fairlead: use tok.a\n\";\n// real\n";
+        let (n, l) = lex_str(src, "rs");
+        assert_eq!(texts(&n, &l), vec!["real"]);
     }
 
     #[test]

@@ -40,13 +40,20 @@ impl CommandResult {
         }
     }
 
-    /// An error stops the verb: its Display goes to stderr and its class sets the exit code.
+    /// An error stops the verb: its Display, then the diagnostics it carries (R-ARCH-103), go to
+    /// stderr and its class sets the exit code.
     pub fn failed(error: &Error) -> Self {
         let mut outcome = VerbOutcome::ok();
         outcome.signal(exit_for_error(error));
+        let mut stderr = format!("{error}\n");
+        if !error.diagnostics().is_empty() {
+            stderr.push_str(&fairlead_core::render::diagnostic_lines(
+                error.diagnostics(),
+            ));
+        }
         Self {
             stdout: String::new(),
-            stderr: format!("{error}\n"),
+            stderr,
             outcome,
         }
     }
