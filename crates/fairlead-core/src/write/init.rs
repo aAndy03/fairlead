@@ -389,10 +389,11 @@ pub fn init_plan(
             .iter()
             .filter(|f| is_floor(f.code))
             .count();
+        // Stale generated files are written by init itself (E-27), so they are never baselined.
         let entries: BTreeMap<_, _> = first_scan
             .findings
             .iter()
-            .filter(|f| !is_floor(f.code))
+            .filter(|f| !is_floor(f.code) && f.code != crate::diag::codes::HN_G001)
             .map(|f| {
                 (
                     f.fingerprint.clone(),

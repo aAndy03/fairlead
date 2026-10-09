@@ -350,3 +350,51 @@ pub fn commit_plan(session: &WriteSession<'_>, plan: Plan) -> Result<WriteOutcom
         report,
     })
 }
+
+/// R-CLI-019: the first scan `init` reports, with the control file it would write held in memory
+/// (A-10: the same bytes `init_plan` writes). Only the walk and file reads touch disk.
+pub fn init_first_scan(
+    root: &Root,
+    control_bytes: &[u8],
+    threads: Option<usize>,
+    options: &CheckOptions,
+) -> Result<CheckReport, Error> {
+    let path = RepoPath::new(&format!("{}/control.toml", root.folder))
+        .map_err(|_| Error::Internal("the managed control path is not a repo path".into()))?;
+    let control = crate::config::parse_control(&path, control_bytes, true)
+        .map_err(|failure| Error::Config(Box::new(failure)))?;
+    let walked = walk(root, &WalkOptions::from_root_control(&control, threads))?;
+    let mut controls = load_controls(root, &walked)?;
+    controls.files.insert(path, Ok(control));
+    let walked = apply_child_excludes(walked, &controls)?;
+    let plan = ExtractPlan::from_controls(root, &controls)?;
+    let key = CacheKey {
+        fairlead_version: env!("CARGO_PKG_VERSION").to_string(),
+        grammar: GRAMMAR_EDITION,
+        config_hash: config_hash_of(&controls),
+        as_of: None,
+    };
+    let cache = Cache::open(root, false, key);
+    let corpus = in_pool(threads, || {
+        extract_files(&walked, root, &plan, &cache, None)
+    })?;
+    let facts = collect_facts(root, &walked, &controls, false)?;
+    let registry = resolve(&ResolveInput {
+        root,
+        controls: &controls,
+        corpus: &corpus,
+        facts: &facts,
+        as_of: options.as_of,
+    });
+    let mut load_diags = walked.diags.clone();
+    load_diags.extend(control_diagnostics(&controls));
+    sort_diagnostics(&mut load_diags);
+    Ok(check_run(&CheckInput {
+        registry: &registry,
+        corpus: &corpus,
+        facts: &facts,
+        load_diags: &load_diags,
+        baseline: None,
+        options,
+    }))
+}
