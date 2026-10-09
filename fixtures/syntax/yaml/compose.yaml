@@ -1,0 +1,8 @@
+version: 1
+
+# fairlead: use tok.accent
+services:
+  web:
+    image: nginx
+
+other: 2

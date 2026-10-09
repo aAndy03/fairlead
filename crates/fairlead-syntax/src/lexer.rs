@@ -102,6 +102,7 @@ fn inline_flag(n: &Normalized, start: usize, end: usize) -> bool {
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum Sq {
+    #[allow(dead_code)] // reason: reserved for hosts without single-quote strings
     Off,
     Char,
     Str,

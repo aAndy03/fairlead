@@ -39,10 +39,11 @@ pub fn is_reserved_windows_name(s: &str) -> bool {
         return true;
     }
     for p in ["com", "lpt"] {
-        if let Some(d) = l.strip_prefix(p) {
-            if d.len() == 1 && d.bytes().all(|b| (b'1'..=b'9').contains(&b)) {
-                return true;
-            }
+        if let Some(d) = l.strip_prefix(p)
+            && d.len() == 1
+            && d.bytes().all(|b| (b'1'..=b'9').contains(&b))
+        {
+            return true;
         }
     }
     false

@@ -1,0 +1,8 @@
+# fairlead: def crate.sync-core
+
+[package]
+name = "sync-core"
+
+[dependencies]
+# fairlead: use eng.sync-verify
+sync-verify = { path = "../sync-verify" }

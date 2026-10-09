@@ -1,0 +1,4 @@
+def tok.primary L2-2
+use tok.primary L3-3
+env dev L5-5
+def foreign.shadcn L8-8

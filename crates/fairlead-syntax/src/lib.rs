@@ -9,12 +9,17 @@
         clippy::unwrap_used,
         clippy::expect_used,
         clippy::panic,
-        clippy::indexing_slicing
+        clippy::indexing_slicing,
+        non_snake_case
     )
 )]
 
+pub mod attach;
 pub mod delimiters;
 pub mod diag;
+pub mod directive;
+pub mod extract;
+pub mod frontmatter;
 pub mod ids;
 pub mod lexer;
 pub mod normalize;
@@ -24,4 +29,11 @@ pub const SYNTAX_VERSION: u32 = 1;
 /// Directive grammar edition implemented by this crate (D-17, D-45).
 pub const GRAMMAR_EDITION: u32 = 1;
 
+pub use delimiters::{CommentTable, Leader};
 pub use diag::{DiagCode, Severity, Span, SyntaxDiag, codes};
+pub use directive::{
+    Arg, ArgOp, ArgValue, Carrier, Directive, Extent, Verb, known_keys, render_directive_body,
+};
+pub use extract::{ExtractConfig, Extraction, ScanStatus, extract};
+pub use frontmatter::{Frontmatter, split_frontmatter};
+pub use normalize::lf_bytes;

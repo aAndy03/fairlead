@@ -1,0 +1,3 @@
+def cmp.sync-button file
+use tok.primary,cmp.button file
+use tok.surface L8-8

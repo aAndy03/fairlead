@@ -1,0 +1,9 @@
+/* fairlead: def tok.primary sym=--primary */
+:root { --primary: #2563eb; }
+.btn { color: var(--primary); } /* fairlead: use tok.primary */
+/* fairlead: env dev +end */
+.debug-grid { outline: 1px solid red; }
+/* fairlead: end */
+/* fairlead: def foreign.shadcn tool=shadcn +end */
+.shadcn-block { color: #111; }
+/* fairlead: end */
