@@ -412,6 +412,64 @@ pub(crate) mod testutil {
             self.tokens.get(&pid).cloned()
         }
     }
+    use crate::check::{CheckReport, Finding, FindingState, ReportHeader, Summary};
+    pub fn finding(code: fairlead_syntax::diag::DiagCode, path: &str, fp: &str) -> Finding {
+        Finding {
+            code,
+            severity: fairlead_syntax::diag::Severity::Error,
+            stage: crate::config::Stage::Enforce,
+            location: crate::diag::Location {
+                path: rp(path),
+                line: 1,
+                col: 1,
+            },
+            scope: crate::registry::ScopeId(
+                fairlead_syntax::ids::ScopeSlug::parse("root").unwrap(),
+            ),
+            rule: None,
+            related: None,
+            message: "m".into(),
+            excerpt: None,
+            intent: None,
+            fix: "f".into(),
+            occurrence: 0,
+            fingerprint: crate::hash::Fingerprint::parse(fp).unwrap(),
+            state: FindingState::New,
+            waived_by: None,
+        }
+    }
+    pub fn report(findings: Vec<Finding>) -> CheckReport {
+        CheckReport {
+            header: ReportHeader {
+                fairlead_version: "0.1.0".into(),
+                edition: Edition(1),
+                as_of: AsOf::parse("2026-10-09").unwrap(),
+                scopes: 1,
+                files: 0,
+                rules: 0,
+            },
+            findings,
+            summary: Summary {
+                errors: 0,
+                warns: 0,
+                infos: 0,
+                baselined: 0,
+                waived: 0,
+                observe: 0,
+                accepted: 0,
+                waivers: BTreeMap::new(),
+                relaxations: vec![],
+                exceptions_delta: 0,
+                codeowners_uncovered: 0,
+                requests_open: 0,
+                oldest_request_days: None,
+            },
+            partial: false,
+            unknown_scopes: vec![],
+            absent_scopes: vec![],
+            zero_declarations: false,
+        }
+    }
 }
 
 #[cfg(test)]
