@@ -7,10 +7,12 @@ use crate::{
         finding::{DiagB, Finding, FindingState, RuleId, clip, rule_id},
         fingerprint::{FingerprintInput, collapse_whitespace, fingerprint},
         floor::{clamp, is_floor},
+        options::CheckOptions,
         rules::RuleSet,
     },
     diag::{Diagnostic, codes::*},
     extract::{Corpus, literals::rel_to},
+    facts::Facts,
     hash::Fingerprint,
     path::RepoPath,
     registry::{Override, OvrId, Registry, ScopeId},
@@ -366,6 +368,41 @@ pub(crate) fn baseline_diags(
     out
 }
 
+/// What the report keeps (R-CHK-002): `--changed` and `--files-from` intersect (C-36), `[PATH...]`
+/// match files or directories, `--rule` narrows by code. A filter never hides a finding because
+/// git facts are missing: `preflight` refuses that case first (R-ARCH-102).
+pub(crate) struct ReportScope {
+    allowed: Option<BTreeSet<RepoPath>>,
+    prefixes: Vec<RepoPath>,
+    rule: Option<DiagCode>,
+}
+impl ReportScope {
+    pub(crate) fn new(opts: &CheckOptions, facts: &Facts) -> ReportScope {
+        let changed = if opts.changed {
+            facts.git.changed.as_ref().map(|c| c.0.clone())
+        } else {
+            None
+        };
+        let allowed = match (&opts.files_from, changed) {
+            (Some(a), Some(b)) => Some(a.intersection(&b).cloned().collect()),
+            (Some(a), None) => Some(a.clone()),
+            (None, Some(b)) => Some(b),
+            (None, None) => None,
+        };
+        ReportScope {
+            allowed,
+            prefixes: opts.paths.clone(),
+            rule: opts.rule_filter,
+        }
+    }
+    pub(crate) fn keeps(&self, f: &Finding) -> bool {
+        let p = &f.location.path;
+        self.allowed.as_ref().is_none_or(|a| a.contains(p))
+            && (self.prefixes.is_empty() || self.prefixes.iter().any(|x| p == x || p.is_within(x)))
+            && self.rule.is_none_or(|c| f.code == c)
+    }
+}
+
 #[cfg(test)]
 #[allow(non_snake_case)] // reason: test names start with the rule id
 mod tests {
@@ -584,5 +621,59 @@ mod tests {
                 .iter()
                 .all(|d| d.code != c::HN_B001)
         );
+    }
+
+    fn f(path: &str, code: DiagCode) -> Finding {
+        crate::check::testkit::finding(
+            path,
+            1,
+            code,
+            Severity::Error,
+            Stage::Enforce,
+            FindingState::New,
+        )
+    }
+    fn rp(s: &str) -> RepoPath {
+        RepoPath::new(s).unwrap()
+    }
+    fn opts() -> CheckOptions {
+        CheckOptions::new(AsOf::parse("2026-10-09").unwrap())
+    }
+
+    #[test]
+    fn r_arch_075__r_cli_022__changed_and_files_from_intersect() {
+        let mut facts = crate::check::testkit::empty_facts();
+        facts.git.changed = Some(crate::facts::ChangedSet(
+            [rp("a.ts"), rp("b.ts")].into_iter().collect(),
+        ));
+        let mut o = opts();
+        o.changed = true;
+        o.files_from = Some([rp("b.ts"), rp("c.ts")].into_iter().collect());
+        let s = ReportScope::new(&o, &facts);
+        let kept: Vec<_> = ["a.ts", "b.ts", "c.ts"]
+            .iter()
+            .filter(|p| s.keeps(&f(p, c::HN_R001)))
+            .collect();
+        assert_eq!(kept, [&"b.ts"]);
+    }
+
+    #[test]
+    fn r_chk_002__path_arguments_match_files_and_whole_directories_and_rule_narrows_by_code() {
+        let mut o = opts();
+        o.paths = vec![rp("src"), rp("lib/x.ts")];
+        o.rule_filter = Some(c::HN_R001);
+        let s = ReportScope::new(&o, &crate::check::testkit::empty_facts());
+        assert!(s.keeps(&f("src/a/b.ts", c::HN_R001)));
+        assert!(s.keeps(&f("lib/x.ts", c::HN_R001)));
+        assert!(!s.keeps(&f("srcx/a.ts", c::HN_R001)));
+        assert!(!s.keeps(&f("src/a.ts", c::HN_T001)));
+    }
+
+    #[test]
+    fn r_arch_075__changed_without_git_changes_reports_everything_rather_than_nothing() {
+        let mut o = opts();
+        o.changed = true; // facts.git.changed is None: preflight refuses; the filter must not hide findings
+        let s = ReportScope::new(&o, &crate::check::testkit::empty_facts());
+        assert!(s.keeps(&f("a.ts", c::HN_R001)));
     }
 }

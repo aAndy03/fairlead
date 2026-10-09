@@ -50,6 +50,34 @@ pub struct CheckReport {
     pub zero_declarations: bool,
 }
 
+/// Everything `run` reads (contract 4.9). `load_diags` are the walk and control-file diagnostics.
+pub struct CheckInput<'a> {
+    pub registry: &'a Registry,
+    pub corpus: &'a Corpus,
+    pub facts: &'a Facts,
+    pub load_diags: &'a [crate::diag::Diagnostic],
+    pub baseline: Option<&'a Baseline>,
+    pub options: &'a CheckOptions,
+}
+
+/// R-ARCH-102: call before `run`; `Err` maps to exit 5, never to a pass (A-17).
+pub fn preflight(input: &CheckInput<'_>) -> Result<(), crate::error::Error> {
+    let g = &input.facts.git;
+    if input.options.changed {
+        if let Some(why) = &g.unreadable {
+            return Err(crate::error::Error::CannotDetermine(format!(
+                "git state is unreadable: {why}"
+            )));
+        }
+        if g.changed.is_none() {
+            return Err(crate::error::Error::CannotDetermine(
+                "--changed needs a git repository".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Read-only bundle handed to each `Check` (everything pure).
 pub struct CheckCx<'a> {
     pub registry: &'a Registry,
@@ -62,3 +90,37 @@ pub struct CheckCx<'a> {
 
 #[cfg(test)]
 pub(crate) mod testkit;
+
+#[cfg(test)]
+#[allow(non_snake_case)] // reason: test names start with the rule id
+mod tests {
+    use super::*;
+    use crate::check::testkit::{Built, World};
+
+    fn input<'a>(b: &'a Built, o: &'a CheckOptions) -> CheckInput<'a> {
+        CheckInput {
+            registry: &b.registry,
+            corpus: &b.corpus,
+            facts: &b.facts,
+            load_diags: &[],
+            baseline: None,
+            options: o,
+        }
+    }
+
+    #[test]
+    fn r_arch_102__unreadable_git_under_changed_is_cannot_determine() {
+        use crate::error::Error::CannotDetermine;
+        let mut b = World::new().build();
+        let mut o = b.options();
+        assert!(preflight(&input(&b, &o)).is_ok()); // not asked for --changed
+        o.changed = true;
+        assert!(matches!(preflight(&input(&b, &o)), Err(CannotDetermine(_)))); // no git facts
+        b.facts.git.changed = Some(crate::facts::ChangedSet(Default::default()));
+        assert!(preflight(&input(&b, &o)).is_ok());
+        b.facts.git.unreadable = Some("index locked".into());
+        assert!(
+            matches!(preflight(&input(&b, &o)), Err(CannotDetermine(m)) if m.contains("index locked"))
+        );
+    }
+}
