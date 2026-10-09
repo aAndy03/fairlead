@@ -1,0 +1,2 @@
+# scope root edition=1 body=ws7r8rrwv44s699fwzyb
+rule.no-raw-color pol=needs-exception sum="colours come from tokens" check=leak exclude="" glob=**/*.tsx sev=error stage=enforce tokens=tok.* waivable=true why="colours come from tokens"

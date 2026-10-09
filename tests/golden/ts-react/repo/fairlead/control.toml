@@ -1,0 +1,36 @@
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder        = "fairlead"
+fairlead-version = "0.1.0"
+purpose       = "Console and shared UI: shadcn primitives, Tailwind v4 tokens."
+owners        = ["@ui-platform", "@console-ui", "@design"]
+
+[kinds.tok]
+title = "design token"
+shape = "doc"
+
+[kinds.cmp]
+title = "component"
+shape = "either"
+impl  = 1
+
+[policies]
+"tok.color.primary" = "sealed"
+
+[policies.waiver]
+budget   = 25
+approval = "required"
+
+[rules.no-raw-color]
+check    = "leak"
+tokens   = ["tok.*"]
+sev      = "error"
+stage    = "enforce"
+glob     = ["**/*.css", "**/*.tsx"]
+waivable = true
+why      = "colours come from tokens"

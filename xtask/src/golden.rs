@@ -41,11 +41,18 @@ pub fn bless(root: &Path, name: &str) -> Result<(), String> {
     let bin: PathBuf = root.join("target/debug").join(exe);
     let dir = root.join("tests/golden").join(name);
     let g = golden_spec::load(&dir)?;
+    let mut scratch: Option<tempfile::TempDir> = None;
     for case in &g.cases {
-        let Some(rel) = &case.stdout else { continue };
-        let scratch = tempfile::tempdir().map_err(|e| e.to_string())?;
-        let repo = scratch.path().join("repo");
-        golden_spec::materialise(&dir, &g.golden, &repo).map_err(|e| e.to_string())?;
+        if !case.reuse || scratch.is_none() {
+            let s = tempfile::tempdir().map_err(|e| e.to_string())?;
+            golden_spec::materialise(&dir, &g.golden, &s.path().join("repo"))
+                .map_err(|e| e.to_string())?;
+            scratch = Some(s);
+        }
+        let repo = scratch
+            .as_ref()
+            .map(|s| s.path().join("repo"))
+            .ok_or("no copy")?;
         let run = golden_spec::run_case(&bin, &repo, case).map_err(|e| e.to_string())?;
         if run.code != case.exit {
             return Err(format!(
@@ -53,6 +60,7 @@ pub fn bless(root: &Path, name: &str) -> Result<(), String> {
                 run.code, case.exit
             ));
         }
+        let Some(rel) = &case.stdout else { continue };
         std::fs::write(dir.join(rel), &run.stdout).map_err(|e| e.to_string())?;
         println!("blessed {name}/{rel}");
     }

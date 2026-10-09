@@ -1,0 +1,10 @@
+[golden]
+name = "legacy-encoding"
+platforms = ["linux", "windows", "macos"]
+needs_git = false
+line_endings = "lf"
+
+[[case]]
+args = ["check", "--as-of", "2026-10-09", "--format", "terse"]
+exit = 0
+stdout = "expected/check.terse.txt"

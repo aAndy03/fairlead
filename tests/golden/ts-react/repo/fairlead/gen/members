@@ -1,0 +1,4 @@
+# scope root edition=1 body=p62w4x0fnz2x27syyh1r
+scope.console dir=apps/console
+scope.ui dir=packages/ui
+self.root dir=. up=- chain=root

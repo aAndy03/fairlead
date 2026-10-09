@@ -1,0 +1,4 @@
+# scope root edition=1 body=ba0z5ggnp807xk6ga7wf
+scope.tauri dir=src-tauri
+scope.web dir=src
+self.root dir=. up=- chain=root

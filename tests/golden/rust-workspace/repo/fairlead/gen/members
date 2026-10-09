@@ -1,0 +1,3 @@
+# scope root edition=1 body=2ha528dyr9jrb6txepab
+scope.core dir=crates/sync-core
+self.root dir=. up=- chain=root

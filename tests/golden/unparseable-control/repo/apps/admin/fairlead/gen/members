@@ -1,0 +1,2 @@
+# scope admin edition=1 body=mhm1wp28atyyh5th77gv
+self.admin dir=apps/admin up=root chain=root,admin

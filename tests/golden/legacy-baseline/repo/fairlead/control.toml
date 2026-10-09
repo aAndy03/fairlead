@@ -1,0 +1,23 @@
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder        = "fairlead"
+fairlead-version = "0.1.0"
+owners        = ["@ui-platform"]
+
+[kinds.tok]
+title = "design token"
+shape = "doc"
+
+[rules.no-raw-color]
+check    = "leak"
+tokens   = ["tok.*"]
+sev      = "error"
+stage    = "enforce"
+glob     = ["**/*.tsx"]
+waivable = true
+why      = "colours come from tokens"

@@ -1,0 +1,5 @@
+[fairlead]
+scope = "console"
+
+[settings]
+purpose = "Admin console: app shell and navigation."

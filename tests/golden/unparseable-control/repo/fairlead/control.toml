@@ -1,0 +1,14 @@
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder        = "fairlead"
+fairlead-version = "0.1.0"
+owners        = ["@andy"]
+
+[kinds.tok]
+title = "design token"
+shape = "doc"

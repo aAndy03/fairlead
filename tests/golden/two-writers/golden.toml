@@ -1,0 +1,24 @@
+[golden]
+name = "two-writers"
+platforms = ["linux", "windows", "macos"]
+needs_git = false
+line_endings = "lf"
+
+[[case]]
+args = ["sync", "--as-of", "2026-10-09"]
+exit = 4
+stdout = "expected/sync-refused.txt"
+
+# A-39: the lock is three LF lines, not TOML.
+[[case.edit]]
+path = ".fairlead/lock"
+append = "pid=4242\nhost=other-machine\nstart=-\n"
+
+[[case]]
+args = ["check", "--as-of", "2026-10-09", "--format", "terse"]
+exit = 0
+stdout = "expected/check-with-lock.terse.txt"
+
+[[case.edit]]
+path = ".fairlead/lock"
+append = "pid=4242\nhost=other-machine\nstart=-\n"

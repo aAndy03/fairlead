@@ -1,0 +1,5 @@
+[fairlead]
+scope = "tauri"
+
+[settings]
+purpose = "Tauri backend."

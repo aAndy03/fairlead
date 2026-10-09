@@ -1,0 +1,3 @@
+[workspace]
+members = ["crates/sync-core", "crates/sync-engines"]
+resolver = "3"

@@ -9,12 +9,12 @@ use crate::{
     config::ImplLimit,
     diag::{Diagnostic, codes::*},
     path::RepoPath,
-    registry::{ItemId, Lookup, Registry, ScopeId, Site},
+    registry::{ItemId, Lookup, Registry, ScopeId, ScopeState, Site},
 };
 use fairlead_syntax::{
     diag::DiagCode,
     directive::{ArgValue, Directive, Verb},
-    ids::Id,
+    ids::{Id, IdQualifier},
 };
 use std::collections::BTreeSet;
 
@@ -36,6 +36,15 @@ fn referenced(d: &Directive) -> Vec<Id> {
         v.push(id);
     }
     v
+}
+
+fn in_absent_scope(reg: &Registry, id: &Id) -> bool {
+    match &id.qualifier {
+        IdQualifier::Scope(q) => reg
+            .scope(&ScopeId(q.clone()))
+            .is_some_and(|s| matches!(s.state, ScopeState::AbsentFromTree)),
+        _ => false,
+    }
 }
 
 fn dangling(reg: &Registry, path: &RepoPath, d: &Directive, id: &Id, nearest: &[Id]) -> Diagnostic {
@@ -86,6 +95,11 @@ impl Check for RefsCheck {
                         continue;
                     } // unknown kind is S002's
                     if let Lookup::Missing { nearest } = reg.lookup(scope, &id) {
+                        // R-CHK-057: an ID qualified with a scope absent from the tree is unknown,
+                        // not dangling; the absent scope itself is reported (HN-V013, exit 5).
+                        if in_absent_scope(reg, &id) {
+                            continue;
+                        }
                         out.push(dangling(reg, path, d, &id, &nearest));
                     }
                 }

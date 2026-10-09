@@ -1,0 +1,2 @@
+# scope ui edition=1 body=fmqwx497ew6f7r86qg92
+self.ui dir=packages/ui up=root chain=root,ui

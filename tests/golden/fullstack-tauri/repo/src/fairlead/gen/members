@@ -1,0 +1,2 @@
+# scope web edition=1 body=qw5g9dn2ek9yv8y6kngz
+self.web dir=src up=root chain=root,web

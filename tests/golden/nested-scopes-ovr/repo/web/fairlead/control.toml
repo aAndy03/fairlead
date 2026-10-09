@@ -1,0 +1,5 @@
+[fairlead]
+scope = "web"
+
+[settings]
+purpose = "Web frontend scope."

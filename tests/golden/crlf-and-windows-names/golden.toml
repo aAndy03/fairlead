@@ -1,0 +1,10 @@
+[golden]
+name = "crlf-and-windows-names"
+platforms = ["linux", "windows", "macos"]
+needs_git = false
+line_endings = "crlf"
+
+[[case]]
+args = ["check", "--as-of", "2026-10-09", "--format", "terse"]
+exit = 1
+stdout = "expected/check.terse.txt"

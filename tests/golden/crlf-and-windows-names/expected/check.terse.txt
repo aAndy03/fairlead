@@ -1,0 +1,7 @@
+fairlead check 0.1.0 edition=1 as-of=2026-10-09 scopes=1 files=5 rules=0
+errors 2 warn 0 info 1 | baselined 0 | waived 0 | observe 0 | accepted 0
+HN-P001 error fairlead/docs/names.md:4:8 `cmp.aux` uses a Windows-reserved name (expected a name that is not con prn aux nul com1..9 lpt1..9) | fix: rename: con prn aux nul com1..9 lpt1..9 and names ending in `.` or space are reserved
+HN-P001 error src/main.ts:1:18 `cmp.aux` uses a Windows-reserved name (expected a name that is not con prn aux nul com1..9 lpt1..9) | fix: rename: con prn aux nul com1..9 lpt1..9 and names ending in `.` or space are reserved
+HN-N001 info fairlead/control.toml 0 rules declared, 0 IDs: nothing verified | fix: declare a rule or an ID: fairlead new rule, fairlead new <kind>
+waivers: none | relaxations: none
+exceptions: +0

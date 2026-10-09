@@ -1,0 +1,3 @@
+# scope root edition=1 body=xjxn9ybpbp45xynm56qn
+tok.color.background pol=open sum="page background" applies=background-color value=#ffffff
+tok.color.primary pol=sealed sum="brand colour" applies=color value=#2563eb

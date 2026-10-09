@@ -1,0 +1,2 @@
+# scope console edition=1 body=eq4w1wjgpv4nbzb3cwpm
+self.console dir=apps/console up=root chain=root,console

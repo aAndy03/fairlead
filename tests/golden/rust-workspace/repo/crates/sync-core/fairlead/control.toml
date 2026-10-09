@@ -1,0 +1,5 @@
+[fairlead]
+scope = "core"
+
+[settings]
+purpose = "Primitives: no I/O."

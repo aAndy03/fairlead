@@ -1,0 +1,2 @@
+# scope root edition=1 body=g6f2nsmwjf3sdjs7esn3
+rule.primitive-io pol=needs-exception sum="primitives stay free of I/O" check=pattern exclude="" forbid=std::(fs|io|net):: glob=crates/sync-core/src/** msg="I/O belongs in an adapter (rank 1)" sev=error stage=enforce waivable=true why="primitives stay free of I/O"

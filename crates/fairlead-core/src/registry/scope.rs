@@ -328,7 +328,12 @@ pub(crate) fn build_scope_table(
                     continue;
                 };
                 let id = ScopeId(slug);
-                if scopes.contains_key(&id) || !absent.iter().any(|a| is_within(&dir, a)) {
+                // git reports absent FILES; a scope is absent when its directory holds one (or lies under one).
+                if scopes.contains_key(&id)
+                    || !absent
+                        .iter()
+                        .any(|a| is_within(a, &dir) || is_within(&dir, a))
+                {
                     continue;
                 }
                 if let Ok(dp) = RepoPath::new(&dir) {

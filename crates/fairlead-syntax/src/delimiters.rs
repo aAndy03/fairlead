@@ -70,7 +70,18 @@ impl CommentTable {
                 }],
             );
         }
-        for e in ["py", "sh", "rb", "toml", "yaml", "yml", "ps1", "gitignore"] {
+        for e in [
+            "py",
+            "sh",
+            "rb",
+            "toml",
+            "yaml",
+            "yml",
+            "ps1",
+            "gitignore",
+            "gitattributes",
+            "codeowners",
+        ] {
             m.insert(e.to_owned(), vec![Leader::Line("#".to_owned())]);
         }
         for e in ["sql", "lua", "hs"] {
@@ -130,7 +141,18 @@ mod tests {
         for ext in ["css", "scss", "less"] {
             assert_eq!(t.leaders_for(ext), Some(&[block()][..]), "{ext}");
         }
-        for ext in ["py", "sh", "rb", "toml", "yaml", "yml", "ps1", "gitignore"] {
+        for ext in [
+            "py",
+            "sh",
+            "rb",
+            "toml",
+            "yaml",
+            "yml",
+            "ps1",
+            "gitignore",
+            "gitattributes",
+            "codeowners",
+        ] {
             assert_eq!(t.leaders_for(ext), Some(&[line("#")][..]), "{ext}");
         }
         for ext in ["sql", "lua", "hs"] {

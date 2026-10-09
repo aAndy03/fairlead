@@ -43,7 +43,7 @@ fn golden_dirs() -> Vec<PathBuf> {
 }
 
 #[test]
-#[ignore = "the golden repositories arrive in P9-T4..T14"]
+
 fn r_arch_153__mandatory_golden_set_is_complete_and_includes_typescript() {
     let names: BTreeSet<String> = golden_dirs()
         .iter()
@@ -60,7 +60,7 @@ fn r_arch_153__mandatory_golden_set_is_complete_and_includes_typescript() {
 }
 
 #[test]
-#[ignore = "the golden repositories arrive in P9-T4..T14"]
+
 fn r_chk_051__no_false_dangling_references() {
     for name in ["ts-react", "rust-workspace", "fullstack-tauri"] {
         let dir = golden_root().join(name).join("expected");
@@ -77,7 +77,7 @@ fn r_chk_051__no_false_dangling_references() {
 }
 
 #[test]
-#[ignore = "the golden repositories arrive in P9-T4..T14"]
+
 fn golden_repositories_match_expected_bytes() {
     let bin = PathBuf::from(testkit::fairlead_bin());
     let mut failures: Vec<String> = Vec::new();
@@ -86,10 +86,14 @@ fn golden_repositories_match_expected_bytes() {
         if !g.golden.platforms.iter().any(|p| p == std::env::consts::OS) {
             continue;
         }
+        let mut scratch: Option<tempfile::TempDir> = None;
         for (i, case) in g.cases.iter().enumerate() {
-            let scratch = tempfile::tempdir().expect("tempdir");
-            let root = scratch.path().join("repo");
-            gs::materialise(&dir, &g.golden, &root).expect("materialise");
+            if !case.reuse || scratch.is_none() {
+                let s = tempfile::tempdir().expect("tempdir");
+                gs::materialise(&dir, &g.golden, &s.path().join("repo")).expect("materialise");
+                scratch = Some(s);
+            }
+            let root = scratch.as_ref().expect("copy exists").path().join("repo");
             let run = gs::run_case(&bin, &root, case).expect("run fairlead");
             let label = format!("{} case {} ({})", g.golden.name, i + 1, case.args.join(" "));
             if run.code != case.exit {

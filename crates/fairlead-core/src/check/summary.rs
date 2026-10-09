@@ -12,7 +12,7 @@ use crate::config::Stage;
 use crate::diag::codes::{HN_A002, HN_G001};
 use crate::facts::Facts;
 use crate::outcome::{ExitCode, VerbOutcome};
-use crate::registry::{ApprovalStatus, OvrState, Registry, ScopeId};
+use crate::registry::{ApprovalStatus, Registry, ScopeId};
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct WaiverCount {
@@ -161,11 +161,18 @@ pub(crate) fn summarize(
         ));
     }
     s.relaxations = rel.into_iter().collect();
-    let live = reg
-        .overrides()
-        .iter()
-        .filter(|o| matches!(o.state, OvrState::Effective))
-        .count();
+    // R-SCOPE-048: the same rows `sync` writes to each scope's `exc.reg` (its ledger), so a
+    // freshly synced tree has a delta of 0.
+    let live: usize = reg
+        .scopes()
+        .map(|sc| {
+            reg.ledger(&sc.id)
+                .entries
+                .iter()
+                .filter(|e| e.varied_in == sc.id)
+                .count()
+        })
+        .sum();
     let on_disk: usize = facts
         .generated_on_disk
         .iter()

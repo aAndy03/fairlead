@@ -1,0 +1,2 @@
+# scope tauri edition=1 body=qgenk338x32gpjme4yk8
+self.tauri dir=src-tauri up=root chain=root,tauri

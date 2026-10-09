@@ -246,7 +246,13 @@ pub(crate) fn post_exceptions(
         .reg
         .overrides()
         .iter()
-        .filter(|o| is_effective(o, cx.as_of, cx.days) && !hits.contains_key(&o.id))
+        // Only a waiver (an ovr of a rule) can be left without a violation; an ovr of any other
+        // item changes a value and waives nothing.
+        .filter(|o| {
+            o.target.kind.as_str() == "rule"
+                && is_effective(o, cx.as_of, cx.days)
+                && !hits.contains_key(&o.id)
+        })
     {
         out.push(
             DiagB::new(
@@ -668,5 +674,39 @@ mod tests {
         o.changed = true; // facts.git.changed is None: preflight refuses; the filter must not hide findings
         let s = ReportScope::new(&o, &crate::check::testkit::empty_facts());
         assert!(s.keeps(&f("a.ts", c::HN_R001)));
+    }
+
+    #[test]
+    fn r_chk_029__an_ovr_of_a_value_waives_nothing_so_it_is_never_x004() {
+        let root = "[kinds.tok]
+title = \"t\"
+shape = \"doc\"
+[policies]
+\"tok.*\" = \"open\"
+";
+        let doc = "+++
+directives = ['def tok.a size=sm']
++++
+# a
+";
+        let b = World::new()
+            .root(root)
+            .file("fairlead/docs/t.md", doc)
+            .file(
+                "src/a.ts",
+                "// fairlead: ovr tok.a size=lg
+export const a = 1;
+",
+            )
+            .build();
+        assert!(
+            !b.registry.overrides().is_empty(),
+            "the fixture needs an ovr"
+        );
+        let (fs, post) = waived(&b);
+        assert!(
+            fs.is_empty() && post.iter().all(|d| d.code != c::HN_X004),
+            "{post:#?}"
+        );
     }
 }

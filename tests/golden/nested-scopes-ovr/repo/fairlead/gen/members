@@ -1,0 +1,3 @@
+# scope root edition=1 body=p58n5adkqfvgvhp80pxc
+scope.web dir=web
+self.root dir=. up=- chain=root

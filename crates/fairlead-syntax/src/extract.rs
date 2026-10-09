@@ -186,14 +186,25 @@ pub fn extract(bytes: &[u8], ext: &str, cfg: &ExtractConfig) -> Extraction {
         return Extraction::empty(ScanStatus::NoMarker);
     }
     let Some(leaders) = cfg.comments.leaders_for(&ext_l) else {
-        let d = SyntaxDiag::new(
-            codes::HN_I002,
-            Span::whole_file(),
-            format!("no comment syntax known for extension `.{ext_l}`; the file was not scanned"),
-            format!(
-                "add `{ext_l} = [\"//\"]` (or the right leader) under [comments] in the root control file"
-            ),
-        );
+        let d = if ext_l.is_empty() {
+            SyntaxDiag::new(
+                codes::HN_I002,
+                Span::whole_file(),
+                "no comment syntax known for a file without an extension; the file was not scanned",
+                "add the path to [scan] skip if it holds no directives",
+            )
+        } else {
+            SyntaxDiag::new(
+                codes::HN_I002,
+                Span::whole_file(),
+                format!(
+                    "no comment syntax known for extension `.{ext_l}`; the file was not scanned"
+                ),
+                format!(
+                    "add `{ext_l} = [\"//\"]` (or the right leader) under [comments] in the root control file"
+                ),
+            )
+        };
         let mut e = Extraction::empty(ScanStatus::Scanned);
         e.diags.push(d);
         return e;
@@ -636,6 +647,15 @@ mod tests {
         );
         assert!(ex.diags[0].hint.contains("[comments]"));
         assert_eq!(extract(b"nothing here\n", "zzz", &cfg()).diags.len(), 0);
+    }
+
+    #[test]
+    fn r_syn_006__a_file_without_an_extension_gets_a_readable_i002() {
+        let ex = extract(b"/fairlead/ @owner\n", "", &cfg());
+        assert_eq!(ex.diags.len(), 1);
+        let d = &ex.diags[0];
+        assert!(d.message.contains("without an extension") && !d.message.contains("`.`"));
+        assert!(d.hint.contains("[scan] skip"));
     }
 
     #[test]

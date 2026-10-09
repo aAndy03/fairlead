@@ -114,8 +114,19 @@ impl Check for ScopesCheck {
         if scope != reg.root_scope() {
             return;
         }
-        // V013: absent from a sparse checkout is unknown, never green
-        for p in &facts.git.sparse_absent {
+        // V013: absent from a sparse checkout is unknown, never green. Paths inside a scope that is
+        // absent as a whole are reported once, by the scope line below.
+        let absent_dirs: Vec<&RepoPath> = reg
+            .scopes()
+            .filter(|s| matches!(s.state, ScopeState::AbsentFromTree))
+            .map(|s| &s.dir)
+            .collect();
+        for p in facts
+            .git
+            .sparse_absent
+            .iter()
+            .filter(|p| !absent_dirs.iter().any(|d| p.is_within(d)))
+        {
             out.push(
                 DiagB::new(
                     HN_V013,
@@ -196,11 +207,10 @@ impl Check for ScopesCheck {
                     );
                 }
                 (None, None)
-                    if !facts
-                        .git
-                        .sparse_absent
-                        .iter()
-                        .any(|p| m.dir.starts_with(p.as_str())) =>
+                    if !facts.git.sparse_absent.iter().any(|p| {
+                        let p = p.as_str();
+                        m.dir.starts_with(p) || p.starts_with(&format!("{}/", m.dir))
+                    }) =>
                 {
                     let msg = format!(
                         "registered scope {} ({}) is missing from the tree",
@@ -371,5 +381,30 @@ mod tests {
             (d[0].location.path.as_str(), d[0].severity),
             ("apps/legacy", Severity::Warn)
         );
+    }
+
+    #[test]
+    fn r_git_007__a_scope_whose_files_are_absent_is_one_v013_and_never_c009() {
+        // git reports absent FILES; the registered scope that holds them is absent as a whole.
+        let b = World::new()
+            .facts(shards(&[(
+                ROOT_SHARD,
+                "scope.web dir=web
+",
+            )]))
+            .facts(|f| {
+                f.git
+                    .sparse_absent
+                    .push(RepoPath::new("web/fairlead/control.toml").unwrap());
+                f.git
+                    .sparse_absent
+                    .push(RepoPath::new("web/src/app.ts").unwrap());
+            })
+            .build();
+        let ds = b.run_check(&ScopesCheck);
+        let v = of(&ds, c::HN_V013);
+        assert_eq!(v.len(), 1, "{ds:#?}");
+        assert_eq!(v[0].location.path.as_str(), "web");
+        assert!(of(&ds, c::HN_C009).is_empty(), "{ds:#?}");
     }
 }

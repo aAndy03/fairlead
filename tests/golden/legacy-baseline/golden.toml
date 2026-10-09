@@ -1,0 +1,15 @@
+[golden]
+name = "legacy-baseline"
+platforms = ["linux", "windows", "macos"]
+needs_git = false
+line_endings = "lf"
+
+[[case]]
+args = ["sync", "--as-of", "2026-10-09", "--baseline", "--accept-new", "--why", "legacy adoption"]
+exit = 0
+
+[[case]]
+args = ["check", "--as-of", "2026-10-09", "--format", "terse"]
+exit = 0
+stdout = "expected/check-after-baseline.terse.txt"
+reuse = true

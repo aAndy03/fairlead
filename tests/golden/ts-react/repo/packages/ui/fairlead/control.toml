@@ -1,0 +1,5 @@
+[fairlead]
+scope = "ui"
+
+[settings]
+purpose = "Shared UI primitives."

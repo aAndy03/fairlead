@@ -243,7 +243,12 @@ fn compute_extras(
 /// Pure per file (R-ARCH-030). `bytes` are already read.
 pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> FileRecord {
     let class = classify(&entry.path, &plan.classify);
-    let ext = entry.path.extension().to_ascii_lowercase();
+    let mut ext = entry.path.extension().to_ascii_lowercase();
+    // `CODEOWNERS` has no extension; its `#` comments are keyed by its name (it names the
+    // managerial folders, so it always mentions the marker).
+    if ext.is_empty() && entry.path.file_name().eq_ignore_ascii_case("codeowners") {
+        ext = "codeowners".to_string();
+    }
     let scanned = scans_directives(class) && !plan.classify.skips(&entry.path);
     let extraction = scanned.then(|| Arc::new(syntax_extract(bytes, &ext, &plan.syntax)));
     let skip = extraction.as_deref().and_then(skip_of);
@@ -551,6 +556,13 @@ mod tests {
     }
 
     const RS: &[u8] = b"// fairlead: def cmp.a\nfn a() {}\n";
+
+    #[test]
+    fn r_syn_006__codeowners_is_scanned_with_hash_comments_and_raises_no_i002() {
+        let r = rec("CODEOWNERS", b"/fairlead/ @team\n", &plan("", &[]));
+        let ex = r.extraction.as_ref().expect("scanned");
+        assert!(ex.diags.is_empty(), "{:?}", ex.diags);
+    }
 
     #[test]
     fn r_arch_030__extraction_is_a_pure_function_of_bytes_path_and_plan() {

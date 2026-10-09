@@ -1,0 +1,11 @@
+[golden]
+name = "ts-react"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+
+[[case]]
+args = ["check", "--as-of", "2026-10-09", "--format", "terse"]
+exit = 1
+stdout = "expected/check.terse.txt"
+git_status_clean = true

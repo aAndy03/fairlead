@@ -35,12 +35,23 @@ pub struct Case {
     pub edits: Vec<Edit>,
     #[serde(default)]
     pub env: BTreeMap<String, String>,
+    /// A-38: run in the copy the previous case of this golden left behind.
+    #[serde(default)]
+    pub reuse: bool,
+    /// A-38: git commands run in the copy before the edits.
+    #[serde(default)]
+    pub git: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct Edit {
     pub path: String,
+    /// A-38: optional; empty when the edit only removes.
+    #[serde(default)]
     pub append: String,
+    /// A-38: delete the path (file or directory) instead of appending.
+    #[serde(default)]
+    pub remove: bool,
 }
 
 pub struct CaseRun {
@@ -143,6 +154,13 @@ pub fn git_status(root: &Path) -> io::Result<String> {
 /// Appends the edit's text, creating the file (and its directories) when absent.
 pub fn apply_edit(root: &Path, e: &Edit) -> io::Result<()> {
     let p = root.join(&e.path);
+    if e.remove {
+        return if p.is_dir() {
+            std::fs::remove_dir_all(&p)
+        } else {
+            std::fs::remove_file(&p)
+        };
+    }
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -155,6 +173,10 @@ pub fn apply_edit(root: &Path, e: &Edit) -> io::Result<()> {
 
 /// Applies the case's edits, then runs `bin` in `root/cwd` with NO_COLOR set.
 pub fn run_case(bin: &Path, root: &Path, case: &Case) -> io::Result<CaseRun> {
+    for g in &case.git {
+        let args: Vec<&str> = g.iter().map(String::as_str).collect();
+        git(root, &args)?;
+    }
     for e in &case.edits {
         apply_edit(root, e)?;
     }
