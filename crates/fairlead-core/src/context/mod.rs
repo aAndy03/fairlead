@@ -1,7 +1,12 @@
 //! `fairlead context`: the pure brief builder (seam S9). No I/O, no clock, no writes besides the
 //! disposable token-estimate cache (R-CTX-006).
+pub mod brief;
+pub mod digest;
+pub mod estimate;
 pub mod request;
 
+pub use digest::effective_digest;
+pub use estimate::{TokenEstimate, estimate_bytes};
 pub use request::{
     Budget, ContextArgError, ContextInput, ContextRequest, ContextTarget, NO_MATCH_MESSAGE,
     missing_note, parse_target,
