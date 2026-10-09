@@ -1,5 +1,7 @@
 # 0.1 owner runbook: the human-only runs
 
+In PowerShell, quote handles: `--as '@aAndy03'` (a bare `@name` is splatting and arrives empty).
+
 These steps finish the 0.1 exit criteria. Agents cannot do them for you (A-68). Record each run in `docs/plans/0.1/results/<date>-<name>.md`. Note the model and its settings, the date, the commit hash and anything unusual. The thresholds are frozen in [ablation-protocol.md](ablation-protocol.md), and a changed rule invalidates earlier runs.
 
 Suggested order (cheapest first): 1, 2, 3, 4, 5.

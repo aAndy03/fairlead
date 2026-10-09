@@ -296,6 +296,8 @@ Risk: **Low** = active or org-backed; **Med** = last release 12-24 months ago or
 | Paths | `camino`, `dunce` | 1.2.6 / 1.0.5 | Low | `normpath` |
 | Dates (0.1; D-37) | `jiff` | 0.2.38 | Low | `time` |
 | Snapshots | `insta`, `trycmd` | 1.49.0 / 1.2.1 | Low | `expect-test` |
+| Benchmarks (dev only, P9) | `criterion`, default features off | 0.5.1, Apache-2.0 OR MIT | Low | `divan` |
+| SARIF schema check (xtask only, P9) | `jsonschema`, default features off (no HTTP client) | 0.58.6, MIT, MSRV 1.85 | Low | none |
 | Diagnostics | own formatter in 0.1 | n/a | n/a | `ariadne` 0.6.0 later |
 | SARIF (0.1) | hand-written serde structs for the subset used, validated against the official schema in CI | n/a | n/a | `serde-sarif` 0.8.0 is Med-High (stale) |
 | Network client (0.2) | for `upgrade --fetch` only; not assessed | n/a | n/a | none; see R-ARCH-124 |

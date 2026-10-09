@@ -249,7 +249,15 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
     if ext.is_empty() && entry.path.file_name().eq_ignore_ascii_case("codeowners") {
         ext = "codeowners".to_string();
     }
-    let scanned = scans_directives(class) && !plan.classify.skips(&entry.path);
+    // fairlead's own generated files (`gen/members`, `*.reg`) have no comment syntax, so they
+    // cannot carry a directive; scanning them only raised HN-I002 about fairlead itself (E-45).
+    let own_format = class == FileClass::Generated
+        && plan
+            .syntax
+            .comments
+            .leaders_for(ext.trim_start_matches('.'))
+            .is_none();
+    let scanned = scans_directives(class) && !own_format && !plan.classify.skips(&entry.path);
     let extraction = scanned.then(|| Arc::new(syntax_extract(bytes, &ext, &plan.syntax)));
     let skip = extraction.as_deref().and_then(skip_of);
     let extras = if skip.is_none() {
@@ -562,6 +570,16 @@ mod tests {
         let r = rec("CODEOWNERS", b"/fairlead/ @team\n", &plan("", &[]));
         let ex = r.extraction.as_ref().expect("scanned");
         assert!(ex.diags.is_empty(), "{:?}", ex.diags);
+    }
+
+    #[test]
+    fn r_file_009__own_generated_files_without_comment_syntax_raise_no_i002() {
+        let p = plan("", &[]);
+        for path in ["fairlead/gen/members", "fairlead/gen/reg/rule.reg"] {
+            let r = rec(path, b"fairlead members v1\nscope=root\n", &p);
+            assert_eq!(r.class, FileClass::Generated, "{path}");
+            assert!(r.extraction.is_none(), "{path} is not scanned");
+        }
     }
 
     #[test]
