@@ -107,7 +107,10 @@ fn to_hex(bytes: &[u8; 32]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
+#[allow(
+    dead_code,
+    reason = "vendored.lock readers (P7-T15) parse the hex hash"
+)]
 fn from_hex(s: &str) -> Option<[u8; 32]> {
     if s.len() != 64 {
         return None;

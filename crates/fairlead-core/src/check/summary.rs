@@ -39,7 +39,6 @@ pub struct Summary {
     pub oldest_request_days: Option<u32>,
 }
 
-#[allow(dead_code, reason = "wired by P5a-T29; remove once used")]
 pub(crate) fn count(fs: &[Finding]) -> Summary {
     let mut s = Summary::default();
     for f in fs {
@@ -79,7 +78,6 @@ fn n32(n: usize) -> u32 {
 
 /// The full summary of a run: counts, waivers per scope, relaxations, exception delta, requests,
 /// CODEOWNERS coverage (R-CHK-028/029, R-AGT-011/033/034, R-SCOPE-048).
-#[allow(dead_code, reason = "wired by P5a-T29; remove once used")]
 pub(crate) fn summarize(
     fs: &[Finding],
     reg: &Registry,

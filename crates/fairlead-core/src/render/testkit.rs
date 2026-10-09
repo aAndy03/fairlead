@@ -23,7 +23,7 @@ pub(crate) fn scope(id: &str) -> ScopeId {
     ScopeId(ScopeSlug::parse(id).unwrap())
 }
 
-#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
+#[allow(dead_code, reason = "used by the renderer tests of P5b-T13..T19")]
 pub(crate) fn rule(name: &str) -> RuleId {
     RuleId(Id::parse(&format!("rule.{name}")).unwrap().name)
 }
@@ -71,7 +71,7 @@ pub(crate) fn with(mut f: Finding, edit: impl FnOnce(&mut Finding)) -> Finding {
 }
 
 /// A report over `findings` (sorted into the total order), header of the spec example.
-#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
+#[allow(dead_code, reason = "used by the renderer tests of P5b-T13..T19")]
 pub(crate) fn report(mut findings: Vec<Finding>) -> CheckReport {
     findings.sort();
     let count =

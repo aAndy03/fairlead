@@ -113,7 +113,6 @@ impl World {
         f(&mut self.facts);
         self
     }
-    #[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
     pub(crate) fn baseline(mut self, b: Baseline) -> World {
         self.baseline = Some(b);
         self
@@ -201,7 +200,10 @@ impl World {
     }
 }
 
-#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
+#[allow(
+    dead_code,
+    reason = "root and controls are kept for P6/P7 tests built on this kit"
+)]
 pub(crate) struct Built {
     pub(crate) root: Root,
     pub(crate) controls: ControlSet,
@@ -223,6 +225,22 @@ use fairlead_syntax::diag::DiagCode;
 impl Built {
     pub(crate) fn options(&self) -> CheckOptions {
         CheckOptions::new(self.as_of)
+    }
+    /// The generated files `sync` would write are on disk, as after a clean `sync` (R-CHK-023).
+    pub(crate) fn synced(mut self) -> Built {
+        let edition = crate::check::builtin::edition_of(&self.registry);
+        let set = crate::generate::generate(
+            &self.registry,
+            &self.corpus,
+            &self.facts,
+            self.baseline.as_ref(),
+            edition,
+        );
+        for (p, f) in set.files {
+            let bytes: std::sync::Arc<[u8]> = f.render(edition).into();
+            self.facts.generated_on_disk.insert(p, bytes);
+        }
+        self
     }
     pub(crate) fn run_check(&self, c: &dyn Check) -> Vec<Diagnostic> {
         self.run_check_with(c, &GeneratedSet::default())

@@ -2,7 +2,7 @@
 use crate::{
     check::{
         baseline::Baseline,
-        builtin::{bare_id, control_path, exceptions::is_effective, root_control},
+        builtin::{bare_id, control_path, exceptions::is_effective},
         codes::{is_active, spec},
         finding::{DiagB, Finding, FindingState, RuleId, clip, rule_id},
         fingerprint::{FingerprintInput, collapse_whitespace, fingerprint},
@@ -304,13 +304,6 @@ pub(crate) fn post_exceptions(
         }
     }
     out
-}
-
-pub(crate) fn baseline_path(reg: &Registry) -> Option<RepoPath> {
-    let f = root_control(reg)
-        .map(|c| c.baseline.file.clone())
-        .filter(|f| !f.is_empty())?;
-    RepoPath::new(&f).ok()
 }
 
 /// Floor findings are never baselined (R-CHK-008); everything else known to the baseline stops failing.

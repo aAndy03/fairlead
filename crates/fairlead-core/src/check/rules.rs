@@ -40,12 +40,12 @@ pub trait Check: Sync {
 }
 
 /// Severity, stage and waivability set for a built-in code by a root `check = "builtin"` rule.
-#[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
 #[derive(Clone, Debug)]
 pub(crate) struct Tuning {
     pub sev: Option<Severity>,
     pub stage: Option<Stage>,
     pub waivable: bool,
+    #[allow(dead_code, reason = "explain shows where a built-in is tuned (P7-T17)")]
     pub home: ScopeId,
 }
 
@@ -193,7 +193,6 @@ impl RuleSet {
         u32::try_from(n).unwrap_or(u32::MAX)
     }
 
-    #[allow(dead_code, reason = "wired by P5a-T25..T29; remove once used")]
     pub(crate) fn tuning(&self, code: DiagCode) -> Option<&Tuning> {
         self.tuning.get(&code)
     }
