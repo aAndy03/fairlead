@@ -82,6 +82,64 @@ pub fn first_differing_lines(want: &[u8], have: &[u8], n: usize) -> Vec<String> 
     out
 }
 
+use crate::hash::{base32, hash_raw, ContentHash};
+use crate::render::line::TerseLine;
+
+/// Join a scope directory (empty or `.` for the root) and a relative path into a `RepoPath`.
+pub(crate) fn join_dir(dir: &str, rest: &str) -> Option<RepoPath> {
+    let full = if dir.is_empty() || dir == "." { rest.to_string() } else { format!("{dir}/{rest}") };
+    RepoPath::new(&full).ok()
+}
+
+/// One vendor-owned file: scope-relative path, tool name, full blake3 content hash (D-50).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct VendorRow {
+    pub path: String,
+    pub tool: String,
+    pub hash: ContentHash,
+}
+
+fn to_hex(bytes: &[u8; 32]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
+fn from_hex(s: &str) -> Option<[u8; 32]> {
+    if s.len() != 64 {
+        return None;
+    }
+    let mut out = [0u8; 32];
+    for (i, slot) in out.iter_mut().enumerate() {
+        *slot = u8::from_str_radix(s.get(i * 2..i * 2 + 2)?, 16).ok()?;
+    }
+    Some(out)
+}
+
+/// `vendor.<id> path=<scope-relative> tool=<name> b3=<64 hex>`; the id is 10 base32 characters of
+/// the path hash so it does not change when other files are added or removed.
+pub fn vendor_lock_body(rows: &[VendorRow]) -> String {
+    let mut lines: Vec<(String, String)> = rows
+        .iter()
+        .map(|r| {
+            let id = format!("vendor.{}", base32(&hash_raw(r.path.as_bytes()).0, 10));
+            let line = TerseLine::new(&id)
+                .with("path", &crate::render::sanitize::clean_data(&r.path, 240))
+                .with("tool", &crate::render::sanitize::clean_data(&r.tool, 60))
+                .with("b3", &to_hex(&r.hash.0))
+                .render();
+            (id, line)
+        })
+        .collect();
+    lines.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut out = String::new();
+    for (_, l) in lines {
+        out.push_str(&l);
+        out.push('\n');
+    }
+    out
+}
+
+pub use crate::facts::parse_vendor_lock; // A-35: one reader, the P3 one
+
 #[cfg(test)]
 mod tests {
     #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
@@ -139,5 +197,33 @@ mod tests {
     fn r_chk_023__differing_text_is_sanitised() {
         let diff = first_differing_lines(b"a\n", b"\x1b[31ma\n", 3);
         assert!(diff.iter().all(|l| !l.contains('\u{1b}')), "{diff:?}");
+    }
+
+    #[test]
+    fn r_file_040__vendor_lock_line_and_reader_roundtrip() {
+        let rows = vec![VendorRow { path: "components.json".to_string(), tool: "shadcn".to_string(), hash: ContentHash([7u8; 32]) }];
+        let body = vendor_lock_body(&rows);
+        let id = crate::hash::base32(&crate::hash::hash_raw(b"components.json").0, 10);
+        assert_eq!(body, format!("vendor.{id} path=components.json tool=shadcn b3={}\n", "07".repeat(32)));
+        let text = format!("# scope console edition=1 body=aaaaaaaaaaaaaaaaaaaa\n{body}");
+        let map = parse_vendor_lock("apps/console", &text);
+        assert_eq!(map.get(&RepoPath::new("apps/console/components.json").unwrap()), Some(&ContentHash([7u8; 32])));
+        let root_map = parse_vendor_lock("", &text);
+        assert!(root_map.contains_key(&RepoPath::new("components.json").unwrap()));
+    }
+
+    #[test]
+    fn r_file_040__lock_ids_are_stable_when_other_files_are_added() {
+        let a = VendorRow { path: "a.json".to_string(), tool: "t".to_string(), hash: ContentHash([1u8; 32]) };
+        let b = VendorRow { path: "b.json".to_string(), tool: "t".to_string(), hash: ContentHash([2u8; 32]) };
+        let only_a = vendor_lock_body(std::slice::from_ref(&a));
+        let both = vendor_lock_body(&[a, b]);
+        assert!(both.contains(only_a.trim_end()));
+    }
+
+    #[test]
+    fn r_file_040__reader_skips_garbled_lines() {
+        let text = "vendor.x path=a.json tool=t b3=zz\nvendor.y path=b.json\nnot a line \"\n";
+        assert!(parse_vendor_lock("", text).is_empty());
     }
 }

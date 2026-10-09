@@ -5,3 +5,5 @@ pub mod line;
 pub mod sanitize;
 pub mod sarif;
 pub mod terse;
+#[cfg(test)]
+pub(crate) mod testkit;

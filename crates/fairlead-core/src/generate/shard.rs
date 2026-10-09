@@ -142,6 +142,50 @@ pub fn shard_kind(kind: &str, items: &[ShardItem], mode: &IndexValues) -> Vec<Sh
     out
 }
 
+/// One exception ledger fact of a scope (R-SCOPE-044). All strings are display text already.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ExcRow {
+    pub ovr: String,
+    pub target: String,
+    pub home: String,
+    pub varied_in: String,
+    pub depth: u32,
+    /// `None` when the exception is effective (like `st=active`, omitted, R-CTX-030).
+    pub state: Option<String>,
+    pub why: Option<String>,
+    pub owner: Option<String>,
+    pub exp: Option<String>,
+}
+
+pub fn exc_body(rows: &[ExcRow]) -> String {
+    let mut lines: Vec<(String, String)> = rows
+        .iter()
+        .map(|r| {
+            let id = format!("exc.{}", r.ovr);
+            let mut l = TerseLine::new(&id)
+                .with("tgt", &clean_data(&r.target, 120))
+                .with("home", &r.home)
+                .with("in", &r.varied_in)
+                .with("depth", &r.depth.to_string());
+            if let Some(s) = &r.state {
+                l = l.with("st", s);
+            }
+            if let Some(w) = &r.why {
+                l = l.with("why", &clean_data(w, 160));
+            }
+            if let Some(o) = &r.owner {
+                l = l.with("owner", &clean_data(o, 60));
+            }
+            if let Some(e) = &r.exp {
+                l = l.with("exp", e);
+            }
+            (id, l.render())
+        })
+        .collect();
+    lines.sort_by(|a, b| a.0.cmp(&b.0));
+    join_lines(&lines)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
@@ -266,5 +310,32 @@ mod tests {
             format!("tok.radius-base pol=needs-exception css=--radius light=h:{h_light} dark=h:{h_dark} src=app/globals.css\n")
         );
         assert!(!out[0].body.contains("0.5rem"));
+    }
+
+    fn exc(ovr: &str) -> ExcRow {
+        ExcRow {
+            ovr: ovr.to_string(),
+            target: "root:rule.no-raw-hex".to_string(),
+            home: "root".to_string(),
+            varied_in: "web".to_string(),
+            depth: 1,
+            state: None,
+            why: Some("legacy email template".to_string()),
+            owner: Some("@design".to_string()),
+            exp: Some("2026-12-31".to_string()),
+        }
+    }
+
+    #[test]
+    fn r_file_022__exc_reg_lines_sorted_by_ovr_id_with_state_only_when_not_effective() {
+        let mut expired = exc("a1111111111b");
+        expired.state = Some("expired".to_string());
+        let body = exc_body(&[exc("k3m9q2x7a1bz"), expired]);
+        assert_eq!(
+            body,
+            "exc.a1111111111b tgt=root:rule.no-raw-hex home=root in=web depth=1 st=expired why=\"legacy email template\" owner=@design exp=2026-12-31\n\
+             exc.k3m9q2x7a1bz tgt=root:rule.no-raw-hex home=root in=web depth=1 why=\"legacy email template\" owner=@design exp=2026-12-31\n"
+        );
+        assert_eq!(exc_body(&[]), "");
     }
 }
