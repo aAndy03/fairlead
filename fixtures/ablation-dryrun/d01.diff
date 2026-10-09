@@ -1,0 +1,2 @@
++++ b/apps/console/badge.tsx
++export const Badge = () => <span style={{ color: "#2563eb" }}>new</span>;

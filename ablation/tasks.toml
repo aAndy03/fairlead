@@ -1,0 +1,23 @@
+# Pre-registered task list (docs/plans/0.1/ablation-protocol.md, E2). Do not edit after the first run.
+tasks = [
+  { id = "ui-01", track = "ui", fixture = "ts-react", prompt = "Add a brand-coloured badge to the console navigation group." },
+  { id = "ui-02", track = "ui", fixture = "ts-react", prompt = "Style the shared button's selected state with the primary colour." },
+  { id = "ui-03", track = "ui", fixture = "ts-react", prompt = "Give the console sidebar a highlighted row colour." },
+  { id = "ui-04", track = "ui", fixture = "ts-react", prompt = "Add an error banner in the brand red used by the console." },
+  { id = "ui-05", track = "ui", fixture = "ts-react", prompt = "Add a focus ring that matches the primary colour." },
+  { id = "ui-06", track = "ui", fixture = "ts-react", prompt = "Tint the empty-state panel with the page background." },
+  { id = "ui-07", track = "ui", fixture = "ts-react", prompt = "Set a link colour in the shared button variant." },
+  { id = "ui-08", track = "ui", fixture = "ts-react", prompt = "Add a divider in the console border colour." },
+  { id = "ui-09", track = "ui", fixture = "ts-react", prompt = "Add a success toast with the brand green." },
+  { id = "ui-10", track = "ui", fixture = "ts-react", prompt = "Add a hover state to the navigation group using the primary colour." },
+  { id = "be-01", track = "backend", fixture = "fullstack-tauri", prompt = "Add a timeout constant for note search with the documented default." },
+  { id = "be-02", track = "backend", fixture = "fullstack-tauri", prompt = "Add a page-size constant for listing notes." },
+  { id = "be-03", track = "backend", fixture = "fullstack-tauri", prompt = "Add a retry limit constant for the sync command." },
+  { id = "be-04", track = "backend", fixture = "fullstack-tauri", prompt = "Add a maximum title length for notes." },
+  { id = "be-05", track = "backend", fixture = "rust-workspace", prompt = "Add a digest buffer size to the core crate." },
+  { id = "be-06", track = "backend", fixture = "rust-workspace", prompt = "Add a default port constant to the transport crate." },
+  { id = "be-07", track = "backend", fixture = "rust-workspace", prompt = "Add a log-level default to the host crate." },
+  { id = "be-08", track = "backend", fixture = "rust-workspace", prompt = "Add a progress interval constant for sync events." },
+  { id = "be-09", track = "backend", fixture = "rust-workspace", prompt = "Add a checksum algorithm label used in a message." },
+  { id = "be-10", track = "backend", fixture = "rust-workspace", prompt = "Add a maximum retry delay to the engine." },
+]

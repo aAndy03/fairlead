@@ -1,0 +1,2 @@
++++ b/apps/console/badge.tsx
++export const Badge = () => <span className="text-primary">new</span>;

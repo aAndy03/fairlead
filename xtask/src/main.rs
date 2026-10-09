@@ -121,12 +121,58 @@ fn bench_corpus(args: &[String]) -> ExitCode {
     }
 }
 
+/// `ablation-score --diffs DIR [--declared F] --out F`, `ablation-report --scores F --map F`,
+/// `ablation-arm-b [--declared F] --out F` (P9-T25).
+fn ablation_task(task: &str, args: &[String]) -> Result<(), String> {
+    let flag = |name: &str| {
+        args.iter()
+            .position(|a| a == name)
+            .and_then(|i| args.get(i + 1))
+            .cloned()
+    };
+    let need = |name: &str| flag(name).ok_or_else(|| format!("missing {name}"));
+    let read = |p: &str| std::fs::read_to_string(p).map_err(|e| format!("{p}: {e}"));
+    let write = |p: &str, text: &str| {
+        if let Some(dir) = std::path::Path::new(p).parent() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("{p}: {e}"))?;
+        }
+        std::fs::write(p, text).map_err(|e| format!("{p}: {e}"))
+    };
+    let declared = || {
+        let path = flag("--declared").unwrap_or_else(|| "ablation/declared.toml".into());
+        ablation::parse_declared(&read(&path)?)
+    };
+    match task {
+        "ablation-score" => {
+            let text = ablation::score_dir(std::path::Path::new(&need("--diffs")?), &declared()?)?;
+            write(&need("--out")?, &text)
+        }
+        "ablation-report" => {
+            print!(
+                "{}",
+                ablation::report(&read(&need("--scores")?)?, &read(&need("--map")?)?)?
+            );
+            Ok(())
+        }
+        _ => write(&need("--out")?, &ablation::arm_b_agents(&declared()?)),
+    }
+}
+
 fn main() -> ExitCode {
     let mut args = std::env::args().skip(1);
     let task = args.next();
     match task.as_deref() {
         Some("check-deps") => check_deps(),
         Some("bench-corpus") => bench_corpus(&args.collect::<Vec<_>>()),
+        Some(t @ ("ablation-score" | "ablation-report" | "ablation-arm-b")) => {
+            match ablation_task(t, &args.collect::<Vec<_>>()) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("xtask {t}: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some("docs-check") => {
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
@@ -157,7 +203,7 @@ fn main() -> ExitCode {
         }
         None => {
             eprintln!(
-                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | golden-bless NAME>"
+                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | golden-bless NAME>"
             );
             ExitCode::from(2)
         }
