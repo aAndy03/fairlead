@@ -1,0 +1,20 @@
+[package]
+name = "fairlead-core"
+description = "The fairlead engine: discovery, walk, extraction, registry, checks, context and writes."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+repository.workspace = true
+
+[features]
+# git2 is built from vendored sources by default (R-GIT-077).
+default = ["vendored-libgit2"]
+vendored-libgit2 = []
+
+[lints]
+workspace = true
+
+[dependencies]
+fairlead-syntax.workspace = true

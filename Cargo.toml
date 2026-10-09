@@ -1,0 +1,30 @@
+# Cargo workspace of fairlead (contract section 1). A virtual manifest: no package at the root.
+[workspace]
+members = ["crates/*", "xtask"]
+exclude = ["fuzz", "tests/golden", "fixtures"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88" # MSRV floor, R-ARCH-121
+license = "MIT"       # D-58
+publish = false       # no crates.io publish before the 0.1 exit criteria hold (R-REL-021)
+repository = "https://github.com/aAndy03/fairlead"
+
+# Inherited by every member through `[lints] workspace = true` (contract section 1).
+[workspace.lints.rust]
+unsafe_code = "deny" # fairlead-syntax and fairlead-core upgrade this to forbid in lib.rs
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+print_stdout = "deny" # only the fairlead binary and xtask print, with a reason
+print_stderr = "deny"
+todo = "allow"        # flipped to "deny" at the end of P9 (amendment A-67)
+
+[workspace.dependencies]
+# Internal path dependencies
+fairlead-syntax = { path = "crates/fairlead-syntax" }
+fairlead-core = { path = "crates/fairlead-core" }

@@ -1,0 +1,11 @@
+[package]
+name = "xtask"
+description = "Developer tasks for fairlead: the forbidden-crate scan and the subcommands P9 fills."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,4 @@
+# Development toolchain. CI tests the MSRV separately on 1.88.0 (msrv.yml, R-ARCH-113).
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

@@ -1,0 +1,51 @@
+# cargo-deny policy (R-ARCH-120, R-ARCH-123, D-05, D-26): licences, advisories, forbidden crates.
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+
+[licenses]
+version = 2
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "Unicode-3.0",
+  "Unicode-DFS-2016",
+  "Zlib",
+  "CC0-1.0",
+  "MPL-2.0",
+]
+
+[bans]
+multiple-versions = "warn"
+deny = [
+  { name = "serde_yaml" },
+  { name = "serde_yml" },
+  { name = "serde_yaml_ng" },
+  { name = "bincode" },
+  { name = "sled" },
+  { name = "jwalk" },
+  { name = "serde-sarif" },
+  { name = "reqwest" },
+  { name = "ureq" },
+  { name = "hyper" },
+  { name = "openssl" },
+  { name = "openssl-sys" },
+  { name = "rustls" },
+  { name = "native-tls" },
+  { name = "curl" },
+  { name = "curl-sys" },
+  { name = "libssh2-sys" },
+  { name = "notify" },
+  { name = "daemonize" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

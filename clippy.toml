@@ -1,0 +1,27 @@
+# Clippy configuration (contract section 1). Applies workspace-wide.
+msrv = "1.88"
+
+# Test code may unwrap, expect, panic, print and use vec!; library code stays denied.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-print-in-tests = true
+allow-dbg-in-tests = true
+allow-useless-vec-in-tests = true
+
+# R-ARCH-060: output order comes from ordered collections only.
+disallowed-types = [
+    { path = "std::collections::HashMap", reason = "R-ARCH-060: output order must not depend on hash iteration; use BTreeMap" },
+    { path = "std::collections::HashSet", reason = "R-ARCH-060: output order must not depend on hash iteration; use BTreeSet" },
+]
+
+# Exits, environment and clock are confined to designated modules, which carry a local #[allow] with a reason.
+disallowed-methods = [
+    { path = "std::process::exit", reason = "R-ARCH-100: library code returns typed errors; only the fairlead binary maps exit codes" },
+    { path = "std::env::var", reason = "contract section 1: the environment is read only in discover.rs and the fairlead binary" },
+    { path = "std::env::var_os", reason = "contract section 1: the environment is read only in discover.rs and the fairlead binary" },
+    { path = "std::env::vars", reason = "contract section 1: the environment is read only in discover.rs and the fairlead binary" },
+    { path = "std::env::vars_os", reason = "contract section 1: the environment is read only in discover.rs and the fairlead binary" },
+    { path = "std::time::SystemTime::now", reason = "R-ARCH-090: the clock is read only in time.rs and check/options.rs" },
+    { path = "std::time::Instant::now", reason = "R-ARCH-090: the clock is read only in time.rs and check/options.rs" },
+]

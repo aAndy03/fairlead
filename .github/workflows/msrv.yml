@@ -1,0 +1,16 @@
+name: msrv
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+      - uses: Swatinem/rust-cache@v2
+      # rust-toolchain.toml pins stable; the environment variable wins over it (errata P1-I14).
+      - run: cargo check --workspace --locked
+        env:
+          RUSTUP_TOOLCHAIN: 1.88.0

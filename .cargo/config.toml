@@ -1,0 +1,7 @@
+# `cargo xtask <task>` runs the tooling crate (contract section 1).
+[alias]
+xtask = "run -p xtask --"
+
+# Keep cargo light on shared machines: at most two parallel build jobs.
+[build]
+jobs = 2
