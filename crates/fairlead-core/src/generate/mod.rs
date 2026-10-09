@@ -140,6 +140,210 @@ pub fn vendor_lock_body(rows: &[VendorRow]) -> String {
 
 pub use crate::facts::parse_vendor_lock; // A-35: one reader, the P3 one
 
+use crate::check::Baseline;
+use crate::config::{IndexValues, VendorDecl};
+use crate::extract::Corpus;
+use crate::facts::Facts;
+use crate::registry::{InertReason, OvrState, Registry, ScopeState};
+use members::{members_body, MembersView};
+use shard::{exc_body, shard_kind, ExcRow, ShardItem, TokSite};
+
+fn rel_to(dir: &str, path: &str) -> String {
+    if dir.is_empty() || dir == "." {
+        return path.to_string();
+    }
+    path.strip_prefix(dir).and_then(|r| r.strip_prefix('/')).unwrap_or(path).to_string()
+}
+
+fn inert_word(r: &InertReason) -> &'static str {
+    match r {
+        InertReason::SealedNoAllow => "sealed-no-allow",
+        InertReason::Incomplete => "incomplete",
+        InertReason::FloorRule => "floor-rule",
+        InertReason::NonDelegable => "non-delegable",
+        InertReason::UnknownField => "unknown-field",
+        InertReason::DuplicateOvr => "duplicate-ovr",
+        InertReason::VersionExpiry => "version-expiry",
+        InertReason::OutsideSubtree => "outside-subtree",
+        InertReason::UnknownOwner => "unknown-owner",
+    }
+}
+
+fn ovr_state_word(s: &OvrState) -> Option<String> {
+    match s {
+        OvrState::Effective => None,
+        OvrState::Expired => Some("expired".to_string()),
+        OvrState::Stale => Some("stale".to_string()),
+        OvrState::Inert(r) => Some(format!("inert-{}", inert_word(r))),
+    }
+}
+
+fn tool_for(vendors: &[VendorDecl], rel: &str) -> String {
+    for v in vendors {
+        if let Ok(g) = globset::Glob::new(&v.path) {
+            if g.compile_matcher().is_match(rel) {
+                return v.tool.clone();
+            }
+        }
+    }
+    String::new()
+}
+
+/// Token value sites from the stylesheet extraction, keyed by (scope, custom property name),
+/// in path then source order. Foreign-region sites are indexed elsewhere, not here.
+fn token_sites(reg: &Registry, corpus: &Corpus) -> BTreeMap<(ScopeId, String), Vec<TokSite>> {
+    let mut out: BTreeMap<(ScopeId, String), Vec<TokSite>> = BTreeMap::new();
+    for (path, rec) in &corpus.records {
+        if rec.css_tokens.is_empty() {
+            continue;
+        }
+        let Some(scope_id) = reg.scope_of(path) else { continue };
+        let Some(scope) = reg.scope(scope_id) else { continue };
+        let rel = rel_to(scope.dir.as_str(), path.as_str());
+        for site in rec.css_tokens.iter().filter(|s| !s.in_foreign) {
+            out.entry((scope_id.clone(), site.name.clone()))
+                .or_default()
+                .push(TokSite { value: site.value.clone(), context: site.context.clone(), src: rel.clone() });
+        }
+    }
+    out
+}
+
+fn put(files: &mut BTreeMap<RepoPath, GeneratedFile>, dir: &str, rest: &str, scope: &ScopeId, kind: GenKind, body: String) {
+    if let Some(path) = join_dir(dir, rest) {
+        files.insert(path.clone(), GeneratedFile { path, scope: scope.clone(), kind, body });
+    }
+}
+
+/// Pure (S10): the generated files `sync` would write, computed from the registry, the corpus
+/// and the facts. Never reads `facts.generated_on_disk` (R-FILE-008). Headers carry the edition and
+/// are added by [`GeneratedFile::render`]; `edition` is kept so every caller uses the one call shape.
+pub fn generate(
+    reg: &Registry,
+    corpus: &Corpus,
+    facts: &Facts,
+    baseline: Option<&Baseline>,
+    edition: Edition,
+) -> GeneratedSet {
+    let _ = edition;
+    let mut files: BTreeMap<RepoPath, GeneratedFile> = BTreeMap::new();
+    let Some(root_scope) = reg.scope(reg.root_scope()) else {
+        return GeneratedSet { files };
+    };
+    let root_ctl = root_scope.control.as_deref();
+    let folder = root_ctl
+        .and_then(|c| c.settings.folder.clone())
+        .filter(|f| !f.is_empty())
+        .unwrap_or_else(|| "fairlead".to_string());
+    let gen_dir = root_ctl.map(|c| c.layout.r#gen.clone()).filter(|g| !g.is_empty()).unwrap_or_else(|| "gen".to_string());
+    let mode = root_ctl.map(|c| c.settings.index_values.clone()).unwrap_or(IndexValues::Value);
+    let tokens = token_sites(reg, corpus);
+
+    for scope in reg.scopes() {
+        if !matches!(scope.state, ScopeState::Resolved) {
+            continue;
+        }
+        let dir = scope.dir.as_str();
+        let view = reg.view(&scope.id);
+
+        // 1. one shard per kind, from this scope's own items (R-FILE-021, R-FILE-022)
+        let mut by_kind: BTreeMap<String, (Kind, Vec<ShardItem>)> = BTreeMap::new();
+        for item in reg.items().filter(|i| i.id.scope == scope.id) {
+            let effective = view.items.get(&item.id);
+            let mut fields = item.fields.clone();
+            if let Some(e) = effective {
+                for (k, f) in &e.fields {
+                    fields.insert(k.clone(), f.value.clone());
+                }
+            }
+            let sites = match fields.get("css") {
+                Some(crate::registry::FieldValue::Scalar(css)) => {
+                    tokens.get(&(scope.id.clone(), css.clone())).cloned().unwrap_or_default()
+                }
+                _ => Vec::new(),
+            };
+            let kind_text = item.id.kind.as_str().to_string();
+            let entry = by_kind.entry(kind_text.clone()).or_insert_with(|| (item.id.kind.clone(), Vec::new()));
+            entry.1.push(ShardItem {
+                kind: kind_text,
+                name: item.id.name.as_str().to_string(),
+                policy: effective.map_or_else(|| item.policy.clone(), |e| e.policy.clone()),
+                sum: item.sum.clone(),
+                fields,
+                sites,
+            });
+        }
+        for (kind_text, (kind, items)) in &by_kind {
+            for out in shard_kind(kind_text, items, &mode) {
+                put(&mut files, dir, &format!("{folder}/{gen_dir}/reg/{}", out.file_name), &scope.id, GenKind::Shard(kind.clone()), out.body);
+            }
+        }
+
+        // 2. the scope's own exception ledger facts (R-SCOPE-044)
+        let rows: Vec<ExcRow> = reg
+            .ledger(&scope.id)
+            .entries
+            .iter()
+            .filter(|e| e.varied_in == scope.id)
+            .map(|e| ExcRow {
+                ovr: e.ovr.0.as_str().to_string(),
+                target: e.target.to_id().to_string(),
+                home: e.home.0.as_str().to_string(),
+                varied_in: e.varied_in.0.as_str().to_string(),
+                depth: e.depth,
+                state: ovr_state_word(&e.state),
+                why: e.why.clone(),
+                owner: e.owner.clone(),
+                exp: e.exp.map(|d| d.to_string()),
+            })
+            .collect();
+        let exc = exc_body(&rows);
+        if !exc.is_empty() {
+            put(&mut files, dir, &format!("{folder}/{gen_dir}/reg/exc.reg"), &scope.id, GenKind::Exceptions, exc);
+        }
+
+        // 3. membership, separate from the shards (R-FILE-022)
+        let view_members = MembersView {
+            id: scope.id.0.as_str().to_string(),
+            dir: dir.to_string(),
+            parent: scope.parent.as_ref().map(|p| p.0.as_str().to_string()),
+            chain: reg.chain(&scope.id).iter().map(|s| s.0.as_str().to_string()).collect(),
+            children: reg
+                .scopes()
+                .filter(|s| s.parent.as_ref() == Some(&scope.id))
+                .map(|s| (s.id.0.as_str().to_string(), s.dir.as_str().to_string()))
+                .collect(),
+        };
+        put(&mut files, dir, &format!("{folder}/{gen_dir}/members"), &scope.id, GenKind::Members, members_body(&view_members));
+
+        // 4. vendor lock (R-FILE-040)
+        if let Some(ctl) = scope.control.as_ref() {
+            if !ctl.vendors.is_empty() {
+                let rows: Vec<VendorRow> = facts
+                    .vendor_hashes
+                    .iter()
+                    .filter(|(p, _)| reg.scope_of(p) == Some(&scope.id))
+                    .map(|(p, h)| {
+                        let rel = rel_to(dir, p.as_str());
+                        VendorRow { tool: tool_for(&ctl.vendors, &rel), path: rel, hash: h.clone() }
+                    })
+                    .collect();
+                if !rows.is_empty() {
+                    put(&mut files, dir, &format!("{folder}/vendored.lock"), &scope.id, GenKind::VendorLock, vendor_lock_body(&rows));
+                }
+            }
+        }
+    }
+
+    // 5. the baseline, when the caller holds one (written only by `sync --baseline`, D-38)
+    if let Some(b) = baseline {
+        let configured = root_ctl.map(|c| c.baseline.file.clone()).filter(|f| !f.is_empty());
+        let rel = configured.unwrap_or_else(|| format!("{folder}/{gen_dir}/baseline.txt"));
+        put(&mut files, "", &rel, reg.root_scope(), GenKind::Baseline, b.body());
+    }
+    GeneratedSet { files }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(non_snake_case, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
