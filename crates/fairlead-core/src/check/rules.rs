@@ -6,8 +6,9 @@ use fairlead_syntax::ids::Id;
 
 use crate::check::CheckCx;
 use crate::check::codes::all_specs;
-use crate::check::finding::RuleId;
+use crate::check::finding::{DiagB, RuleId};
 use crate::config::Stage;
+use crate::diag::codes::HN_U001;
 use crate::diag::Diagnostic;
 use crate::path::RepoPath;
 use crate::registry::{EffectiveItem, FieldValue, ItemId, Registry, ScopeId};
@@ -215,6 +216,23 @@ impl RuleSet {
     }
 }
 
+pub struct PatternRules;
+impl Check for PatternRules {
+    fn codes(&self) -> &'static [DiagCode] { &[HN_U001] }
+    fn run(&self, cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+        for (path, rec) in cx.corpus.records.iter().filter(|(p, _)| cx.registry.scope_of(p) == Some(scope)) {
+            for h in &rec.pattern_hits {
+                let Some((home, name)) = h.rule_key.split_once(':') else { continue };
+                let Some(rule) = cx.rules.for_scope(scope).iter().find(|r| r.home.0.as_str() == home && r.id.0.as_str() == name) else { continue };
+                let RuleCheck::Pattern { msg, .. } = &rule.check else { continue };
+                if !cx.rules.applies(rule, path, cx.registry) { continue; }
+                out.push(DiagB::new(HN_U001, path, h.span.line, h.span.col, format!("rule.{name}: {msg}"))
+                    .rule(name).severity(rule.sev).text(h.text.clone()).hint(format!("see fairlead explain rule.{name}")).build());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,5 +314,16 @@ stage = "enforce"
         assert!(!yes("web/src/skip/c.css")); // exclude
         assert!(!yes("web/src/d.ts")); // glob
         assert!(!yes("web/lib/e.css"));
+    }
+
+    #[test]
+    fn r_chk_060__pattern_hits_become_u001_with_the_rules_severity_and_id() {
+        let rule = "[rules.no-console]\ncheck = \"pattern\"\nforbid = \"console\\\\.log\"\nmsg = \"no console.log\"\nsev = \"error\"\nglob = [\"**/*.ts\"]\n";
+        let b = World::new().root(rule).file("src/a.ts", "const x = 1;\n  console.log(x);\n").file("src/a.md", "console.log(1)\n").build();
+        let ds = b.run_check(&PatternRules);
+        assert_eq!(ds.len(), 1);
+        let d = &ds[0];
+        assert_eq!((d.code, d.severity, d.location.line, d.location.col), (c::HN_U001, Severity::Error, 2, 3));
+        assert_eq!((d.message.as_str(), d.rule.as_deref(), d.text.as_str()), ("rule.no-console: no console.log", Some("rule.no-console"), "console.log"));
     }
 }

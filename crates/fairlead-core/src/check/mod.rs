@@ -23,6 +23,8 @@ use crate::generate::GeneratedSet;
 use crate::registry::Registry;
 use crate::time::AsOf;
 
+pub const FAIRLEAD_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 pub struct ReportHeader {
     pub fairlead_version: String,
     pub edition: Edition,
