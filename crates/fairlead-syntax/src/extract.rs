@@ -979,12 +979,18 @@ mod tests {
     }
 
     #[test]
-    fn r_syn_006__jsx_comment_form_is_trailing() {
+    fn r_syn_006__jsx_child_carrier_binds_to_the_next_element() {
         let e = ex(
             "<Button>\n  {/* fairlead: use tok.surface */}\n  <Icon />\n</Button>\n",
             "tsx",
         );
-        assert_eq!(extent(&e, 0), Extent::Lines { first: 2, last: 2 });
+        assert_eq!(extent(&e, 0), Extent::Lines { first: 3, last: 3 });
+        // With other code on the line it stays trailing.
+        let e = ex(
+            "<Icon /> {/* fairlead: use tok.surface */}\n<Next />\n",
+            "tsx",
+        );
+        assert_eq!(extent(&e, 0), Extent::Lines { first: 1, last: 1 });
     }
 
     #[test]

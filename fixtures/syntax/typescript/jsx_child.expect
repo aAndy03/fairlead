@@ -1,0 +1,2 @@
+# A JSX child carrier alone on its line binds to the next element line (R-SYN-018, R-SYN-044).
+def cmp.panel L5-5

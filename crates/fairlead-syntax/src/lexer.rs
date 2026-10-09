@@ -87,6 +87,19 @@ fn utf8_len(lead: u8) -> usize {
     }
 }
 
+/// `{/* ... */}` with nothing else on its lines: the JSX child carrier (R-SYN-044). The braces
+/// are only the carrier's syntax, so it is a standalone comment, not a trailing one.
+fn jsx_carrier_alone(n: &Normalized, start: usize, end: usize) -> bool {
+    let b = n.text.as_bytes();
+    let l0 = n.line_of(start);
+    let before = b.get(n.line_start(l0)..start).unwrap_or(&[]);
+    let l1 = n.line_of(end.saturating_sub(1).max(start));
+    let after = b
+        .get(end.min(b.len())..n.line_end(l1).max(end.min(b.len())))
+        .unwrap_or(&[]);
+    before.trim_ascii() == b"{" && after.trim_ascii() == b"}"
+}
+
 fn inline_flag(n: &Normalized, start: usize, end: usize) -> bool {
     let b = n.text.as_bytes();
     let l0 = n.line_of(start);
@@ -117,6 +130,8 @@ struct Rules {
     hash_needs_space: bool,
     /// `"..."` may span lines (Rust string literals).
     dq_spans_lines: bool,
+    /// JSX may appear, so `{/* ... */}` alone on a line is standalone (R-SYN-044).
+    jsx: bool,
 }
 
 fn rules_for(ext: &str) -> Rules {
@@ -128,13 +143,17 @@ fn rules_for(ext: &str) -> Rules {
         rust_raw,
         hash_needs_space,
         dq_spans_lines: false,
+        jsx: false,
     };
     match ext {
         "rs" => Rules {
             dq_spans_lines: true,
             ..r(Sq::Char, false, false, true, false)
         },
-        "ts" | "tsx" | "js" | "jsx" | "mjs" => r(Sq::Str, true, false, false, false),
+        "ts" | "tsx" | "js" | "jsx" | "mjs" => Rules {
+            jsx: true,
+            ..r(Sq::Str, true, false, false, false)
+        },
         "go" => r(Sq::Char, true, false, false, false),
         "java" | "kt" | "swift" | "cs" | "scala" => r(Sq::Char, false, true, false, false),
         "c" | "h" | "cc" | "cpp" | "zig" => r(Sq::Char, false, false, false, false),
@@ -387,7 +406,14 @@ fn lex_code(n: &Normalized, ext: &str, leaders: &[Leader]) -> Lexed {
         }
         for (open, close) in &blocks {
             if starts(b, i, open.as_bytes()) {
+                let start = i;
                 i = push_delimited(n, &mut out, i, open, close, CommentKind::Block);
+                if rules.jsx
+                    && jsx_carrier_alone(n, start, i)
+                    && let Some(c) = out.comments.last_mut()
+                {
+                    c.inline = false;
+                }
                 continue 'scan;
             }
         }

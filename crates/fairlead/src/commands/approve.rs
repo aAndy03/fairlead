@@ -52,14 +52,7 @@ fn approve(global: &GlobalArgs, args: &ApproveArgs) -> Result<CommandResult, Err
             .transpose()?,
     };
     let preview = approve_preview_loaded(&loaded, &registry, &request)?;
-    write_text(
-        &format!(
-            "{}\nType the first 4 characters of the fingerprint to confirm: ",
-            preview.ovr_line
-        ),
-        "",
-    )
-    .map_err(|e| Error::Internal(e.to_string()))?;
+    write_text(&confirm_prompt(&preview), "").map_err(|e| Error::Internal(e.to_string()))?;
     let mut typed = String::new();
     std::io::stdin()
         .read_line(&mut typed)
@@ -97,6 +90,17 @@ pub fn terminal_gate(stdin_tty: bool, stdout_tty: bool, ci_set: bool) -> Result<
         }));
     }
     Ok(())
+}
+
+/// The ovr line, its fingerprint, scope and expiry, then the retype question (R-CLI-037).
+fn confirm_prompt(preview: &fairlead_core::write::ApprovePreview) -> String {
+    let exp = preview
+        .exp
+        .map_or_else(|| "none".to_string(), |d| d.to_string());
+    format!(
+        "{}\nfingerprint: {}\nscope: {}\nexpires: {}\nType the first 4 characters of the fingerprint to confirm: ",
+        preview.ovr_line, preview.fp, preview.scope.0, exp
+    )
 }
 
 /// The reviewer's typed confirmation must equal the preview's 4-character prefix (surrounding whitespace ignored).

@@ -31,7 +31,7 @@ impl AsOf {
     /// UTC today. The ONLY wall-clock read in fairlead-core.
     /// Verify: `Timestamp::now`, `Timestamp::to_zoned` and `TimeZone::UTC` exist in jiff 0.2 with `std`.
     pub fn today_utc() -> Self {
-        // fairlead: ovr rule.no-clock why="the one clock read: AsOf::today_utc (R-CHK-014)" owner=@andy exp=2026-12-31
+        // fairlead: ovr rule.no-clock why="the one clock read: AsOf::today_utc (R-CHK-014)" owner=@aAndy03 exp=2026-12-31
         let zoned = jiff::Timestamp::now().to_zoned(jiff::tz::TimeZone::UTC);
         AsOf(zoned.date())
     }

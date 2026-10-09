@@ -679,8 +679,8 @@ mod tests {
         let jsx = "<Button>\n  {/* fairlead: use tok.surface */}\n  <Icon />\n</Button>\n";
         assert_eq!(
             run(jsx, "tsx"),
-            vec![lines(2, 2)],
-            "JSX comment sits between braces on its own line"
+            vec![lines(3, 3)],
+            "a JSX child carrier alone on its line is standalone (E-43)"
         );
     }
 

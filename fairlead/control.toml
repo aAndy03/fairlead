@@ -9,7 +9,7 @@ marker  = "fairlead"
 folder        = "fairlead"
 fairlead-version = "0.1.0"
 purpose       = "fairlead's own declarations: the rules this repository is checked against."
-owners        = ["@andy"]
+owners        = ["@aAndy03"]
 
 [scan]
 exclude = ["target/**", "Cargo.lock", "fixtures/**", "tests/**", "crates/*/tests/**", "fuzz/**", "bench/**", "ablation/**", "docs/plans/**"]
