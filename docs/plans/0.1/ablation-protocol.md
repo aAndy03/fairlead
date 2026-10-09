@@ -66,3 +66,5 @@ threshold.runs_per_task = 3
 ## Results log
 
 Runs made under this text are recorded in `docs/plans/0.1/results/` by the maintainer. An amendment is appended below with a date, the changed key and the reason. Runs made before an amendment are invalid for the gate.
+
+Signed off by the owner on 2026-10-10 (R-ROAD-014). Thresholds above are frozen from this date.
