@@ -1,8 +1,14 @@
 name: ci
 on:
-  push:
-    branches: [main]
+  # Not on every push: tests run locally before each commit. CI runs on pull requests,
+  # weekly, and on demand (Actions tab -> Run workflow) to save Actions minutes.
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: "0"
