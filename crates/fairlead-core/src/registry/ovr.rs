@@ -19,7 +19,7 @@ use crate::path::RepoPath;
 use crate::registry::Dg;
 use crate::registry::grant::{Allow, matching_grants};
 use crate::registry::item::{Index, Item, KindTable, Origin, Site, arg_items, arg_scalar, normalise_rules_alias, undeclared_kind};
-use crate::registry::scope::ScopeState;
+use crate::registry::scope::{ScopeState, is_within};
 use crate::registry::view::EffectiveView;
 use crate::time::AsOf;
 
@@ -373,7 +373,15 @@ fn judge(ev: &Eval<'_>, p: &Pre, item: Option<&Item>, working: &EffectiveView, d
                 "exceptions never escape their subtree; escalate with a [[req]]")),
         );
     }
-    // [T11: applies glob escaping the subtree]
+    if let OvrExtent::Scope(Some(g)) = &p.raw.extent {
+        if glob_escapes(g) {
+            return Verdict::inert(
+                InertReason::OutsideSubtree,
+                Some((codes::HN_C001, format!("applies glob \"{g}\" leaves the owning subtree"),
+                    "write the glob relative to this scope, without .. or a leading /")),
+            );
+        }
+    }
     if p.touched.contains("policy") {
         return Verdict::inert(
             InertReason::NonDelegable,
@@ -388,7 +396,23 @@ fn judge(ev: &Eval<'_>, p: &Pre, item: Option<&Item>, working: &EffectiveView, d
                 "use a field of the target or declare it under [kinds.<k>.keys]")),
         );
     }
-    let _ = dup; // [T11: duplicate]
+    let appends_to_scalar = p.raw.set.iter().any(|(k, c)| {
+        matches!(c, FieldChange::Append(_))
+            && matches!(working.items.get(&it.id).and_then(|i| i.fields.get(k)).map(|f| &f.value), Some(FieldValue::Scalar(_)))
+    });
+    if appends_to_scalar {
+        return Verdict::inert(
+            InertReason::UnknownField,
+            Some((codes::HN_S009, format!("`ovr {}` appends to a scalar field", p.raw.target_text), "use k=v to replace a scalar")),
+        );
+    }
+    if dup {
+        return Verdict::inert(
+            InertReason::DuplicateOvr,
+            Some((codes::HN_X014, format!("another `ovr` of {} in this scope overlaps this one", p.raw.target_text),
+                "merge them, or chain the newer one with base=<exception id>")),
+        );
+    }
     let exp_text = p.raw.exp.as_deref();
     if p.raw.until || exp_text.is_some_and(looks_like_version) {
         return Verdict::inert(
@@ -495,13 +519,15 @@ pub(crate) fn evaluate_scope(
         pres.push(Pre { raw, target, field, id, base, op, touched });
     }
     pres.sort_by(|a, b| {
-        (a.target.to_id().to_string(), a.raw.at.path.as_str(), a.raw.at.line, a.raw.at.col)
-            .cmp(&(b.target.to_id().to_string(), b.raw.at.path.as_str(), b.raw.at.line, b.raw.at.col))
+        (a.base.is_some(), a.target.to_id().to_string(), a.raw.at.path.as_str(), a.raw.at.line, a.raw.at.col, a.raw.text.as_str(), &a.id)
+            .cmp(&(b.base.is_some(), b.target.to_id().to_string(), b.raw.at.path.as_str(), b.raw.at.line, b.raw.at.col, b.raw.text.as_str(), &b.id))
     });
     let mut out = Vec::new();
-    for p in &pres {
+    let dir = ev.idx.table.get(scope).map(|s| s.dir.as_str().trim_matches('/').to_string()).unwrap_or_default();
+    let flags = overlap_flags(&pres, &dir);
+    for (p, dup) in pres.iter().zip(flags) {
         let item = ev.idx.items.get(&p.target);
-        let verdict = judge(ev, p, item, working, false); // Task 11 supplies `dup`
+        let verdict = judge(ev, p, item, working, dup);
         if let Some((code, msg, hint)) = &verdict.diag {
             diags.push(
                 Dg::new(*code, Severity::Error, &p.raw.at.path, p.raw.at.line, p.raw.at.col)
@@ -522,27 +548,27 @@ pub(crate) fn evaluate_scope(
         let applied = verdict.state == OvrState::Effective
             && verdict.approval != ApprovalStatus::Missing
             && !beyond_horizon(ev, exp);
-        out.push(Evaluated {
-            ovr: Override {
-                id: p.id.clone(),
-                target: p.target.clone(),
-                field: p.field.clone(),
-                op: p.op,
-                set: p.raw.set.clone(),
-                why: p.raw.why.clone(),
-                owner: p.raw.owner.clone(),
-                exp,
-                base: p.base.clone(),
-                declared_in: scope.clone(),
-                applies,
-                at: p.raw.at.clone(),
-                state: verdict.state,
-                approval: verdict.approval,
-                target_hash: Some(target_pin(item, &p.target, &p.touched)),
-            },
-            meta: OvrMeta { applied, whole, extent: p.raw.extent.clone(), used_grants: verdict.used_grants },
-        });
-        let _ = verdict.tighten;
+        let ovr = Override {
+            id: p.id.clone(),
+            target: p.target.clone(),
+            field: p.field.clone(),
+            op: p.op,
+            set: p.raw.set.clone(),
+            why: p.raw.why.clone(),
+            owner: p.raw.owner.clone(),
+            exp,
+            base: p.base.clone(),
+            declared_in: scope.clone(),
+            applies,
+            at: p.raw.at.clone(),
+            state: verdict.state,
+            approval: verdict.approval,
+            target_hash: Some(target_pin(item, &p.target, &p.touched)),
+        };
+        if applied && whole {
+            crate::registry::view::apply_ovr(working, &ovr, &verdict.used_grants);
+        }
+        out.push(Evaluated { ovr, meta: OvrMeta { applied, whole, extent: p.raw.extent.clone(), used_grants: verdict.used_grants } });
     }
     out
 }
@@ -563,4 +589,59 @@ fn beyond_horizon(ev: &Eval<'_>, exp: Option<jiff::civil::Date>) -> bool {
     exp.is_some_and(|d| {
         d.since(ev.as_of.0).map(|s| i64::from(s.get_days())).unwrap_or(i64::MAX) > ev.horizon_days
     }) // Verify: jiff 0.2 Date::since returns Result<Span, Error>; Span::get_days() -> i32
+}
+
+fn literal_prefix(g: &str) -> &str {
+    let end = g.find(['*', '?', '[', '{']).unwrap_or(g.len());
+    let head = g.get(..end).unwrap_or("");
+    match head.rfind('/') {
+        Some(i) if end < g.len() => head.get(..i).unwrap_or(""),
+        _ => head,
+    }
+}
+
+fn glob_escapes(g: &str) -> bool {
+    g.starts_with('/') || g.contains('\\') || g.contains(':') || g.split('/').any(|s| s == "..")
+}
+
+fn extents_overlap(a: &OvrExtent, b: &OvrExtent, dir: &str) -> bool {
+    let rel = |p: &RepoPath| -> String {
+        p.as_str().strip_prefix(dir).map(|r| r.trim_start_matches('/')).unwrap_or(p.as_str()).to_string()
+    };
+    let whole = |g: &Option<String>| g.as_deref().is_none_or(|g| g == "**");
+    match (a, b) {
+        (OvrExtent::File(x), OvrExtent::File(y)) => x == y,
+        (OvrExtent::File(x), OvrExtent::Scope(g)) | (OvrExtent::Scope(g), OvrExtent::File(x)) => {
+            whole(g) || g.as_deref().is_some_and(|g| is_within(&rel(x), literal_prefix(g)))
+        }
+        (OvrExtent::Scope(x), OvrExtent::Scope(y)) => {
+            if whole(x) || whole(y) {
+                return true;
+            }
+            let (px, py) = (literal_prefix(x.as_deref().unwrap_or("")), literal_prefix(y.as_deref().unwrap_or("")));
+            is_within(px, py) || is_within(py, px)
+        }
+    }
+}
+
+/// R-SCOPE-064: `true` for every override that conflicts with another one of the same scope.
+fn overlap_flags(pres: &[Pre], dir: &str) -> Vec<bool> {
+    let mut flags = vec![false; pres.len()];
+    for (i, a) in pres.iter().enumerate() {
+        for (j, b) in pres.iter().enumerate().skip(i + 1) {
+            let chained = a.base.as_ref() == Some(&b.id) || b.base.as_ref() == Some(&a.id);
+            if a.target == b.target
+                && a.touched.intersection(&b.touched).next().is_some()
+                && !chained
+                && extents_overlap(&a.raw.extent, &b.raw.extent, dir)
+            {
+                for k in [i, j] {
+                    if let Some(f) = flags.get_mut(k) {
+                        *f = true;
+                    }
+                }
+            }
+        }
+    }
+    flags
 }

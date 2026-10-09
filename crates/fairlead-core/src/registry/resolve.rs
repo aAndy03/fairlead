@@ -49,7 +49,8 @@ pub fn resolve(input: &ResolveInput<'_>) -> Registry {
         horizon_days: max_horizon_days(table.root_control()),
         waiver,
     };
-    let built = view::build_views(&ev, &decls.locs, raws, &mut diags);
+    let digests = view::own_digests(&table, input.corpus);
+    let built = view::build_views(&ev, &decls.locs, &digests, raws, &mut diags);
     let mut evals = built.evals;
     evals.sort_by(|a, b| {
         (&a.ovr.target, &a.ovr.declared_in, a.ovr.at.path.as_str(), a.ovr.at.line, a.ovr.at.col, &a.ovr.id)

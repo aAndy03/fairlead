@@ -166,3 +166,50 @@ impl Registry {
         &self.proposals
     }
 }
+
+impl Registry {
+    pub fn glob_matches(&self, scope: &ScopeId, glob: &str, path: &RepoPath) -> bool {
+        let rel = view::visible_rel(&self.table, scope, path);
+        globset::GlobBuilder::new(glob)
+            .literal_separator(true)
+            .build()
+            .map(|g| g.compile_matcher().is_match(&rel))
+            .unwrap_or(false) // Verify: globset 0.4 GlobBuilder::literal_separator
+    }
+
+    fn covers(&self, o: &Override, m: &ovr::OvrMeta, path: &RepoPath) -> bool {
+        m.whole
+            || match &m.extent {
+                ovr::OvrExtent::File(p) => p == path,
+                ovr::OvrExtent::Scope(g) => g.as_deref().is_some_and(|g| self.glob_matches(&o.declared_in, g, path)),
+            }
+    }
+
+    /// E(path): declared items of the chain, then each scope's applicable overrides (R-SCOPE-021).
+    pub fn view_at(&self, path: &RepoPath) -> EffectiveView {
+        let scope = self.table.scope_of(path).cloned().unwrap_or_else(|| self.table.root.clone());
+        let mut v = view::empty_view(&scope, &self.table);
+        if let Some(own) = self.views.get(&scope) {
+            v.authored_digest = own.authored_digest.clone();
+        }
+        if !self.table.is_resolved(&scope) {
+            return v;
+        }
+        for sid in v.chain.clone() {
+            for (id, item) in self.items.iter().filter(|(k, _)| k.scope == sid) {
+                if let Some(loc) = self.locs.get(id) {
+                    v.items.insert(id.clone(), view::effective_item(item, loc));
+                }
+            }
+            let mut mine: Vec<(&Override, &ovr::OvrMeta)> =
+                self.overrides.iter().zip(&self.meta).filter(|(o, _)| o.declared_in == sid).collect();
+            mine.sort_by_key(|(o, _)| o.base.is_some()); // stable: bases first
+            for (o, m) in mine {
+                if m.applied && self.covers(o, m, path) {
+                    view::apply_ovr(&mut v, o, &m.used_grants);
+                }
+            }
+        }
+        v
+    }
+}

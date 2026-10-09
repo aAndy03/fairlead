@@ -259,3 +259,57 @@ fn r_scope_047__pin_mismatch_marks_the_exception_stale() {
         .resolve();
     assert_eq!(changed.overrides()[0].state, OvrState::Stale);
 }
+
+use fairlead_core::diag::codes::{HN_C001, HN_X014};
+
+#[test]
+fn r_scope_064__two_overlapping_ovrs_of_one_field_are_both_inert_hn_x014() {
+    let reg = with_lines(rooted(""), &["// fairlead: ovr cmp.button size=sm", "// fairlead: ovr cmp.button size=lg"]);
+    assert!(reg.overrides().iter().all(|o| o.state == OvrState::Inert(InertReason::DuplicateOvr)));
+    assert_eq!(reg.diagnostics().iter().filter(|d| d.code == HN_X014).count(), 2);
+}
+
+#[test]
+fn r_scope_064__a_base_chain_is_not_a_duplicate_and_siblings_never_conflict() {
+    let target = iid("root", "cmp.button");
+    let first = ovr_fingerprint(&target, &sid("web"), "a", "", None);
+    let chained = format!("// fairlead: ovr cmp.button size=lg why=\"b\" base={first}");
+    let reg = with_lines(rooted(""), &["// fairlead: ovr cmp.button size=sm why=\"a\"", &chained]);
+    assert!(reg.overrides().iter().all(|o| o.state == OvrState::Effective));
+    let line = "// fairlead: ovr cmp.button size=sm\nexport const a = 1;\n";
+    let sib = rooted("").file("apps/web/src/a.ts", line).file("apps/admin/src/a.ts", line).resolve();
+    assert_eq!(sib.overrides().len(), 2);
+    assert!(sib.overrides().iter().all(|o| o.state == OvrState::Effective));
+}
+
+#[test]
+fn r_scope_025__applies_glob_cannot_leave_the_owning_subtree() {
+    let table = |applies: &str| {
+        child_toml("web", &ovr_table("cmp.button", &format!("size = \"sm\"\napplies = \"{applies}\"")))
+    };
+    let run = |applies: &str| {
+        Kit::new(&root_toml(""))
+            .file("fairlead/docs/c.md", &doc(&["def cmp.button size=md"]))
+            .scope("apps/web", "web", &table(applies))
+            .resolve()
+    };
+    let bad = run("../**");
+    assert_eq!(bad.overrides()[0].state, OvrState::Inert(InertReason::OutsideSubtree));
+    assert!(bad.diagnostics().iter().any(|d| d.code == HN_C001));
+    assert_eq!(run("/etc/**").overrides()[0].state, OvrState::Inert(InertReason::OutsideSubtree));
+    assert_eq!(run("src/**").overrides()[0].state, OvrState::Effective);
+}
+
+#[test]
+fn r_scope_064__disjoint_globs_in_one_scope_are_independent() {
+    let two = format!(
+        "{}{}",
+        ovr_table("cmp.button", "size = \"sm\"\napplies = \"src/**\""),
+        ovr_table("cmp.button", "size = \"lg\"\napplies = \"docs/**\"")
+    );
+    let reg = Kit::new(&root_toml(""))
+        .file("fairlead/docs/c.md", &doc(&["def cmp.button size=md"]))
+        .scope("apps/web", "web", &child_toml("web", &two))
+        .resolve();
+    assert!(reg.overrides().iter().all(|o| o.state == OvrState::Effective));
+}
