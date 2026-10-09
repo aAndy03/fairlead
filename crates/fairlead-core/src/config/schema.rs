@@ -107,6 +107,8 @@ pub enum ImplLimit {
 pub struct KeyDecl {
     pub ty: String,
     pub values: Vec<String>,
+    /// A-26: `new` scaffolds required keys with the placeholder (R-CLI-030).
+    pub required: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -800,10 +802,18 @@ fn parse_key_decls(cx: &mut Ctx<'_>, kind: &str, t: &mut toml::Table) -> BTreeMa
             };
             let ty = take_string(cx, &mut decl, &key, "type");
             let values = take_string_list(cx, &mut decl, &key, "values").unwrap_or_default();
+            let required = take_bool(cx, &mut decl, &key, "required").unwrap_or(false);
             cx.unknown_in(&key, &decl);
             match ty {
                 Some(ty) => {
-                    out.insert(name, KeyDecl { ty, values });
+                    out.insert(
+                        name,
+                        KeyDecl {
+                            ty,
+                            values,
+                            required,
+                        },
+                    );
                 }
                 None => cx.error(&key, format!("`{key}` needs a `type`")),
             }
@@ -1289,7 +1299,8 @@ mod tests {
             cmp.keys["layer"],
             KeyDecl {
                 ty: "enum".into(),
-                values: vec!["atom".into(), "molecule".into()]
+                values: vec!["atom".into(), "molecule".into()],
+                required: false,
             }
         );
         let adr = &kinds["adr"];

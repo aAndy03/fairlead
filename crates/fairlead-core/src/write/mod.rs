@@ -8,7 +8,7 @@ mod sync;
 mod tx;
 mod writeset;
 // approve, new and sync join the re-exports as P7-T10..T16 fill them.
-pub use {init::*, journal::*, lock::*, tx::*, writeset::*};
+pub use {init::*, journal::*, lock::*, new::*, tx::*, writeset::*};
 
 use crate::error::{Error, IoFailure, Refusal, RefusalKind};
 use crate::path::RepoPath;
@@ -468,6 +468,44 @@ pub(crate) mod testutil {
             unknown_scopes: vec![],
             absent_scopes: vec![],
             zero_declarations: false,
+        }
+    }
+    use crate::registry::{
+        ApprovalStatus, FieldChange, FieldValue, ItemId, Override, OvrId, OvrOp, OvrState, ScopeId,
+    };
+    use fairlead_syntax::ids::{Id, ScopeSlug};
+    pub fn item_id(scope: &str, kind_name: &str) -> ItemId {
+        let id = Id::parse(kind_name).unwrap();
+        ItemId {
+            scope: ScopeId(ScopeSlug::parse(scope).unwrap()),
+            kind: id.kind,
+            name: id.name,
+        }
+    }
+    pub fn ovr_fixture(file: &str, line: u32, why: &str) -> Override {
+        Override {
+            id: OvrId(crate::hash::Fingerprint::parse("aaaaaaaaaaaa").unwrap()),
+            target: item_id("root", "rule.no-raw-hex"),
+            field: None,
+            op: OvrOp::Loosen,
+            set: BTreeMap::from([(
+                "sev".to_owned(),
+                FieldChange::Replace(FieldValue::Scalar("warn".into())),
+            )]),
+            why: Some(why.into()),
+            owner: Some("@lead".into()),
+            exp: Some(jiff::civil::date(2026, 12, 31)),
+            base: None,
+            declared_in: ScopeId(ScopeSlug::parse("web").unwrap()),
+            applies: None,
+            at: crate::diag::Location {
+                path: rp(file),
+                line,
+                col: 1,
+            },
+            state: OvrState::Effective,
+            approval: ApprovalStatus::Missing,
+            target_hash: None,
         }
     }
 }
