@@ -6,6 +6,7 @@ mod ablation;
 mod bench;
 mod docs;
 mod golden;
+mod syntax_card;
 
 use std::process::ExitCode;
 
@@ -173,6 +174,20 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("syntax-card-score") => {
+            let dir = args.next().unwrap_or_default();
+            let result = syntax_card::score(std::path::Path::new(&dir)).and_then(|(t, i)| {
+                println!("syntax-card samples={t} invalid={i}");
+                syntax_card::gate(t, i)
+            });
+            match result {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("xtask syntax-card-score: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some("docs-check") => {
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
@@ -203,7 +218,7 @@ fn main() -> ExitCode {
         }
         None => {
             eprintln!(
-                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | golden-bless NAME>"
+                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | syntax-card-score DIR | golden-bless NAME>"
             );
             ExitCode::from(2)
         }

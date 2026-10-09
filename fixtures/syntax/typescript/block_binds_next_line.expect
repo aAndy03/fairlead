@@ -1,0 +1,2 @@
+# A standalone block comment binds to the next code line; the open brace runs to its close (R-SYN-018).
+def fn.load L2-4
