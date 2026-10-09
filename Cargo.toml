@@ -22,7 +22,7 @@ expect_used = "deny"
 panic = "deny"
 print_stdout = "deny" # only the fairlead binary and xtask print, with a reason
 print_stderr = "deny"
-todo = "allow"        # flipped to "deny" at the end of P9 (amendment A-67)
+todo = "deny"         # flipped at the end of P9-T24 (amendment A-67)
 
 [workspace.dependencies]
 # Internal path dependencies

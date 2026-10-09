@@ -1,0 +1,5 @@
+[fairlead]
+scope = "core"
+
+[settings]
+purpose = "Engine: resolve, check, context. No I/O in primitives."

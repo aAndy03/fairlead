@@ -4,6 +4,7 @@
 
 mod ablation;
 mod bench;
+mod docs;
 mod golden;
 
 use std::process::ExitCode;
@@ -126,6 +127,18 @@ fn main() -> ExitCode {
     match task.as_deref() {
         Some("check-deps") => check_deps(),
         Some("bench-corpus") => bench_corpus(&args.collect::<Vec<_>>()),
+        Some("docs-check") => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            match docs::check(root) {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(e) => {
+                    eprintln!("xtask docs-check: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some("golden-bless") => {
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
@@ -143,7 +156,9 @@ fn main() -> ExitCode {
             ExitCode::from(2)
         }
         None => {
-            eprintln!("xtask: usage: cargo xtask <check-deps | golden-bless NAME>");
+            eprintln!(
+                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | golden-bless NAME>"
+            );
             ExitCode::from(2)
         }
     }

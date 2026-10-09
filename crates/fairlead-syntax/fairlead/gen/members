@@ -1,0 +1,2 @@
+# scope syntax edition=1 body=2qkxjc0h43w0ed062t53
+self.syntax dir=crates/fairlead-syntax up=root chain=root,syntax

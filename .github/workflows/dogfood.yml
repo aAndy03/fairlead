@@ -1,0 +1,46 @@
+name: dogfood
+
+on:
+  # Not on every push (E-18): pull requests, weekly, and on demand.
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  self-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build in-tree fairlead
+        run: cargo build -p fairlead --locked
+      - name: Check the merge result (R-AGT-005)
+        run: target/debug/fairlead check --as-of "$(git log -1 --format=%cs HEAD)" --format terse --deny-warnings
+      - name: Check every commit of the pull request range (R-AGT-005)
+        if: github.event_name == 'pull_request'
+        run: |
+          for c in $(git rev-list --reverse "${{ github.event.pull_request.base.sha }}..HEAD"); do
+            git -c advice.detachedHead=false checkout -q "$c"
+            target/debug/fairlead check --as-of "$(git log -1 --format=%cs "$c")" --format terse --deny-warnings
+          done
+      - name: Pinned reference binary (R-ARCH-160, R-AGT-006)
+        if: vars.FAIRLEAD_REFERENCE_VERSION != ''
+        run: |
+          cargo binstall -y "fairlead@${{ vars.FAIRLEAD_REFERENCE_VERSION }}"
+          fairlead check --as-of "$(git log -1 --format=%cs HEAD)" --format terse --deny-warnings
+      - name: SARIF for the record (R-AGT-006)
+        run: target/debug/fairlead check --as-of "$(git log -1 --format=%cs HEAD)" --format sarif > fairlead.sarif || true
+      - name: Docs references and open questions (R-ARCH-161, E10)
+        run: cargo run -p xtask --locked -- docs-check
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fairlead-sarif
+          path: fairlead.sarif
+          if-no-files-found: ignore

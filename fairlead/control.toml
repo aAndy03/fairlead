@@ -8,7 +8,35 @@ marker  = "fairlead"
 [settings]
 folder        = "fairlead"
 fairlead-version = "0.1.0"
-purpose       = "The repository's own rules, dogfooded with fairlead."
+purpose       = "fairlead's own declarations: the rules this repository is checked against."
+owners        = ["@andy"]
 
 [scan]
-exclude = ["tests/cli/"]
+exclude = ["target/**", "Cargo.lock", "fixtures/**", "tests/**", "crates/*/tests/**", "fuzz/**", "bench/**", "ablation/**", "docs/plans/**"]
+
+[policies]
+"rules.*" = "sealed"
+
+[policies.waiver]
+budget   = 25
+approval = "required"
+
+[rules.no-clock]
+check    = "pattern"
+forbid   = '(SystemTime|Instant|Timestamp)::now\('
+msg      = "clock reads belong in time.rs or check/options.rs (R-ARCH-090)"
+glob     = ["crates/**/*.rs"]
+exclude  = ["crates/**/tests/**", "crates/fairlead-core/src/check/options.rs"]
+sev      = "error"
+stage    = "enforce"
+waivable = true
+why      = "the product reads the clock once"
+
+[rules.no-net-crates]
+check  = "pattern"
+forbid = '^(reqwest|ureq|hyper|openssl|rustls|native-tls)\s*='
+msg    = "no HTTP or TLS client in 0.1 (R-ARCH-123)"
+glob   = ["crates/*/Cargo.toml"]
+sev    = "error"
+stage  = "enforce"
+why    = "the 0.1 binary links no network stack"

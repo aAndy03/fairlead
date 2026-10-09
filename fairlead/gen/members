@@ -1,0 +1,4 @@
+# scope root edition=1 body=jg0b52jm98cv3ntjr4ra
+scope.core dir=crates/fairlead-core
+scope.syntax dir=crates/fairlead-syntax
+self.root dir=. up=- chain=root

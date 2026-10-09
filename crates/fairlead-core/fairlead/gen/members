@@ -1,0 +1,2 @@
+# scope core edition=1 body=t6ea6zdydetf3dsy5qk6
+self.core dir=crates/fairlead-core up=root chain=root,core

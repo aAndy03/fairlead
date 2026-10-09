@@ -1,0 +1,3 @@
+# scope root edition=1 body=kfpyrzjz02wvw0n60nkw
+rule.no-clock pol=needs-exception sum="the product reads the clock once" check=pattern exclude=crates/**/tests/**,crates/fairlead-core/src/check/options.rs forbid="(SystemTime|Instant|Timestamp)::now\\(" glob=crates/**/*.rs msg="clock reads belong in time.rs or check/options.rs (R-ARCH-090)" sev=error stage=enforce waivable=true why="the product reads the clock once"
+rule.no-net-crates pol=sealed sum="the 0.1 binary links no network stack" check=pattern exclude="" forbid="^(reqwest|ureq|hyper|openssl|rustls|native-tls)\\s*=" glob=crates/*/Cargo.toml msg="no HTTP or TLS client in 0.1 (R-ARCH-123)" sev=error stage=enforce waivable=false why="the 0.1 binary links no network stack"

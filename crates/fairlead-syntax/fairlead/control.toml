@@ -1,0 +1,5 @@
+[fairlead]
+scope = "syntax"
+
+[settings]
+purpose = "Grammar and extraction. Pure: no I/O, no git, no threads."
