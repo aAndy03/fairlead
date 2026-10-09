@@ -5,8 +5,14 @@ use std::sync::Arc;
 use fairlead_syntax::diag::Severity;
 use fairlead_syntax::ids::ScopeSlug;
 
+use crate::config::{EligibilityConfig, OvrDecl};
+use crate::manifest::ManifestHints;
+use crate::registry::ovr::ovr_fingerprint;
+use crate::registry::{ItemId, OvrId, Registry};
+use crate::time::AsOf;
+
 use crate::config::{ConfigFailure, ControlFile, ControlSet, Owner};
-use crate::diag::{codes, Diagnostic};
+use crate::diag::{Diagnostic, codes};
 use crate::discover::Root;
 use crate::facts::Facts;
 use crate::hash::{base32, hash_raw};
@@ -47,13 +53,19 @@ pub(crate) fn parent_dir(dir: &str) -> Option<&str> {
 }
 
 pub(crate) fn dir_depth(dir: &str) -> usize {
-    if dir.is_empty() { 0 } else { dir.split('/').count() }
+    if dir.is_empty() {
+        0
+    } else {
+        dir.split('/').count()
+    }
 }
 
 pub(crate) fn is_within(path: &str, dir: &str) -> bool {
     dir.is_empty()
         || path == dir
-        || path.strip_prefix(dir).is_some_and(|rest| rest.starts_with('/'))
+        || path
+            .strip_prefix(dir)
+            .is_some_and(|rest| rest.starts_with('/'))
 }
 
 /// Owner directory of `<dir>/<folder>/control.toml`.
@@ -120,7 +132,10 @@ impl ScopeTable {
     }
 
     pub(crate) fn is_resolved(&self, id: &ScopeId) -> bool {
-        matches!(self.scopes.get(id).map(|s| &s.state), Some(ScopeState::Resolved))
+        matches!(
+            self.scopes.get(id).map(|s| &s.state),
+            Some(ScopeState::Resolved)
+        )
     }
 
     /// Scopes ordered by (depth, directory): parents always precede children.
@@ -131,7 +146,9 @@ impl ScopeTable {
     }
 
     pub(crate) fn root_control(&self) -> Option<&ControlFile> {
-        self.scopes.get(&self.root).and_then(|s| s.control.as_deref())
+        self.scopes
+            .get(&self.root)
+            .and_then(|s| s.control.as_deref())
     }
 }
 
@@ -172,7 +189,12 @@ pub(crate) fn build_scope_table(
             Err(f) => {
                 let dir = dir_of_control(cpath.as_str(), folder);
                 let dir_path = RepoPath::new(&dir).unwrap_or_else(|_| cpath.clone());
-                raws.push(Raw { dir, dir_path, control_path: cpath.clone(), res: Err(f.clone()) });
+                raws.push(Raw {
+                    dir,
+                    dir_path,
+                    control_path: cpath.clone(),
+                    res: Err(f.clone()),
+                });
             }
         }
     }
@@ -187,23 +209,44 @@ pub(crate) fn build_scope_table(
         let parent = nearest_scope_dir(&raw.dir, &by_dir);
         let (mut id, control, mut state, owners) = match &raw.res {
             Ok(cf) => {
-                let owners = if raw.dir.is_empty() { cf.settings.owners.clone() } else { Vec::new() };
-                (ScopeId(cf.fairlead.scope.clone()), Some(Arc::clone(cf)), ScopeState::Resolved, owners)
+                let owners = if raw.dir.is_empty() {
+                    cf.settings.owners.clone()
+                } else {
+                    Vec::new()
+                };
+                (
+                    ScopeId(cf.fairlead.scope.clone()),
+                    Some(Arc::clone(cf)),
+                    ScopeState::Resolved,
+                    owners,
+                )
             }
             Err(f) => {
                 let from_shard = parent
                     .as_ref()
                     .and_then(|p| member_id(&scopes, p, &raw.dir, folder, facts));
                 let id = from_shard.unwrap_or_else(|| ScopeId(synth_slug("unresolved", &raw.dir)));
-                (id, None, ScopeState::Unresolved { reason: f.diags.clone() }, Vec::new())
+                (
+                    id,
+                    None,
+                    ScopeState::Unresolved {
+                        reason: f.diags.clone(),
+                    },
+                    Vec::new(),
+                )
             }
         };
         let first_claim = claimed.get(&id).map(|p| p.as_str().to_string());
         if let Some(first) = first_claim {
             let d = Dg::new(codes::HN_C007, Severity::Error, &raw.control_path, 1, 1)
                 .scope(&id)
-                .msg(format!("scope id \"{}\" is already declared by {first}", id.0.as_str()))
-                .hint("scope ids are unique: change [fairlead] scope in one of the two control files")
+                .msg(format!(
+                    "scope id \"{}\" is already declared by {first}",
+                    id.0.as_str()
+                ))
+                .hint(
+                    "scope ids are unique: change [fairlead] scope in one of the two control files",
+                )
                 .text(id.0.as_str())
                 .done();
             diags.push(d.clone());
@@ -213,7 +256,10 @@ pub(crate) fn build_scope_table(
             claimed.insert(id.clone(), raw.control_path.clone());
         }
         if state == ScopeState::Resolved {
-            let inherited = parent.as_ref().and_then(|p| scopes.get(p)).map(|s| s.state.clone());
+            let inherited = parent
+                .as_ref()
+                .and_then(|p| scopes.get(p))
+                .map(|s| s.state.clone());
             if let Some(ScopeState::Unresolved { reason }) = inherited {
                 state = ScopeState::Unresolved { reason };
             }
@@ -223,19 +269,20 @@ pub(crate) fn build_scope_table(
             .and_then(|p| scopes.get(p))
             .map(|s| s.depth + 1)
             .unwrap_or(0);
-        if state == ScopeState::Resolved {
-            if let Some(pid) = parent.as_ref() {
-                let registered = scopes
-                    .get(pid)
-                    .filter(|p| p.state == ScopeState::Resolved)
-                    .map(|p| {
-                        members_of(p, folder, facts)
-                            .unwrap_or_default()
-                            .iter()
-                            .any(|m| m.id == id.0.as_str())
-                    });
-                if registered == Some(false) {
-                    diags.push(
+        if state == ScopeState::Resolved
+            && let Some(pid) = parent.as_ref()
+        {
+            let registered = scopes
+                .get(pid)
+                .filter(|p| p.state == ScopeState::Resolved)
+                .map(|p| {
+                    members_of(p, folder, facts)
+                        .unwrap_or_default()
+                        .iter()
+                        .any(|m| m.id == id.0.as_str())
+                });
+            if registered == Some(false) {
+                diags.push(
                         Dg::new(codes::HN_C008, Severity::Error, &raw.control_path, 1, 1)
                             .scope(&id)
                             .msg(format!(
@@ -246,23 +293,40 @@ pub(crate) fn build_scope_table(
                             .text(id.0.as_str())
                             .done(),
                     );
-                }
             }
         }
         by_dir.insert(raw.dir.clone(), id.clone());
         scopes.insert(
             id.clone(),
-            Scope { id, dir: raw.dir_path.clone(), parent, depth, control, state, owners },
+            Scope {
+                id,
+                dir: raw.dir_path.clone(),
+                parent,
+                depth,
+                control,
+                state,
+                owners,
+            },
         );
     }
 
-    let absent: Vec<String> = facts.git.sparse_absent.iter().map(|p| p.as_str().to_string()).collect();
+    let absent: Vec<String> = facts
+        .git
+        .sparse_absent
+        .iter()
+        .map(|p| p.as_str().to_string())
+        .collect();
     if !absent.is_empty() {
-        let parents: Vec<Scope> =
-            scopes.values().filter(|s| s.state == ScopeState::Resolved).cloned().collect();
+        let parents: Vec<Scope> = scopes
+            .values()
+            .filter(|s| s.state == ScopeState::Resolved)
+            .cloned()
+            .collect();
         for p in parents {
             for m in members_of(&p, folder, facts).unwrap_or_default() {
-                let (Some(dir), Ok(slug)) = (m.path.clone(), ScopeSlug::parse(&m.id)) else { continue };
+                let (Some(dir), Ok(slug)) = (m.path.clone(), ScopeSlug::parse(&m.id)) else {
+                    continue;
+                };
                 let id = ScopeId(slug);
                 if scopes.contains_key(&id) || !absent.iter().any(|a| is_within(&dir, a)) {
                     continue;
@@ -290,7 +354,11 @@ pub(crate) fn build_scope_table(
         Some(id) => id.clone(),
         None => synth_root(&mut scopes, &mut by_dir, folder, diags),
     };
-    ScopeTable { root: root_id, scopes, by_dir }
+    ScopeTable {
+        root: root_id,
+        scopes,
+        by_dir,
+    }
 }
 
 /// Only reachable when `discover` was bypassed: no control file at the root directory.
@@ -302,7 +370,10 @@ fn synth_root(
 ) -> ScopeId {
     let id = ScopeId(synth_slug("unresolved", ""));
     // Verify: P3's RepoPath::new("") denotes the root directory.
-    if let (Ok(cpath), Ok(dir)) = (RepoPath::new(&format!("{folder}/control.toml")), RepoPath::new("")) {
+    if let (Ok(cpath), Ok(dir)) = (
+        RepoPath::new(&format!("{folder}/control.toml")),
+        RepoPath::new(""),
+    ) {
         let d = Dg::new(codes::HN_C001, Severity::Error, &cpath, 1, 1)
             .scope(&id)
             .msg("no root control file (root = true) was found")
@@ -381,4 +452,267 @@ fn member_id(
     let lines = members_of(scopes.get(parent)?, folder, facts)?;
     let m = lines.into_iter().find(|m| m.path.as_deref() == Some(dir))?;
     ScopeSlug::parse(&m.id).ok().map(ScopeId)
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum EligibilityReason {
+    FileLocalLines { files: u32 },
+    ManifestMember,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct EligibilityHint {
+    pub dir: RepoPath,
+    pub reason: EligibilityReason,
+}
+
+/// R-SCOPE-011, R-SCOPE-016: hints only, never automatic; the manifest never overrides a declaration.
+pub fn scope_eligibility(
+    reg: &Registry,
+    cfg: &EligibilityConfig,
+    hints: &ManifestHints,
+) -> Vec<EligibilityHint> {
+    let mut lines: BTreeMap<&str, u32> = BTreeMap::new();
+    for p in reg
+        .edges
+        .iter()
+        .map(|e| &e.from.path)
+        .chain(reg.sites.values().flatten().map(|s| &s.path))
+        .chain(
+            reg.overrides
+                .iter()
+                .zip(&reg.meta)
+                .filter(|(_, m)| matches!(m.extent, crate::registry::ovr::OvrExtent::File(_)))
+                .map(|(o, _)| &o.at.path),
+        )
+    {
+        *lines.entry(p.as_str()).or_insert(0) += 1;
+    }
+    let mut per_dir: BTreeMap<&str, u32> = BTreeMap::new();
+    for (file, _) in lines.iter().filter(|(_, n)| **n >= cfg.min_lines) {
+        if let Some(d) = parent_dir(file) {
+            *per_dir.entry(d).or_insert(0) += 1;
+        }
+    }
+    let mut out: BTreeMap<String, EligibilityReason> = BTreeMap::new();
+    for (d, files) in per_dir {
+        if files >= cfg.min_files && !d.is_empty() && !reg.table.by_dir.contains_key(d) {
+            out.insert(d.to_string(), EligibilityReason::FileLocalLines { files });
+        }
+    }
+    for m in &hints.workspace_members {
+        if !reg.table.by_dir.contains_key(m.as_str()) {
+            out.entry(m.as_str().to_string())
+                .or_insert(EligibilityReason::ManifestMember);
+        }
+    }
+    out.into_iter()
+        .filter_map(|(d, reason)| {
+            RepoPath::new(&d)
+                .ok()
+                .map(|dir| EligibilityHint { dir, reason })
+        })
+        .collect()
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Tombstone {
+    pub id: ScopeSlug,
+    pub former_path: RepoPath,
+    pub written_in: ScopeId,
+    pub date: jiff::civil::Date,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct PromotePlan {
+    pub ancestor: ScopeId,
+    pub new_scope: ScopeId,
+    pub dir: RepoPath,
+    pub moved: Vec<OvrDecl>,
+    pub kept: Vec<OvrDecl>,
+    pub rebinds: Vec<(OvrId, OvrId)>,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+pub enum PromoteRefusal {
+    NotBelowAncestor,
+    ScopeExists,
+    IdInUse,
+    AncestorUnresolved,
+}
+
+fn rel_dir<'a>(dir: &'a str, base: &str) -> Option<&'a str> {
+    if base.is_empty() {
+        return Some(dir);
+    }
+    dir.strip_prefix(base)?.strip_prefix('/')
+}
+
+/// Old and new `OvrId` of a declaration that moves from scope `from` to scope `to` (R-CHK-026).
+fn rebind(
+    reg: &Registry,
+    resolve_from: &ScopeId,
+    d: &OvrDecl,
+    from: &ScopeId,
+    to: &ScopeId,
+) -> Option<(OvrId, OvrId)> {
+    let (target, _) = reg.resolve_target(resolve_from, &d.target)?;
+    let exp = d
+        .exp
+        .as_deref()
+        .and_then(|s| s.parse::<jiff::civil::Date>().ok());
+    let fp = |s: &ScopeId| {
+        OvrId(ovr_fingerprint(
+            &target,
+            s,
+            d.why.as_deref().unwrap_or(""),
+            d.owner.as_deref().unwrap_or(""),
+            exp.as_ref(),
+        ))
+    };
+    Some((fp(from), fp(to)))
+}
+
+pub fn promote_model(
+    reg: &Registry,
+    ancestor: &ScopeId,
+    dir: &RepoPath,
+    new_id: &ScopeSlug,
+) -> Result<PromotePlan, PromoteRefusal> {
+    let anc = reg
+        .table
+        .get(ancestor)
+        .filter(|s| s.state == ScopeState::Resolved)
+        .ok_or(PromoteRefusal::AncestorUnresolved)?;
+    let cf = anc
+        .control
+        .as_ref()
+        .ok_or(PromoteRefusal::AncestorUnresolved)?;
+    let rel = rel_dir(dir.as_str(), anc.dir.as_str().trim_matches('/'))
+        .filter(|r| !r.is_empty())
+        .ok_or(PromoteRefusal::NotBelowAncestor)?;
+    if reg.table.by_dir.contains_key(dir.as_str()) {
+        return Err(PromoteRefusal::ScopeExists);
+    }
+    let new_scope = ScopeId(new_id.clone());
+    if reg.table.get(&new_scope).is_some() {
+        return Err(PromoteRefusal::IdInUse);
+    }
+    let (mut moved, mut kept, mut rebinds) = (Vec::new(), Vec::new(), Vec::new());
+    for d in &cf.ovrs {
+        let rest = d
+            .applies
+            .as_deref()
+            .and_then(|a| a.strip_prefix(rel))
+            .and_then(|a| a.strip_prefix('/'));
+        match rest {
+            Some(rest) => {
+                let mut m = d.clone();
+                m.applies = if rest == "**" {
+                    None
+                } else {
+                    Some(rest.to_string())
+                };
+                rebinds.extend(rebind(reg, ancestor, d, ancestor, &new_scope));
+                moved.push(m);
+            }
+            None => kept.push(d.clone()),
+        }
+    }
+    Ok(PromotePlan {
+        ancestor: ancestor.clone(),
+        new_scope,
+        dir: dir.clone(),
+        moved,
+        kept,
+        rebinds,
+    })
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DemotePlan {
+    pub scope: ScopeId,
+    pub into: ScopeId,
+    pub tombstone: Tombstone,
+    pub moved: Vec<OvrDecl>,
+    pub items_moved: Vec<ItemId>,
+    pub reparented: Vec<ScopeId>,
+    pub rebinds: Vec<(OvrId, OvrId)>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum DemoteRefusal {
+    Root,
+    Unresolved,
+    DuplicateId(ItemId),
+}
+
+/// R-SCOPE-014: tombstone data plus the inverse of `promote_model`; refuses on duplicate IDs.
+pub fn demote_model(
+    reg: &Registry,
+    scope: &ScopeId,
+    as_of: AsOf,
+) -> Result<DemotePlan, DemoteRefusal> {
+    let s = reg.table.get(scope).ok_or(DemoteRefusal::Unresolved)?;
+    let into = s.parent.clone().ok_or(DemoteRefusal::Root)?;
+    let cf = s
+        .control
+        .as_ref()
+        .filter(|_| s.state == ScopeState::Resolved)
+        .ok_or(DemoteRefusal::Unresolved)?;
+    let anc = reg.table.get(&into).ok_or(DemoteRefusal::Unresolved)?;
+    let rel = rel_dir(s.dir.as_str(), anc.dir.as_str().trim_matches('/'))
+        .unwrap_or("")
+        .to_string();
+    let items_moved: Vec<ItemId> = reg
+        .items
+        .keys()
+        .filter(|k| k.scope == *scope)
+        .cloned()
+        .collect();
+    for m in &items_moved {
+        let clash = reg.items.keys().find(|k| {
+            k.scope != *scope
+                && k.kind == m.kind
+                && k.name == m.name
+                && (reg.table.is_ancestor_or_self(&k.scope, &into)
+                    || reg.table.is_ancestor_or_self(&into, &k.scope))
+                && !reg.table.is_ancestor_or_self(scope, &k.scope)
+        });
+        if clash.is_some() {
+            return Err(DemoteRefusal::DuplicateId(m.clone()));
+        }
+    }
+    let mut moved = Vec::new();
+    let mut rebinds = Vec::new();
+    for d in &cf.ovrs {
+        let mut m = d.clone();
+        m.applies = Some(match d.applies.as_deref() {
+            None | Some("**") => format!("{rel}/**"),
+            Some(a) => format!("{rel}/{a}"),
+        });
+        rebinds.extend(rebind(reg, scope, d, scope, &into));
+        moved.push(m);
+    }
+    let reparented = reg
+        .table
+        .scopes
+        .values()
+        .filter(|c| c.parent.as_ref() == Some(scope))
+        .map(|c| c.id.clone())
+        .collect();
+    Ok(DemotePlan {
+        scope: scope.clone(),
+        into: into.clone(),
+        tombstone: Tombstone {
+            id: scope.0.clone(),
+            former_path: s.dir.clone(),
+            written_in: into,
+            date: as_of.0,
+        },
+        moved,
+        items_moved,
+        reparented,
+        rebinds,
+    })
 }

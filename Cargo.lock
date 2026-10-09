@@ -215,6 +215,7 @@ dependencies = [
  "globset",
  "ignore",
  "jiff",
+ "proptest",
  "rayon",
  "regex",
  "semver",

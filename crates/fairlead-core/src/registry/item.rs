@@ -1,8 +1,8 @@
 //! Items, sites, edges, lookups (R-SCOPE-023..026, R-ARCH-062).
 use std::collections::BTreeMap;
 
-use fairlead_syntax::directive::Extent;
 use fairlead_syntax::diag::Span;
+use fairlead_syntax::directive::Extent;
 use fairlead_syntax::ids::{Id, IdQualifier, Kind, Name};
 
 use crate::config::Policy;
@@ -13,7 +13,7 @@ use std::collections::BTreeSet;
 use fairlead_syntax::diag::Severity;
 use fairlead_syntax::directive::{Arg, ArgOp, ArgValue, Carrier, Directive, Verb, known_keys};
 
-use crate::config::{ControlFile, KindDecl, RuleDecl, Stage};
+use crate::config::{ControlFile, KindDecl, Stage};
 use crate::diag::{Diagnostic, Location, codes};
 use crate::extract::Corpus;
 use crate::registry::Dg;
@@ -177,8 +177,16 @@ impl KindTable {
         kt
     }
 
-    fn visible<'a>(&'a self, table: &'a ScopeTable, scope: &ScopeId) -> impl Iterator<Item = (&'a String, &'a KindDecl)> {
-        table.chain_ids(scope).into_iter().filter_map(|s| self.own.get(s)).flat_map(|m| m.iter())
+    fn visible<'a>(
+        &'a self,
+        table: &'a ScopeTable,
+        scope: &ScopeId,
+    ) -> impl Iterator<Item = (&'a String, &'a KindDecl)> {
+        table
+            .chain_ids(scope)
+            .into_iter()
+            .filter_map(|s| self.own.get(s))
+            .flat_map(|m| m.iter())
     }
 
     pub(crate) fn declared_names(&self, table: &ScopeTable, scope: &ScopeId) -> Vec<String> {
@@ -187,8 +195,15 @@ impl KindTable {
         v.into_iter().collect()
     }
 
-    pub(crate) fn decl<'a>(&'a self, table: &'a ScopeTable, scope: &ScopeId, kind: &str) -> Option<&'a KindDecl> {
-        self.visible(table, scope).find(|(k, _)| k.as_str() == kind).map(|(_, d)| d)
+    pub(crate) fn decl<'a>(
+        &'a self,
+        table: &'a ScopeTable,
+        scope: &ScopeId,
+        kind: &str,
+    ) -> Option<&'a KindDecl> {
+        self.visible(table, scope)
+            .find(|(k, _)| k.as_str() == kind)
+            .map(|(_, d)| d)
     }
 
     /// Kinds are visible along the chain of the referencing scope, and of the named scope for `q:kind.n`.
@@ -279,24 +294,45 @@ pub(crate) fn policy_for(
     }
 }
 
-fn control_cands(scope: &Scope, cf: &ControlFile, root: Option<&ControlFile>, diags: &mut Vec<Diagnostic>) -> Vec<Cand> {
-    let loc = Location { path: cf.path.clone(), line: 0, col: 0 };
+fn control_cands(
+    scope: &Scope,
+    cf: &ControlFile,
+    root: Option<&ControlFile>,
+    diags: &mut Vec<Diagnostic>,
+) -> Vec<Cand> {
+    let loc = Location {
+        path: cf.path.clone(),
+        line: 0,
+        col: 0,
+    };
     let mut out = Vec::new();
     for (name, r) in &cf.rules {
         let Ok(id) = Id::parse(&format!("rule.{name}")) else {
-            diags.push(bad_decl(scope, cf, &format!("rule name \"{name}\" is not a valid ID name")));
+            diags.push(bad_decl(
+                scope,
+                cf,
+                &format!("rule name \"{name}\" is not a valid ID name"),
+            ));
             continue;
         };
         let mut fields = BTreeMap::new();
-        fields.insert("sev".to_string(), FieldValue::Scalar(r.sev.map(sev_text).unwrap_or("error").to_string()));
-        fields.insert("stage".to_string(), FieldValue::Scalar(r.stage.map(stage_text).unwrap_or("observe").to_string()));
+        fields.insert(
+            "sev".to_string(),
+            FieldValue::Scalar(r.sev.map(sev_text).unwrap_or("error").to_string()),
+        );
+        fields.insert(
+            "stage".to_string(),
+            FieldValue::Scalar(r.stage.map(stage_text).unwrap_or("observe").to_string()),
+        );
         fields.insert("glob".to_string(), FieldValue::List(r.glob.clone()));
         fields.insert("exclude".to_string(), FieldValue::List(r.exclude.clone()));
         out.push(Cand {
             policy: policy_for(root, "rule", id.name.as_str(), None, r.waivable),
             kind: id.kind,
             name: id.name,
-            origin: Origin::ControlTable { control: cf.path.clone() },
+            origin: Origin::ControlTable {
+                control: cf.path.clone(),
+            },
             sum: r.why.clone(),
             fields,
             loc: loc.clone(),
@@ -306,7 +342,11 @@ fn control_cands(scope: &Scope, cf: &ControlFile, root: Option<&ControlFile>, di
         let id = match Id::parse(&f.id) {
             Ok(id) if matches!(id.qualifier, IdQualifier::Bare) => id,
             _ => {
-                diags.push(bad_decl(scope, cf, &format!("file-item id \"{}\" must be a bare kind.name", f.id)));
+                diags.push(bad_decl(
+                    scope,
+                    cf,
+                    &format!("file-item id \"{}\" must be a bare kind.name", f.id),
+                ));
                 continue;
             }
         };
@@ -320,7 +360,9 @@ fn control_cands(scope: &Scope, cf: &ControlFile, root: Option<&ControlFile>, di
             policy: policy_for(root, id.kind.as_str(), id.name.as_str(), None, false),
             kind: id.kind,
             name: id.name,
-            origin: Origin::ControlTable { control: cf.path.clone() },
+            origin: Origin::ControlTable {
+                control: cf.path.clone(),
+            },
             sum: None,
             fields,
             loc: loc.clone(),
@@ -337,22 +379,51 @@ fn bad_decl(scope: &Scope, cf: &ControlFile, msg: &str) -> Diagnostic {
         .done()
 }
 
-fn insert_cands(decls: &mut Decls, table: &ScopeTable, scope: &Scope, mut cands: Vec<Cand>, diags: &mut Vec<Diagnostic>) {
+fn insert_cands(
+    decls: &mut Decls,
+    table: &ScopeTable,
+    scope: &Scope,
+    mut cands: Vec<Cand>,
+    diags: &mut Vec<Diagnostic>,
+) {
     cands.sort_by(|a, b| {
-        (a.kind.as_str(), a.name.as_str(), a.loc.path.as_str(), a.loc.line)
-            .cmp(&(b.kind.as_str(), b.name.as_str(), b.loc.path.as_str(), b.loc.line))
+        (
+            a.kind.as_str(),
+            a.name.as_str(),
+            a.loc.path.as_str(),
+            a.loc.line,
+        )
+            .cmp(&(
+                b.kind.as_str(),
+                b.name.as_str(),
+                b.loc.path.as_str(),
+                b.loc.line,
+            ))
     });
     for c in cands {
-        let id = ItemId { scope: scope.id.clone(), kind: c.kind.clone(), name: c.name.clone() };
+        let id = ItemId {
+            scope: scope.id.clone(),
+            kind: c.kind.clone(),
+            name: c.name.clone(),
+        };
         let text = format!("{}.{}", c.kind.as_str(), c.name.as_str());
         if decls.items.contains_key(&id) {
             diags.push(
-                Dg::new(codes::HN_D001, Severity::Error, &c.loc.path, c.loc.line, c.loc.col)
-                    .scope(&scope.id)
-                    .msg(format!("`{text}` is declared twice in scope \"{}\"", scope.id.0.as_str()))
-                    .hint("keep one declaration or rename the other")
-                    .text(text)
-                    .done(),
+                Dg::new(
+                    codes::HN_D001,
+                    Severity::Error,
+                    &c.loc.path,
+                    c.loc.line,
+                    c.loc.col,
+                )
+                .scope(&scope.id)
+                .msg(format!(
+                    "`{text}` is declared twice in scope \"{}\"",
+                    scope.id.0.as_str()
+                ))
+                .hint("keep one declaration or rename the other")
+                .text(text)
+                .done(),
             );
             continue;
         }
@@ -360,24 +431,43 @@ fn insert_cands(decls: &mut Decls, table: &ScopeTable, scope: &Scope, mut cands:
             .chain_ids(&scope.id)
             .into_iter()
             .filter(|s| **s != scope.id)
-            .map(|s| ItemId { scope: s.clone(), kind: c.kind.clone(), name: c.name.clone() })
+            .map(|s| ItemId {
+                scope: s.clone(),
+                kind: c.kind.clone(),
+                name: c.name.clone(),
+            })
             .find(|anc| decls.items.contains_key(anc));
         if let Some(anc) = shadowed {
             diags.push(
-                Dg::new(codes::HN_R005, Severity::Error, &c.loc.path, c.loc.line, c.loc.col)
-                    .scope(&scope.id)
-                    .msg(format!("`{text}` redefines an ID inherited from scope \"{}\"", anc.scope.0.as_str()))
-                    .related(anc.to_id().to_string())
-                    .hint("convert it to an `ovr` of the inherited item, or rename it")
-                    .text(text)
-                    .done(),
+                Dg::new(
+                    codes::HN_R005,
+                    Severity::Error,
+                    &c.loc.path,
+                    c.loc.line,
+                    c.loc.col,
+                )
+                .scope(&scope.id)
+                .msg(format!(
+                    "`{text}` redefines an ID inherited from scope \"{}\"",
+                    anc.scope.0.as_str()
+                ))
+                .related(anc.to_id().to_string())
+                .hint("convert it to an `ovr` of the inherited item, or rename it")
+                .text(text)
+                .done(),
             );
             continue;
         }
         decls.locs.insert(id.clone(), c.loc.clone());
         decls.items.insert(
             id.clone(),
-            Item { id, origin: c.origin, policy: c.policy, sum: c.sum, fields: c.fields },
+            Item {
+                id,
+                origin: c.origin,
+                policy: c.policy,
+                sum: c.sum,
+                fields: c.fields,
+            },
         );
     }
 }
@@ -486,13 +576,23 @@ pub(crate) fn check_keys(
         if known {
             continue;
         }
-        let sev = if d.must_understand { Severity::Error } else { Severity::Warn };
+        let sev = if d.must_understand {
+            Severity::Error
+        } else {
+            Severity::Warn
+        };
         keep &= !d.must_understand;
         diags.push(
             Dg::new(codes::HN_S011, sev, path, a.span.line, a.span.col)
                 .scope(scope)
-                .msg(format!("unknown key \"{}\" on `{}`", a.key, verb_name(d.verb)))
-                .hint("remove it, rename it with an x- prefix, or declare it under [kinds.<k>.keys]")
+                .msg(format!(
+                    "unknown key \"{}\" on `{}`",
+                    a.key,
+                    verb_name(d.verb)
+                ))
+                .hint(
+                    "remove it, rename it with an x- prefix, or declare it under [kinds.<k>.keys]",
+                )
                 .text(a.key.as_str())
                 .done(),
         );
@@ -506,7 +606,11 @@ pub(crate) fn is_decl_site(path: &RepoPath, scope: &Scope, folder: &str, d: &Dir
         return true;
     }
     let base = scope.dir.as_str().trim_matches('/');
-    let mdir = if base.is_empty() { folder.to_string() } else { format!("{base}/{folder}") };
+    let mdir = if base.is_empty() {
+        folder.to_string()
+    } else {
+        format!("{base}/{folder}")
+    };
     is_within(path.as_str(), &mdir)
 }
 
@@ -529,9 +633,15 @@ pub(crate) fn doc_cands(
     let root = table.root_control();
     let mut out: BTreeMap<ScopeId, Vec<Cand>> = BTreeMap::new();
     for (path, rec) in &corpus.records {
-        let Some(sid) = table.scope_of(path) else { continue };
-        let Some(scope) = table.get(sid).filter(|s| s.state == ScopeState::Resolved) else { continue };
-        let Some(ex) = rec.extraction.as_ref() else { continue };
+        let Some(sid) = table.scope_of(path) else {
+            continue;
+        };
+        let Some(scope) = table.get(sid).filter(|s| s.state == ScopeState::Resolved) else {
+            continue;
+        };
+        let Some(ex) = rec.extraction.as_ref() else {
+            continue;
+        };
         for d in &ex.directives {
             if d.verb != Verb::Def || !is_decl_site(path, scope, folder, d) {
                 continue;
@@ -572,12 +682,18 @@ pub(crate) fn doc_cands(
                     "policy" => match parse_policy(&arg_scalar(&a.value)) {
                         Some(p) => explicit = Some(p),
                         None => diags.push(
-                            Dg::new(codes::HN_S011, Severity::Warn, path, a.span.line, a.span.col)
-                                .scope(sid)
-                                .msg("policy must be open, needs-exception or sealed")
-                                .hint("fix the value; the kind default applies meanwhile")
-                                .text(arg_scalar(&a.value))
-                                .done(),
+                            Dg::new(
+                                codes::HN_S011,
+                                Severity::Warn,
+                                path,
+                                a.span.line,
+                                a.span.col,
+                            )
+                            .scope(sid)
+                            .msg("policy must be open, needs-exception or sealed")
+                            .hint("fix the value; the kind default applies meanwhile")
+                            .text(arg_scalar(&a.value))
+                            .done(),
                         ),
                     },
                     "sum" => sum = Some(arg_scalar(&a.value)),
@@ -591,10 +707,17 @@ pub(crate) fn doc_cands(
                 policy: policy_for(root, id.kind.as_str(), id.name.as_str(), explicit, false),
                 kind: id.kind.clone(),
                 name: id.name.clone(),
-                origin: Origin::DocDef { path: path.clone(), span: d.span },
+                origin: Origin::DocDef {
+                    path: path.clone(),
+                    span: d.span,
+                },
                 sum,
                 fields,
-                loc: Location { path: path.clone(), line: d.span.line, col: d.span.col },
+                loc: Location {
+                    path: path.clone(),
+                    line: d.span.line,
+                    col: d.span.col,
+                },
             });
         }
     }
@@ -612,20 +735,29 @@ pub(crate) struct Index<'a> {
 
 impl Index<'_> {
     fn item_in(&self, scope: &ScopeId, r: &Id) -> Option<ItemId> {
-        let id = ItemId { scope: scope.clone(), kind: r.kind.clone(), name: r.name.clone() };
+        let id = ItemId {
+            scope: scope.clone(),
+            kind: r.kind.clone(),
+            name: r.name.clone(),
+        };
         self.items.contains_key(&id).then_some(id)
     }
 
     fn floor_item(&self, r: &Id) -> Option<ItemId> {
-        (r.kind.as_str() == "rule" && FLOOR_RULES.contains(&r.name.as_str()))
-            .then(|| ItemId { scope: self.table.root.clone(), kind: r.kind.clone(), name: r.name.clone() })
+        (r.kind.as_str() == "rule" && FLOOR_RULES.contains(&r.name.as_str())).then(|| ItemId {
+            scope: self.table.root.clone(),
+            kind: r.kind.clone(),
+            name: r.name.clone(),
+        })
     }
 
     /// R-SYN-025, R-ARCH-062.
     pub(crate) fn lookup(&self, from: &ScopeId, r: &Id) -> Lookup {
         let direct = |s: &ScopeId| match self.item_in(s, r).or_else(|| self.floor_item(r)) {
             Some(i) => Lookup::Found(i),
-            None => Lookup::Missing { nearest: self.nearest(from, r) },
+            None => Lookup::Missing {
+                nearest: self.nearest(from, r),
+            },
         };
         match &r.qualifier {
             IdQualifier::Root => direct(&self.table.root),
@@ -639,12 +771,18 @@ impl Index<'_> {
                 if let Some(i) = self.floor_item(r) {
                     return Lookup::Found(i);
                 }
-                let others: Vec<ItemId> =
-                    self.items.keys().filter(|k| k.kind == r.kind && k.name == r.name).cloned().collect();
+                let others: Vec<ItemId> = self
+                    .items
+                    .keys()
+                    .filter(|k| k.kind == r.kind && k.name == r.name)
+                    .cloned()
+                    .collect();
                 if others.len() >= 2 {
                     return Lookup::Ambiguous(others);
                 }
-                Lookup::Missing { nearest: self.nearest(from, r) }
+                Lookup::Missing {
+                    nearest: self.nearest(from, r),
+                }
             }
         }
     }
@@ -659,7 +797,11 @@ impl Index<'_> {
             let on_chain = chain.contains(&&item.scope);
             let text = format!("{}.{}", item.kind.as_str(), item.name.as_str());
             let id = if on_chain {
-                Id { qualifier: IdQualifier::Bare, kind: item.kind.clone(), name: item.name.clone() }
+                Id {
+                    qualifier: IdQualifier::Bare,
+                    kind: item.kind.clone(),
+                    name: item.name.clone(),
+                }
             } else {
                 item.to_id()
             };
@@ -680,7 +822,11 @@ impl Index<'_> {
     }
 
     /// `kind.name` or `kind.name.field` (R-SCOPE-040); the longest item name wins.
-    pub(crate) fn resolve_target(&self, from: &ScopeId, text: &str) -> Option<(ItemId, Option<String>)> {
+    pub(crate) fn resolve_target(
+        &self,
+        from: &ScopeId,
+        text: &str,
+    ) -> Option<(ItemId, Option<String>)> {
         let text = normalise_rules_alias(text);
         let id = Id::parse(&text).ok()?;
         if let Lookup::Found(i) = self.lookup(from, &id) {
@@ -702,19 +848,42 @@ pub(crate) struct Refs {
     pub(crate) sites: BTreeMap<ItemId, Vec<Site>>,
 }
 
-pub(crate) fn collect_refs(idx: &Index<'_>, folder: &str, corpus: &Corpus, diags: &mut Vec<Diagnostic>) -> Refs {
-    let mut refs = Refs { edges: Vec::new(), sites: BTreeMap::new() };
+pub(crate) fn collect_refs(
+    idx: &Index<'_>,
+    folder: &str,
+    corpus: &Corpus,
+    diags: &mut Vec<Diagnostic>,
+) -> Refs {
+    let mut refs = Refs {
+        edges: Vec::new(),
+        sites: BTreeMap::new(),
+    };
     for (path, rec) in &corpus.records {
-        let Some(sid) = idx.table.scope_of(path) else { continue };
-        let Some(scope) = idx.table.get(sid).filter(|s| s.state == ScopeState::Resolved) else { continue };
-        let Some(ex) = rec.extraction.as_ref() else { continue };
+        let Some(sid) = idx.table.scope_of(path) else {
+            continue;
+        };
+        let Some(scope) = idx
+            .table
+            .get(sid)
+            .filter(|s| s.state == ScopeState::Resolved)
+        else {
+            continue;
+        };
+        let Some(ex) = rec.extraction.as_ref() else {
+            continue;
+        };
         for d in &ex.directives {
             let is_use = d.verb == Verb::Use;
             let is_site = d.verb == Verb::Def && !is_decl_site(path, scope, folder, d);
             if !(is_use || is_site) || !check_keys(d, sid, idx.table, idx.kinds, path, diags) {
                 continue;
             }
-            let site = Site { path: path.clone(), span: d.span, extent: d.extent, scope: sid.clone() };
+            let site = Site {
+                path: path.clone(),
+                span: d.span,
+                extent: d.extent,
+                scope: sid.clone(),
+            };
             let sym = d.arg("sym").map(|a| arg_scalar(&a.value));
             for id in &d.ids {
                 if id.kind.as_str() == "foreign" {
@@ -722,7 +891,9 @@ pub(crate) fn collect_refs(idx: &Index<'_>, folder: &str, corpus: &Corpus, diags
                 }
                 let text = fairlead_syntax::render_directive_body(d);
                 if !idx.kinds.is_declared(idx.table, sid, id) {
-                    diags.push(undeclared_kind(idx.kinds, idx.table, sid, id, path, d.span, &text));
+                    diags.push(undeclared_kind(
+                        idx.kinds, idx.table, sid, id, path, d.span, &text,
+                    ));
                     continue;
                 }
                 let found = match idx.lookup(sid, id) {
@@ -730,20 +901,34 @@ pub(crate) fn collect_refs(idx: &Index<'_>, folder: &str, corpus: &Corpus, diags
                     Lookup::Ambiguous(c) => {
                         let names: Vec<String> = c.iter().map(|i| i.to_id().to_string()).collect();
                         diags.push(
-                            Dg::new(codes::HN_R007, Severity::Error, path, d.span.line, d.span.col)
-                                .scope(sid)
-                                .msg(format!("reference `{id}` is ambiguous: declared in {}", names.join(", ")))
-                                .related(names.join(" "))
-                                .hint("qualify it as scope:kind.name")
-                                .text(text)
-                                .done(),
+                            Dg::new(
+                                codes::HN_R007,
+                                Severity::Error,
+                                path,
+                                d.span.line,
+                                d.span.col,
+                            )
+                            .scope(sid)
+                            .msg(format!(
+                                "reference `{id}` is ambiguous: declared in {}",
+                                names.join(", ")
+                            ))
+                            .related(names.join(" "))
+                            .hint("qualify it as scope:kind.name")
+                            .text(text)
+                            .done(),
                         );
                         None
                     }
                     Lookup::Missing { .. } => None, // dangling: HN-R001 is raised by P5 from `edges`
                 };
                 if is_use {
-                    refs.edges.push(Edge { from: site.clone(), to: id.clone(), sym: sym.clone(), resolved: found });
+                    refs.edges.push(Edge {
+                        from: site.clone(),
+                        to: id.clone(),
+                        sym: sym.clone(),
+                        resolved: found,
+                    });
                 } else if let Some(item) = found {
                     refs.sites.entry(item).or_default().push(site.clone());
                 }
@@ -758,8 +943,12 @@ use fairlead_syntax::ids::ScopeSlug;
 pub fn home_mismatches(reg: &Registry) -> Vec<(ItemId, Site, ScopeId)> {
     let mut out = Vec::new();
     for (id, item) in &reg.items {
-        let Some(FieldValue::Scalar(h)) = item.fields.get("home") else { continue };
-        let Ok(slug) = ScopeSlug::parse(&h) else { continue };
+        let Some(FieldValue::Scalar(h)) = item.fields.get("home") else {
+            continue;
+        };
+        let Ok(slug) = ScopeSlug::parse(h) else {
+            continue;
+        };
         let home = ScopeId(slug);
         for site in reg.sites_of(id) {
             if !reg.table.is_ancestor_or_self(&home, &site.scope) {

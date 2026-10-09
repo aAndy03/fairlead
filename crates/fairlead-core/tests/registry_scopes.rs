@@ -1,4 +1,10 @@
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing, clippy::panic)]
+#![allow(non_snake_case)] // reason: test names start with the rule id
+#![allow(
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing,
+    clippy::panic
+)]
 mod support;
 
 use fairlead_core::registry::{
@@ -73,21 +79,37 @@ fn r_scope_005__duplicate_scope_id_is_hn_c007_and_the_loser_is_unresolved() {
         .scope("apps/a", "same", &child_toml("same", ""))
         .scope("apps/b", "same", &child_toml("same", ""))
         .resolve();
-    let c007: Vec<_> = reg.diagnostics().iter().filter(|d| d.code == HN_C007).collect();
+    let c007: Vec<_> = reg
+        .diagnostics()
+        .iter()
+        .filter(|d| d.code == HN_C007)
+        .collect();
     assert_eq!(c007.len(), 1);
-    assert_eq!(c007[0].location.path.as_str(), "apps/b/fairlead/control.toml");
+    assert_eq!(
+        c007[0].location.path.as_str(),
+        "apps/b/fairlead/control.toml"
+    );
     assert_eq!(reg.scope(&sid("same")).unwrap().dir.as_str(), "apps/a");
     let loser = reg.scope_of(&path("apps/b/x.rs")).unwrap();
     assert_ne!(loser, &sid("same"));
-    assert!(matches!(reg.scope(loser).unwrap().state, ScopeState::Unresolved { .. }));
+    assert!(matches!(
+        reg.scope(loser).unwrap().state,
+        ScopeState::Unresolved { .. }
+    ));
 }
 
 #[test]
 fn r_scope_015__leaf_folder_without_managerial_folder_stays_implicit() {
     let reg = two_level()
-        .file("apps/web/src/leaf/a.css", "/* fairlead: use tok.x */\n:root{}\n")
+        .file(
+            "apps/web/src/leaf/a.css",
+            "/* fairlead: use tok.x */\n:root{}\n",
+        )
         .resolve();
-    assert_eq!(reg.scope_of(&path("apps/web/src/leaf/a.css")), Some(&sid("web-ui")));
+    assert_eq!(
+        reg.scope_of(&path("apps/web/src/leaf/a.css")),
+        Some(&sid("web-ui"))
+    );
     assert!(reg.scopes().all(|s| !s.dir.as_str().ends_with("leaf")));
 }
 
@@ -96,12 +118,25 @@ use fairlead_core::diag::codes::{HN_C001, HN_C008};
 #[test]
 fn r_scope_005__scope_missing_from_parent_shard_is_hn_c008() {
     let reg = two_level().no_members().resolve();
-    let c008: Vec<_> = reg.diagnostics().iter().filter(|d| d.code == HN_C008).collect();
+    let c008: Vec<_> = reg
+        .diagnostics()
+        .iter()
+        .filter(|d| d.code == HN_C008)
+        .collect();
     assert_eq!(c008.len(), 2); // web-ui and inner; the root needs no registration
-    assert_eq!(c008[0].location.path.as_str(), "apps/web/fairlead/control.toml");
+    assert_eq!(
+        c008[0].location.path.as_str(),
+        "apps/web/fairlead/control.toml"
+    );
     assert!(c008[0].message.contains("web-ui"));
     // registered scopes raise nothing
-    assert!(two_level().resolve().diagnostics().iter().all(|d| d.code != HN_C008));
+    assert!(
+        two_level()
+            .resolve()
+            .diagnostics()
+            .iter()
+            .all(|d| d.code != HN_C008)
+    );
 }
 
 #[test]
@@ -111,14 +146,22 @@ fn r_scope_054__unparseable_control_leaves_the_subtree_unresolved() {
         .scope("apps/web/inner", "inner", &child_toml("inner", ""))
         .scope("apps/admin", "admin", &child_toml("admin", ""))
         .resolve();
-    let web = reg.scope(&sid("web-ui")).expect("id is recovered from the parent shard");
+    let web = reg
+        .scope(&sid("web-ui"))
+        .expect("id is recovered from the parent shard");
     match &web.state {
         ScopeState::Unresolved { reason } => assert!(reason.iter().any(|d| d.code == HN_C001)),
         other => panic!("expected Unresolved, got {other:?}"),
     }
     assert!(web.control.is_none());
-    assert!(matches!(reg.scope(&sid("inner")).unwrap().state, ScopeState::Unresolved { .. }));
-    assert_eq!(reg.scope(&sid("admin")).unwrap().state, ScopeState::Resolved);
+    assert!(matches!(
+        reg.scope(&sid("inner")).unwrap().state,
+        ScopeState::Unresolved { .. }
+    ));
+    assert_eq!(
+        reg.scope(&sid("admin")).unwrap().state,
+        ScopeState::Resolved
+    );
     assert_eq!(reg.scope(&sid("root")).unwrap().state, ScopeState::Resolved);
     assert_eq!(reg.scope_of(&path("apps/web/a.rs")), Some(&sid("web-ui"))); // no silent fallback to root
 }
@@ -146,6 +189,8 @@ fn r_scope_055__diagnostics_do_not_depend_on_how_the_root_was_selected() {
     let a = build(base());
     let b = build(base().search_source());
     assert_eq!(a.diagnostics(), b.diagnostics());
-    let ids = |r: &fairlead_core::registry::Registry| r.scopes().map(|s| s.id.clone()).collect::<Vec<_>>();
+    let ids = |r: &fairlead_core::registry::Registry| {
+        r.scopes().map(|s| s.id.clone()).collect::<Vec<_>>()
+    };
     assert_eq!(ids(&a), ids(&b));
 }

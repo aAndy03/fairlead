@@ -1,16 +1,21 @@
-#![allow(dead_code, clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)]
+#![allow(
+    dead_code,
+    clippy::unwrap_used,
+    clippy::expect_used,
+    clippy::indexing_slicing
+)]
 use std::collections::{BTreeMap, BTreeSet};
 
 use camino::Utf8PathBuf;
 use fairlead_core::classify::ClassifyRules;
-use fairlead_core::config::{parse_control, Approval, ApprovalsFile, ControlSet};
+use fairlead_core::config::{Approval, ApprovalsFile, ControlSet, parse_control};
 use fairlead_core::discover::{Edition, Pin, Root, RootSource};
-use fairlead_core::extract::{extract_file, Corpus, ExtractPlan, StyleKinds};
+use fairlead_core::extract::{Corpus, ExtractPlan, StyleKinds, extract_file};
 use fairlead_core::facts::{Facts, GitFacts};
+use fairlead_core::hash::{Fingerprint, hash_raw};
 use fairlead_core::manifest::ManifestHints;
-use fairlead_core::hash::{hash_raw, Fingerprint};
 use fairlead_core::path::RepoPath;
-use fairlead_core::registry::{resolve, ItemId, Registry, ResolveInput, ScopeId};
+use fairlead_core::registry::{ItemId, Registry, ResolveInput, ScopeId, resolve};
 use fairlead_core::time::AsOf;
 use fairlead_core::walk::WalkEntry;
 use fairlead_syntax::delimiters::CommentTable;
@@ -24,7 +29,11 @@ pub fn sid(s: &str) -> ScopeId {
 /// `iid("web", "cmp.button")` is the item `web:cmp.button`.
 pub fn iid(scope: &str, kind_name: &str) -> ItemId {
     let id = Id::parse(kind_name).unwrap();
-    ItemId { scope: sid(scope), kind: id.kind, name: id.name }
+    ItemId {
+        scope: sid(scope),
+        kind: id.kind,
+        name: id.name,
+    }
 }
 
 pub fn date(s: &str) -> jiff::civil::Date {
@@ -93,7 +102,10 @@ impl Kit {
     }
     pub fn new(root_control: &str) -> Kit {
         let mut files = BTreeMap::new();
-        files.insert("fairlead/control.toml".to_string(), root_control.to_string());
+        files.insert(
+            "fairlead/control.toml".to_string(),
+            root_control.to_string(),
+        );
         Kit {
             files,
             scopes: vec![],
@@ -106,7 +118,8 @@ impl Kit {
     }
     /// A child scope at `dir` with stored id `id` and control text `control`.
     pub fn scope(mut self, dir: &str, id: &str, control: &str) -> Kit {
-        self.files.insert(format!("{dir}/fairlead/control.toml"), control.to_string());
+        self.files
+            .insert(format!("{dir}/fairlead/control.toml"), control.to_string());
         self.scopes.push((dir.to_string(), id.to_string()));
         self
     }
@@ -114,6 +127,7 @@ impl Kit {
         self.files.insert(p.to_string(), text.to_string());
         self
     }
+    #[allow(clippy::wrong_self_convention)] // reason: builder verb, not a conversion
     pub fn as_of(mut self, d: &str) -> Kit {
         self.as_of = d.to_string();
         self
@@ -160,7 +174,10 @@ impl Kit {
                     break;
                 }
             }
-            by_parent.entry(parent).or_default().push(format!("{id} path={dir}"));
+            by_parent
+                .entry(parent)
+                .or_default()
+                .push(format!("{id} path={dir}"));
         }
         for (parent, mut lines) in by_parent {
             lines.sort();
@@ -169,8 +186,14 @@ impl Kit {
             } else {
                 format!("{parent}/fairlead/gen/members")
             };
-            let text = format!("# scope x edition=1 fairlead=0.1.0 body=0\n{}\n", lines.join("\n"));
-            out.insert(path(&p), std::sync::Arc::from(text.into_bytes().into_boxed_slice()));
+            let text = format!(
+                "# scope x edition=1 fairlead=0.1.0 body=0\n{}\n",
+                lines.join("\n")
+            );
+            out.insert(
+                path(&p),
+                std::sync::Arc::from(text.into_bytes().into_boxed_slice()),
+            );
         }
         out
     }
@@ -179,17 +202,28 @@ impl Kit {
         let root = Root {
             dir: Utf8PathBuf::from("/repo"),
             folder: "fairlead".to_string(),
-            source: if self.search_source { RootSource::Search } else { RootSource::Flag },
+            source: if self.search_source {
+                RootSource::Search
+            } else {
+                RootSource::Flag
+            },
             edition: Edition(1),
-            pin: Pin { version: None, edition: Edition(1) },
+            pin: Pin {
+                version: None,
+                edition: Edition(1),
+            },
             config_hash: hash_raw(b""),
         };
-        let mut controls = ControlSet { files: BTreeMap::new() };
+        let mut controls = ControlSet {
+            files: BTreeMap::new(),
+        };
         for (p, text) in &self.files {
             if p.ends_with("fairlead/control.toml") {
                 let rp = path(p);
                 let is_root_dir = p == "fairlead/control.toml";
-                controls.files.insert(rp.clone(), parse_control(&rp, text.as_bytes(), is_root_dir));
+                controls
+                    .files
+                    .insert(rp.clone(), parse_control(&rp, text.as_bytes(), is_root_dir));
             }
         }
         let plan = ExtractPlan {
@@ -204,13 +238,21 @@ impl Kit {
             styles: StyleKinds::default(), // Verify: P3 derives Default
             leak_properties: vec![],
         };
-        let mut corpus = Corpus { records: BTreeMap::new() };
+        let mut corpus = Corpus {
+            records: BTreeMap::new(),
+        };
         for (p, text) in &self.files {
             if p.ends_with("fairlead/control.toml") {
                 continue;
             }
-            let entry = WalkEntry { path: path(p), size: text.len() as u64, mtime_ns: 0 };
-            corpus.records.insert(path(p), extract_file(&entry, text.as_bytes(), &plan));
+            let entry = WalkEntry {
+                path: path(p),
+                size: text.len() as u64,
+                mtime_ns: 0,
+            };
+            corpus
+                .records
+                .insert(path(p), extract_file(&entry, text.as_bytes(), &plan));
         }
         let facts = Facts {
             generated_on_disk: self.members_shards(),
@@ -218,7 +260,9 @@ impl Kit {
             codeowners: None,
             vendor_hashes: BTreeMap::new(),
             vendor_lock: BTreeMap::new(),
-            approvals: ApprovalsFile { approvals: self.approvals.clone() },
+            approvals: ApprovalsFile {
+                approvals: self.approvals.clone(),
+            },
             git: GitFacts {
                 available: false,
                 changed: None,

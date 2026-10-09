@@ -1,14 +1,14 @@
 //! Effective views with provenance (R-SCOPE-021, R-ARCH-040, R-ARCH-042).
 use std::collections::BTreeMap;
 
+use crate::config::Policy;
+use crate::diag::Diagnostic;
 use crate::diag::Location;
 use crate::hash::ContentHash;
-use crate::config::Policy;
 use crate::registry::item::{FieldValue, ItemId};
 use crate::registry::ovr::OvrId;
-use crate::registry::scope::ScopeId;
 use crate::registry::ovr::{Eval, Evaluated, RawOvr, evaluate_scope};
-use crate::diag::Diagnostic;
+use crate::registry::scope::ScopeId;
 use std::collections::BTreeSet;
 
 use fairlead_syntax::directive::Verb;
@@ -17,7 +17,7 @@ use globset::GlobBuilder;
 use crate::config::ConventionAction;
 use crate::extract::Corpus;
 use crate::path::RepoPath;
-use crate::registry::ovr::{FieldChange, OvrOp, Override};
+use crate::registry::ovr::{FieldChange, Override, OvrOp};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Provenance {
@@ -77,7 +77,13 @@ pub(crate) fn effective_item(item: &Item, loc: &Location) -> EffectiveItem {
                     applied: Vec::new(),
                     grants: Vec::new(),
                 };
-                (k.clone(), EffectiveField { value: v.clone(), provenance })
+                (
+                    k.clone(),
+                    EffectiveField {
+                        value: v.clone(),
+                        provenance,
+                    },
+                )
             })
             .collect(),
     }
@@ -100,7 +106,10 @@ pub(crate) fn build_views(
     let mut evals = Vec::new();
     for scope in table.in_depth_order() {
         let mut v = empty_view(&scope.id, table);
-        v.authored_digest = digests.get(&scope.id).cloned().unwrap_or_else(|| hash_raw(b""));
+        v.authored_digest = digests
+            .get(&scope.id)
+            .cloned()
+            .unwrap_or_else(|| hash_raw(b""));
         if scope.state == ScopeState::Resolved {
             if let Some(p) = scope.parent.as_ref().and_then(|p| views.get(p)) {
                 v.items = p.items.clone();
@@ -119,7 +128,9 @@ pub(crate) fn build_views(
 }
 
 fn merge(cur: Option<&FieldValue>, ch: &FieldChange, op: OvrOp) -> Option<FieldValue> {
-    let drop_from = |l: &Vec<String>, rm: &[String]| FieldValue::List(l.iter().filter(|x| !rm.contains(x)).cloned().collect());
+    let drop_from = |l: &Vec<String>, rm: &[String]| {
+        FieldValue::List(l.iter().filter(|x| !rm.contains(x)).cloned().collect())
+    };
     match (ch, op) {
         (FieldChange::Replace(FieldValue::List(rm)), OvrOp::Remove) => match cur {
             Some(FieldValue::List(l)) => Some(drop_from(l, rm)),
@@ -148,19 +159,26 @@ fn merge(cur: Option<&FieldValue>, ch: &FieldChange, op: OvrOp) -> Option<FieldV
 
 /// Folds one effective override into a view, recording provenance (R-ARCH-042).
 pub(crate) fn apply_ovr(view: &mut EffectiveView, o: &Override, grants: &[String]) {
-    let Some(item) = view.items.get_mut(&o.target) else { return };
+    let Some(item) = view.items.get_mut(&o.target) else {
+        return;
+    };
     for (key, change) in &o.set {
         let cur = item.fields.get(key).map(|f| f.value.clone());
-        let Some(new) = merge(cur.as_ref(), change, o.op) else { continue };
-        let entry = item.fields.entry(key.clone()).or_insert_with(|| EffectiveField {
-            value: new.clone(),
-            provenance: Provenance {
-                home: o.target.scope.clone(),
-                declared_at: o.at.clone(),
-                applied: Vec::new(),
-                grants: Vec::new(),
-            },
-        });
+        let Some(new) = merge(cur.as_ref(), change, o.op) else {
+            continue;
+        };
+        let entry = item
+            .fields
+            .entry(key.clone())
+            .or_insert_with(|| EffectiveField {
+                value: new.clone(),
+                provenance: Provenance {
+                    home: o.target.scope.clone(),
+                    declared_at: o.at.clone(),
+                    applied: Vec::new(),
+                    grants: Vec::new(),
+                },
+            });
         entry.value = new;
         entry.provenance.applied.push(o.id.clone());
         for g in grants {
@@ -174,14 +192,28 @@ pub(crate) fn apply_ovr(view: &mut EffectiveView, o: &Override, grants: &[String
 /// Path below the owning scope with `[[convention]] transparent` segments removed (R-SCOPE-018).
 pub(crate) fn visible_rel(table: &ScopeTable, scope: &ScopeId, path: &RepoPath) -> String {
     let segs: Vec<&str> = path.as_str().split('/').collect();
-    let seg_count = |d: &str| if d.is_empty() { 0 } else { d.split('/').count() };
+    let seg_count = |d: &str| {
+        if d.is_empty() {
+            0
+        } else {
+            d.split('/').count()
+        }
+    };
     let mut hidden: BTreeSet<usize> = BTreeSet::new();
     for sid in table.chain_ids(scope) {
         let Some(sc) = table.get(sid) else { continue };
-        let Some(cf) = sc.control.as_ref() else { continue };
+        let Some(cf) = sc.control.as_ref() else {
+            continue;
+        };
         let nb = seg_count(sc.dir.as_str().trim_matches('/'));
-        for c in cf.conventions.iter().filter(|c| matches!(c.action, ConventionAction::Transparent)) {
-            let Ok(g) = GlobBuilder::new(&c.glob).literal_separator(true).build() else { continue };
+        for c in cf
+            .conventions
+            .iter()
+            .filter(|c| matches!(c.action, ConventionAction::Transparent))
+        {
+            let Ok(g) = GlobBuilder::new(&c.glob).literal_separator(true).build() else {
+                continue;
+            };
             let m = g.compile_matcher();
             for end in (nb + 1)..=segs.len() {
                 let prefix = segs.get(nb..end).map(|s| s.join("/")).unwrap_or_default();
@@ -191,9 +223,16 @@ pub(crate) fn visible_rel(table: &ScopeTable, scope: &ScopeId, path: &RepoPath) 
             }
         }
     }
-    let owner_n = table.get(scope).map(|s| seg_count(s.dir.as_str().trim_matches('/'))).unwrap_or(0);
-    let kept: Vec<&str> =
-        segs.iter().enumerate().filter(|(i, _)| *i >= owner_n && !hidden.contains(i)).map(|(_, s)| *s).collect();
+    let owner_n = table
+        .get(scope)
+        .map(|s| seg_count(s.dir.as_str().trim_matches('/')))
+        .unwrap_or(0);
+    let kept: Vec<&str> = segs
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i >= owner_n && !hidden.contains(i))
+        .map(|(_, s)| *s)
+        .collect();
     kept.join("/")
 }
 
@@ -207,11 +246,14 @@ pub(crate) fn own_digests(table: &ScopeTable, corpus: &Corpus) -> BTreeMap<Scope
         parts.insert(s.id.clone(), b);
     }
     for (path, rec) in &corpus.records {
-        let Some(sid) = table.scope_of(path) else { continue };
-        let authored = rec
-            .extraction
-            .as_ref()
-            .is_some_and(|e| e.directives.iter().any(|d| matches!(d.verb, Verb::Def | Verb::Ovr | Verb::Use)));
+        let Some(sid) = table.scope_of(path) else {
+            continue;
+        };
+        let authored = rec.extraction.as_ref().is_some_and(|e| {
+            e.directives
+                .iter()
+                .any(|d| matches!(d.verb, Verb::Def | Verb::Ovr | Verb::Use))
+        });
         if let (true, Some(b)) = (authored, parts.get_mut(sid)) {
             b.extend(path.as_str().as_bytes());
             b.extend(rec.hash.0);
@@ -225,7 +267,11 @@ pub fn view_signature(view: &EffectiveView) -> BTreeMap<String, BTreeMap<String,
     view.items
         .iter()
         .map(|(id, it)| {
-            let fields = it.fields.iter().map(|(k, f)| (k.clone(), f.value.clone())).collect();
+            let fields = it
+                .fields
+                .iter()
+                .map(|(k, f)| (k.clone(), f.value.clone()))
+                .collect();
             (format!("{}.{}", id.kind.as_str(), id.name.as_str()), fields)
         })
         .collect()

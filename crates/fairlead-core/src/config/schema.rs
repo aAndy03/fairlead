@@ -1399,6 +1399,10 @@ mod tests {
         let o = parse_ovrs(&mut c, &mut t);
         assert_eq!(o.len(), 1);
         assert_eq!(o[0].op, OvrOp::Set);
-        assert_eq!(c.diags.len(), 2, "missing target, bad op; a non-date exp is judged by resolve (HN-S012)");
+        assert_eq!(
+            c.diags.len(),
+            2,
+            "missing target, bad op; a non-date exp is judged by resolve (HN-S012)"
+        );
     }
 }
