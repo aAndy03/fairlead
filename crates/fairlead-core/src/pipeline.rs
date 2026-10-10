@@ -327,19 +327,7 @@ pub fn plan_new(
 /// `<folder>/versions/`, pending change docs from the corpus. `version.start` is `0.1.0` until the
 /// `[version]` table is parsed (0.2 errata E2-5).
 pub fn version_line(loaded: &Loaded) -> crate::version::VersionLine {
-    let prefix = format!("{}/versions/", loaded.root.folder);
-    let files = loaded.corpus.records.keys().filter_map(|p| {
-        p.as_str()
-            .strip_prefix(&prefix)
-            .filter(|rest| !rest.contains('/'))
-            .and_then(crate::version::version_of_file_name)
-    });
-    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
-    let pending = docs
-        .iter()
-        .filter(|d| d.status.is_pending())
-        .map(|d| d.impact.unwrap_or(crate::version::Impact::Fix));
-    crate::version::derive_line(files, pending, crate::version::Version::new(0, 1, 0))
+    crate::docs::line_of(&loaded.corpus, &loaded.root.folder)
 }
 
 /// 40 random bits for a draft ID (R-VER-040), from the standard library's randomly keyed hasher

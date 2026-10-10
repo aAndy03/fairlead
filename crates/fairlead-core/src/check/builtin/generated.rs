@@ -7,7 +7,7 @@ use crate::{
         rules::Check,
     },
     diag::{Diagnostic, codes::*},
-    generate::{HeaderVerdict, first_differing_lines, verify_header},
+    generate::{GenKind, HeaderVerdict, first_differing_lines, verify_header},
     registry::ScopeId,
 };
 use fairlead_syntax::{diag::DiagCode, normalize::lf_bytes};
@@ -40,6 +40,9 @@ impl Check for GeneratedCheck {
             let Some(file) = cx.generated.files.get(path) else {
                 continue;
             };
+            if file.kind == GenKind::ScopeLock {
+                continue; // H-SYNC-ANCESTOR, with its grace ramp (versions check)
+            }
             let want = file.render(edition_of(reg));
             let have_lf = lf_bytes(bytes);
             if &*have_lf != want.as_slice() {
@@ -78,6 +81,12 @@ impl Check for GeneratedCheck {
             .files
             .keys()
             .filter(|p| !cx.facts.generated_on_disk.contains_key(*p))
+            .filter(|p| {
+                cx.generated
+                    .files
+                    .get(*p)
+                    .is_some_and(|f| f.kind != GenKind::ScopeLock)
+            })
         {
             out.push(
                 DiagB::new(HN_G001, path, 0, 0, "generated file is missing")

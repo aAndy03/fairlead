@@ -199,6 +199,38 @@ pub fn collect_change_docs(corpus: &Corpus) -> (Vec<ChangeDoc>, Vec<(RepoPath, S
     (docs, bad)
 }
 
+/// Sealed versions: the file names `<folder>/versions/<MAJOR.MINOR.PATCH>.md` at the root, sorted.
+pub fn version_files(corpus: &Corpus, folder: &str) -> Vec<Version> {
+    let prefix = format!("{folder}/versions/");
+    let mut v: Vec<Version> = corpus
+        .records
+        .keys()
+        .filter_map(|p| {
+            p.as_str()
+                .strip_prefix(&prefix)
+                .filter(|rest| !rest.contains('/'))
+                .and_then(crate::version::version_of_file_name)
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// The version line of a tree (R-VER-001 to R-VER-003): its version files and the impacts of
+/// its pending change docs. `version.start` is `0.1.0` until the `[version]` table is parsed.
+pub fn line_of(corpus: &Corpus, folder: &str) -> crate::version::VersionLine {
+    let (docs, _) = collect_change_docs(corpus);
+    let pending = docs
+        .iter()
+        .filter(|d| d.status.is_pending())
+        .map(|d| d.impact.unwrap_or(Impact::Fix));
+    crate::version::derive_line(
+        version_files(corpus, folder),
+        pending,
+        Version::new(0, 1, 0),
+    )
+}
+
 /// R-VER-031: what keeps a `ready` doc from being ready (empty when it is).
 pub fn readiness_problems(d: &ChangeDoc) -> Vec<&'static str> {
     let mut out = Vec::new();

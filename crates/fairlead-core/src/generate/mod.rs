@@ -35,6 +35,9 @@ pub enum GenKind {
     VendorLock,
     /// `gen/alias`: draft ID to ordinal of sealed change docs (R-VER-046).
     Alias,
+    /// `gen/scope.lock`: reconciled version and ancestor digest (R-VER-015); kept current by
+    /// `sync` and judged by `H-SYNC-ANCESTOR`, not by the byte comparison of `HN-G001`.
+    ScopeLock,
 }
 
 /// One generated file. `body` is the sorted terse lines, each ending in `\n`, without the header.
@@ -280,6 +283,7 @@ pub fn generate(
         .unwrap_or(IndexValues::Value);
     let tokens = token_sites(reg, corpus);
     let (change_docs, _) = crate::docs::collect_change_docs(corpus);
+    let sealed = crate::docs::line_of(corpus, &folder).sealed;
 
     for scope in reg.scopes() {
         if !matches!(scope.state, ScopeState::Resolved) {
@@ -400,6 +404,19 @@ pub fn generate(
                 &scope.id,
                 GenKind::Alias,
                 alias,
+            );
+        }
+
+        // 3c. scope.lock, once a version is sealed (R-VER-015); a never-sealed tree has none, so
+        // edition-1 trees from 0.1 keep their bytes (R-EDN-002)
+        if let Some(s) = sealed {
+            put(
+                &mut files,
+                dir,
+                &format!("{folder}/{gen_dir}/scope.lock"),
+                &scope.id,
+                GenKind::ScopeLock,
+                crate::merkle::scope_lock_body(s, &crate::merkle::ancestor_digest(reg, &scope.id)),
             );
         }
 

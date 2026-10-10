@@ -9,7 +9,7 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 4] = [HN_G003, HN_V006, HN_V007, HN_V009];
+const CODES: [DiagCode; 5] = [HN_G003, HN_V004, HN_V006, HN_V007, HN_V009];
 
 fn in_scope(cx: &CheckCx<'_>, d: &ChangeDoc, scope: &ScopeId) -> bool {
     cx.registry.scope_of(&d.path) == Some(scope)
@@ -69,6 +69,64 @@ fn ledger_continuity(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
     }
 }
 
+/// Seals a scope may lag behind its ancestors before `H-SYNC-ANCESTOR` turns from info to warn
+/// (`version.ancestor-grace`, default 3, R-VER-020; the key is read once `[version]` is parsed).
+const ANCESTOR_GRACE: usize = 3;
+
+/// R-VER-020: the ancestor digest in this scope's `scope.lock` against the one `sync` would write.
+fn ancestor_drift(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    use crate::diag::Severity;
+    use crate::generate::GenKind;
+    let Some(want) = cx
+        .generated
+        .files
+        .values()
+        .find(|f| f.kind == GenKind::ScopeLock && &f.scope == scope)
+    else {
+        return; // nothing sealed yet: no lock is expected
+    };
+    let Some((_, want_anc)) = crate::merkle::parse_scope_lock(&want.body) else {
+        return;
+    };
+    let have = cx
+        .facts
+        .generated_on_disk
+        .get(&want.path)
+        .and_then(|b| crate::merkle::parse_scope_lock(&String::from_utf8_lossy(b)));
+    let (msg, lag) = match have {
+        None => (
+            "scope.lock is missing; the scope was never reconciled".to_owned(),
+            usize::MAX,
+        ),
+        Some((_, anc)) if anc == want_anc => return,
+        Some((reconciled, _)) => {
+            let folder = crate::check::builtin::root_control(cx.registry)
+                .and_then(|c| c.settings.folder.clone())
+                .unwrap_or_else(|| "fairlead".into());
+            let lag = crate::docs::version_files(cx.corpus, &folder)
+                .into_iter()
+                .filter(|v| *v > reconciled)
+                .count();
+            (
+                format!("inherited view changed since {reconciled} ({lag} seals ago)"),
+                lag,
+            )
+        }
+    };
+    let severity = if lag < ANCESTOR_GRACE {
+        Severity::Info
+    } else {
+        Severity::Warn
+    };
+    out.push(
+        DiagB::new(HN_V004, &want.path, 1, 1, msg.clone())
+            .severity(severity)
+            .hint("run fairlead sync in this scope to reconcile its lock")
+            .text(msg)
+            .build(),
+    );
+}
+
 impl Check for VersionsCheck {
     fn codes(&self) -> &'static [DiagCode] {
         &CODES
@@ -114,6 +172,7 @@ impl Check for VersionsCheck {
             }
         }
         ledger_continuity(cx, scope, out);
+        ancestor_drift(cx, scope, out);
         let hash_of = |d: &ChangeDoc| cx.corpus.records.get(&d.path).map(|r| r.hash);
         for group in id_collisions(&docs, hash_of) {
             // Reported once, on the later path, in the scope that holds it.
@@ -270,6 +329,101 @@ mod tests {
             .build()
             .run_check(&VersionsCheck);
         assert!(!of(&bad, c::HN_G003).is_empty());
+    }
+
+    fn sealed_world(lock_on_disk: Option<&str>, versions: &[&str]) -> Vec<Diagnostic> {
+        use crate::generate::{GenKind, generate};
+        let mut w = World::new().scope("apps/web", "[fairlead]\nscope = \"web\"\n");
+        for v in versions {
+            w = w.file(&format!("fairlead/versions/{v}.md"), "+++\n+++\n");
+        }
+        let lock = lock_on_disk.map(str::to_owned);
+        let b = w
+            .facts(move |f| {
+                if let Some(l) = lock {
+                    f.generated_on_disk.insert(
+                        crate::path::RepoPath::new("apps/web/fairlead/gen/scope.lock").unwrap(),
+                        l.into_bytes().into(),
+                    );
+                }
+            })
+            .build();
+        let generated = generate(
+            &b.registry,
+            &b.corpus,
+            &b.facts,
+            None,
+            crate::discover::Edition(1),
+        );
+        assert!(
+            generated
+                .files
+                .values()
+                .any(|f| f.kind == GenKind::ScopeLock),
+            "a sealed tree generates scope locks"
+        );
+        b.run_check_with(&VersionsCheck, &generated)
+            .into_iter()
+            .filter(|d| d.location.path.as_str().starts_with("apps/web/"))
+            .collect()
+    }
+
+    #[test]
+    fn r_ver_015__no_scope_lock_before_the_first_seal() {
+        use crate::generate::{GenKind, generate};
+        let b = World::new()
+            .scope("apps/web", "[fairlead]\nscope = \"web\"\n")
+            .build();
+        let g = generate(
+            &b.registry,
+            &b.corpus,
+            &b.facts,
+            None,
+            crate::discover::Edition(1),
+        );
+        assert!(g.files.values().all(|f| f.kind != GenKind::ScopeLock));
+    }
+
+    #[test]
+    fn r_ver_020__ancestor_drift_ramps_info_then_warn() {
+        use crate::diag::Severity;
+        let current = {
+            use crate::generate::generate;
+            let b = World::new()
+                .scope("apps/web", "[fairlead]\nscope = \"web\"\n")
+                .file("fairlead/versions/0.2.0.md", "+++\n+++\n")
+                .build();
+            let g = generate(
+                &b.registry,
+                &b.corpus,
+                &b.facts,
+                None,
+                crate::discover::Edition(1),
+            );
+            g.files
+                .values()
+                .find(|f| f.path.as_str() == "apps/web/fairlead/gen/scope.lock")
+                .unwrap()
+                .body
+                .clone()
+        };
+        let same = sealed_world(Some(&current), &["0.2.0"]);
+        assert!(of(&same, c::HN_V004).is_empty(), "{same:?}");
+        let stale = "ancestor-digest=old\nreconciled=0.2.0\n";
+        let fresh = sealed_world(Some(stale), &["0.2.0", "0.3.0"]);
+        assert_eq!(
+            of(&fresh, c::HN_V004)[0].severity,
+            Severity::Info,
+            "1 seal behind"
+        );
+        let old = sealed_world(Some(stale), &["0.2.0", "0.3.0", "0.4.0", "0.5.0"]);
+        assert_eq!(
+            of(&old, c::HN_V004)[0].severity,
+            Severity::Warn,
+            "3 seals behind"
+        );
+        let missing = sealed_world(None, &["0.2.0"]);
+        assert!(of(&missing, c::HN_V004)[0].message.contains("missing"));
     }
 
     #[test]
