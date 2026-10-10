@@ -35,7 +35,6 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
     let request = SealRequest {
         allow_dirty: args.allow_dirty,
         seal_anywhere: args.anywhere,
-        integration_branch: "main".to_owned(),
     };
     let (seal_plan, plan) = plan_seal(&loaded, &registry, &options, &request)?;
     let mut head = format!(

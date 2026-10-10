@@ -1,10 +1,10 @@
 //! `[rules.*]`, `[policies]`, `[[allow]]`, `[[req]]`, `[[convention]]` and the small root tables.
 use crate::classify::FileClass;
 use crate::config::schema::{
-    BaselineConfig, ContextConfig, ConventionAction, ConventionDecl, Ctx, EligibilityConfig,
-    ExceptionsConfig, Policy, SecretsConfig, Stage, check_glob, clean_pattern, clean_rel_path,
-    join_key, take_bool, take_date_string, take_string, take_string_list, take_table,
-    take_table_array, take_u32,
+    BaselineConfig, ContextConfig, ConventionAction, ConventionDecl, Ctx, DocsFirstConfig,
+    EligibilityConfig, ExceptionsConfig, Policy, SecretsConfig, Stage, VersionConfig, check_glob,
+    clean_pattern, clean_rel_path, join_key, take_bool, take_date_string, take_string,
+    take_string_list, take_table, take_table_array, take_u32,
 };
 use crate::diag::Severity;
 use crate::hash::Fingerprint;
@@ -485,7 +485,72 @@ pub(crate) fn parse_exceptions(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Exce
         if let Some(v) = take_u32(cx, &mut t, "exceptions", "max-live-per-rule") {
             out.max_live_per_rule = v;
         }
+        out.max_minors = take_u32(cx, &mut t, "exceptions", "max-minors");
         cx.unknown_in("exceptions", &t);
+    }
+    out
+}
+
+pub(crate) fn parse_version(cx: &mut Ctx<'_>, root: &mut toml::Table) -> VersionConfig {
+    let mut out = VersionConfig::default();
+    if let Some(mut t) = take_table(cx, root, "", "version") {
+        if let Some(s) = take_string(cx, &mut t, "version", "start") {
+            if crate::version::Version::parse(&s).is_some() {
+                out.start = s;
+            } else {
+                cx.error(
+                    "version.start",
+                    format!("`version.start` must be MAJOR.MINOR.PATCH, not {s:?}"),
+                );
+            }
+        }
+        out.mirror = take_string(cx, &mut t, "version", "mirror");
+        match take_string(cx, &mut t, "version", "seal-where").as_deref() {
+            None | Some("integration") => {}
+            Some("any") => out.seal_anywhere = true,
+            Some(o) => cx.error(
+                "version.seal-where",
+                format!("`version.seal-where` is integration or any, not {o:?}"),
+            ),
+        }
+        if let Some(b) = take_string(cx, &mut t, "version", "integration-branch") {
+            out.integration_branch = b;
+        }
+        for (key, slot) in [
+            ("ancestor-grace", &mut out.ancestor_grace),
+            ("escalation-grace", &mut out.escalation_grace),
+            ("sweep-after", &mut out.sweep_after),
+        ] {
+            if let Some(v) = take_u32(cx, &mut t, "version", key) {
+                *slot = v;
+            }
+        }
+        cx.unknown_in("version", &t);
+    }
+    out
+}
+
+pub(crate) fn parse_docs_first(cx: &mut Ctx<'_>, root: &mut toml::Table) -> DocsFirstConfig {
+    let mut out = DocsFirstConfig::default();
+    if let Some(mut t) = take_table(cx, root, "", "docs-first") {
+        out.level = match take_string(cx, &mut t, "docs-first", "level").as_deref() {
+            None => None,
+            Some("observe") => Some(Stage::Observe),
+            Some("warn") => Some(Stage::Warn),
+            Some("enforce") => Some(Stage::Enforce),
+            Some(o) => {
+                cx.error(
+                    "docs-first.level",
+                    format!("`docs-first.level` is observe, warn or enforce, not {o:?}"),
+                );
+                None
+            }
+        };
+        out.exempt = take_string_list(cx, &mut t, "docs-first", "exempt").unwrap_or_default();
+        out.hotfix = take_bool(cx, &mut t, "docs-first", "hotfix").unwrap_or(false);
+        out.hotfix_window = take_u32(cx, &mut t, "docs-first", "hotfix-window");
+        out.strict_order = take_bool(cx, &mut t, "docs-first", "strict-order").unwrap_or(false);
+        cx.unknown_in("docs-first", &t);
     }
     out
 }
@@ -758,11 +823,35 @@ mod tests {
         assert_eq!((e.max_days, e.max_live_per_rule), (Some(45), 3));
         let el = parse_eligibility(&mut c, &mut t);
         assert_eq!((el.min_lines, el.min_files), (8, 3));
-        assert!(c.diags.is_empty(), "{:?}", c.diags);
         let (mut c2, mut t2) = cx("[secrets]\nallow = [\"not-a-fingerprint\"]\n");
         let _ = parse_secrets(&mut c2, &mut t2);
         assert_eq!(c2.diags.len(), 1);
         assert_eq!(ExceptionsConfig::default().max_live_per_rule, 10);
         assert_eq!(codes::HN_C001.0, "HN-C001");
+    }
+
+    #[test]
+    fn r_ver_034__version_and_docs_first_tables_parse() {
+        let text = "[version]\nstart = \"1.0.0\"\nseal-where = \"any\"\nintegration-branch = \"trunk\"\nancestor-grace = 5\n\n[docs-first]\nlevel = \"enforce\"\nexempt = [\"dist/**\"]\nhotfix = true\nhotfix-window = 2\n";
+        let (mut c, mut t) = cx(text);
+        let v = parse_version(&mut c, &mut t);
+        let d = parse_docs_first(&mut c, &mut t);
+        assert!(c.diags.is_empty(), "{:?}", c.diags);
+        assert_eq!(
+            (
+                v.start.as_str(),
+                v.seal_anywhere,
+                v.integration_branch.as_str(),
+                v.ancestor_grace
+            ),
+            ("1.0.0", true, "trunk", 5)
+        );
+        assert_eq!(
+            (d.level, d.exempt.len(), d.hotfix, d.hotfix_window),
+            (Some(Stage::Enforce), 1, true, Some(2))
+        );
+        let (mut c, mut t) = cx("[version]\nstart = \"1.0\"\n");
+        parse_version(&mut c, &mut t);
+        assert_eq!(c.diags.len(), 1, "a two-part start is not a version");
     }
 }

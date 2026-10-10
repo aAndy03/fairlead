@@ -64,6 +64,8 @@ pub struct ControlFile {
     pub secrets: SecretsConfig,
     pub exceptions: ExceptionsConfig,
     pub eligibility: EligibilityConfig,
+    pub version: VersionConfig,
+    pub docs_first: DocsFirstConfig,
     /// `HN-C002` (R-SYN-039): unknown keys and tables, kept for tools that rewrite the file.
     pub unknown: Vec<UnknownKey>,
     /// `HN-C003` (R-SYN-041, R-SCOPE-051/052/056): non-delegable keys in a child file; the keys are inert.
@@ -92,7 +94,8 @@ impl ControlFile {
 }
 
 /// Top-level tables a child may not hold (known 0.1 root-only tables).
-const ROOT_ONLY_TABLES: [&str; 9] = [
+const ROOT_ONLY_TABLES: [&str; 10] = [
+    "version",
     "comments",
     "agents",
     "layout",
@@ -220,6 +223,8 @@ pub fn parse_control(
     let secrets = rules::parse_secrets(&mut cx, &mut table);
     let exceptions = rules::parse_exceptions(&mut cx, &mut table);
     let eligibility = rules::parse_eligibility(&mut cx, &mut table);
+    let version = rules::parse_version(&mut cx, &mut table);
+    let docs_first = rules::parse_docs_first(&mut cx, &mut table);
     cx.unknown_in("", &table);
 
     if baseline.file.is_empty() {
@@ -266,6 +271,8 @@ pub fn parse_control(
         secrets,
         exceptions,
         eligibility,
+        version,
+        docs_first,
         unknown,
         violations: sorted(violations),
     })
@@ -710,6 +717,7 @@ msg = "no TODO"
     #[test]
     fn r_scope_051_052__root_only_tables_in_a_child_are_violations() {
         for table in [
+            "version",
             "comments",
             "agents",
             "layout",

@@ -69,6 +69,7 @@ pub(crate) fn lift(diags: Vec<Diagnostic>, reg: &Registry, rules: &RuleSet) -> V
         let stage = declared
             .map(|r| r.stage)
             .or(tune.and_then(|t| t.stage))
+            .or(d.stage)
             .unwrap_or(sp.default_stage);
         let (severity, stage) = clamp(d.code, severity, stage, sp.default_severity);
         let fix = if d.hint.is_empty() {

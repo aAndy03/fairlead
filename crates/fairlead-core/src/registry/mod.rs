@@ -121,6 +121,7 @@ impl Dg {
             did_you_mean: None,
             hint: String::new(),
             text: String::new(),
+            stage: None,
         })
     }
     pub(crate) fn scope(mut self, s: &ScopeId) -> Dg {

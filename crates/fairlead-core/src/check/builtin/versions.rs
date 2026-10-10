@@ -263,7 +263,10 @@ fn ancestor_drift(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) 
             )
         }
     };
-    let severity = if lag < ANCESTOR_GRACE {
+    let grace = crate::check::builtin::root_control(cx.registry)
+        .and_then(|c| usize::try_from(c.version.ancestor_grace).ok())
+        .unwrap_or(ANCESTOR_GRACE);
+    let severity = if lag < grace {
         Severity::Info
     } else {
         Severity::Warn

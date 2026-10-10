@@ -97,6 +97,9 @@ pub struct Diagnostic {
     pub did_you_mean: Option<String>,
     pub hint: String,
     pub text: String,
+    /// A per-scope stage the emitting check computed (`docs-first.level`, R-VER-034). A declared
+    /// rule or a tuning rule still wins over it; without one the code's default applies.
+    pub stage: Option<crate::config::Stage>,
 }
 
 impl Diagnostic {
@@ -118,6 +121,7 @@ impl Diagnostic {
             did_you_mean: None,
             hint: String::new(),
             text: String::new(),
+            stage: None,
         }
     }
 
@@ -156,6 +160,7 @@ impl Diagnostic {
             did_you_mean: d.did_you_mean,
             hint: d.hint,
             text: String::new(),
+            stage: None,
         }
     }
 }

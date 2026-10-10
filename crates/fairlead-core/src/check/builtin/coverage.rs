@@ -31,6 +31,47 @@ fn exempt(cx: &CheckCx<'_>, folder: &str, p: &RepoPath) -> bool {
         .is_some_and(|r| matches!(r.class, FileClass::Generated | FileClass::VendorOwned))
 }
 
+/// R-VER-034: the strictest `docs-first.level` along the scope's chain (a child may raise, never
+/// lower), default `warn`; and every `docs-first.exempt` glob of the chain, relative to the scope
+/// that declares it.
+fn scope_policy(
+    cx: &CheckCx<'_>,
+    scope: &ScopeId,
+) -> (crate::config::Stage, Vec<(String, globset::GlobMatcher)>) {
+    use crate::config::Stage;
+    let reg = cx.registry;
+    let mut level: Option<Stage> = None;
+    let mut exempt = Vec::new();
+    for s in reg.chain(scope) {
+        let Some(sc) = reg.scope(s) else { continue };
+        let Some(ctl) = sc.control.as_ref() else {
+            continue;
+        };
+        if let Some(l) = ctl.docs_first.level {
+            level = Some(level.map_or(l, |cur| cur.max(l)));
+        }
+        for g in &ctl.docs_first.exempt {
+            if let Ok(glob) = globset::Glob::new(g) {
+                exempt.push((sc.dir.as_str().to_owned(), glob.compile_matcher()));
+            }
+        }
+    }
+    (level.unwrap_or(Stage::Warn), exempt)
+}
+
+fn exempt_by_glob(globs: &[(String, globset::GlobMatcher)], p: &RepoPath) -> bool {
+    globs.iter().any(|(dir, m)| {
+        let rel = if dir.is_empty() || dir == "." {
+            Some(p.as_str())
+        } else {
+            p.as_str()
+                .strip_prefix(dir.as_str())
+                .and_then(|r| r.strip_prefix('/'))
+        };
+        rel.is_some_and(|r| m.is_match(r))
+    })
+}
+
 impl Check for CoverageCheck {
     fn codes(&self) -> &'static [DiagCode] {
         &CODES
@@ -88,8 +129,14 @@ impl Check for CoverageCheck {
                 (d, dir)
             })
             .collect();
+        let (level, globs) = scope_policy(cx, scope);
+        let severity = match level {
+            crate::config::Stage::Enforce => crate::diag::Severity::Error,
+            _ => crate::diag::Severity::Warn,
+        };
         for p in files {
-            if reg.scope_of(p) != Some(scope) || exempt(cx, &folder, p) {
+            if reg.scope_of(p) != Some(scope) || exempt(cx, &folder, p) || exempt_by_glob(&globs, p)
+            {
                 continue;
             }
             if open.iter().any(|(d, dir)| covers_path(d, dir, p)) {
@@ -104,6 +151,8 @@ impl Check for CoverageCheck {
                     "changed file is not covered by a draft or ready change doc",
                 )
                 .hint("fairlead new change \"<title>\" --field covers=<glob>, or add it to an open doc's covers")
+                .severity(severity)
+                .stage(level)
                 .text(p.as_str())
                 .build(),
             );
@@ -217,6 +266,61 @@ mod tests {
             ],
         );
         assert!(of(&d, c::HN_D006).is_empty(), "{d:?}");
+    }
+
+    fn run_with(root_extra: &str, child: &str, changed: &[&str]) -> Vec<Diagnostic> {
+        let files: BTreeSet<RepoPath> = changed.iter().map(|p| rp(p)).collect();
+        let mut w = World::new()
+            .root(root_extra)
+            .scope("apps/web", child)
+            .facts(move |f| {
+                f.git.coverage = Some(Coverage::Changed {
+                    base: "b".into(),
+                    files,
+                });
+            });
+        for p in changed {
+            w = w.file(p, "x\n");
+        }
+        w.build().run_check(&CoverageCheck)
+    }
+
+    #[test]
+    fn r_ver_034__level_ramp_and_a_child_cannot_lower_it() {
+        use crate::diag::Severity;
+        let child = "[fairlead]\nscope = \"web\"\n";
+        let enforce = run_with(
+            "\n[docs-first]\nlevel = \"enforce\"\n",
+            child,
+            &["apps/web/a.ts"],
+        );
+        assert_eq!(of(&enforce, c::HN_D006)[0].severity, Severity::Error);
+        let lowered = run_with(
+            "\n[docs-first]\nlevel = \"enforce\"\n",
+            "[fairlead]\nscope = \"web\"\n[docs-first]\nlevel = \"observe\"\n",
+            &["apps/web/a.ts"],
+        );
+        assert_eq!(
+            of(&lowered, c::HN_D006)[0].severity,
+            Severity::Error,
+            "the root's enforce stands"
+        );
+        let default = run_with("", child, &["apps/web/a.ts"]);
+        assert_eq!(of(&default, c::HN_D006)[0].severity, Severity::Warn);
+    }
+
+    #[test]
+    fn r_ver_033__exempt_globs_are_skipped() {
+        let d = run_with(
+            "\n[docs-first]\nexempt = [\"**/*.lock\", \"dist/**\"]\n",
+            "[fairlead]\nscope = \"web\"\n",
+            &["Cargo.lock", "dist/app.js", "apps/web/x.lock", "src/a.rs"],
+        );
+        let u: Vec<&str> = of(&d, c::HN_D006)
+            .iter()
+            .map(|x| x.location.path.as_str())
+            .collect();
+        assert_eq!(u, ["src/a.rs"]);
     }
 
     #[test]

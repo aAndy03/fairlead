@@ -252,18 +252,14 @@ pub fn version_files(corpus: &Corpus, folder: &str) -> Vec<Version> {
 }
 
 /// The version line of a tree (R-VER-001 to R-VER-003): its version files and the impacts of
-/// its pending change docs. `version.start` is `0.1.0` until the `[version]` table is parsed.
-pub fn line_of(corpus: &Corpus, folder: &str) -> crate::version::VersionLine {
+/// its pending change docs; `start` is `version.start` (R-VER-003).
+pub fn line_of(corpus: &Corpus, folder: &str, start: Version) -> crate::version::VersionLine {
     let (docs, _) = collect_change_docs(corpus);
     let pending = docs
         .iter()
         .filter(|d| d.status.is_pending())
         .map(|d| d.impact.unwrap_or(Impact::Fix));
-    crate::version::derive_line(
-        version_files(corpus, folder),
-        pending,
-        Version::new(0, 1, 0),
-    )
+    crate::version::derive_line(version_files(corpus, folder), pending, start)
 }
 
 /// R-VER-031: what keeps a `ready` doc from being ready (empty when it is).

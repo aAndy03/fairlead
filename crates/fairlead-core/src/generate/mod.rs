@@ -283,7 +283,10 @@ pub fn generate(
         .unwrap_or(IndexValues::Value);
     let tokens = token_sites(reg, corpus);
     let (change_docs, _) = crate::docs::collect_change_docs(corpus);
-    let sealed = crate::docs::line_of(corpus, &folder).sealed;
+    let start = root_ctl
+        .and_then(|c| crate::version::Version::parse(&c.version.start))
+        .unwrap_or(crate::version::Version::new(0, 1, 0));
+    let sealed = crate::docs::line_of(corpus, &folder, start).sealed;
 
     for scope in reg.scopes() {
         if !matches!(scope.state, ScopeState::Resolved) {

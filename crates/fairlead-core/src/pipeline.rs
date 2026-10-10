@@ -395,7 +395,9 @@ pub fn plan_new(
 /// `<folder>/versions/`, pending change docs from the corpus. `version.start` is `0.1.0` until the
 /// `[version]` table is parsed (0.2 errata E2-5).
 pub fn version_line(loaded: &Loaded) -> crate::version::VersionLine {
-    crate::docs::line_of(&loaded.corpus, &loaded.root.folder)
+    let start = crate::version::Version::parse(&loaded.root_control.version.start)
+        .unwrap_or(crate::version::Version::new(0, 1, 0));
+    crate::docs::line_of(&loaded.corpus, &loaded.root.folder, start)
 }
 
 /// 40 random bits for a draft ID (R-VER-040), from the standard library's randomly keyed hasher
@@ -459,9 +461,9 @@ pub fn plan_approve_loaded(
 #[derive(Clone, Debug)]
 pub struct SealRequest {
     pub allow_dirty: bool,
-    /// `version.seal-where = "any"`; `false` keeps sealing to the integration branch.
+    /// `--anywhere`: seal off the integration branch even when `version.seal-where` says
+    /// `integration` (the control key `any` has the same effect).
     pub seal_anywhere: bool,
-    pub integration_branch: String,
 }
 
 /// `seal` steps 1 to 4 (R-VER-050): run the check, read git state, plan, build the write-set.
@@ -517,11 +519,11 @@ pub fn plan_seal(
         secrets,
         git,
         allow_dirty: request.allow_dirty,
-        seal_anywhere: request.seal_anywhere,
-        integration_branch: request.integration_branch.clone(),
+        seal_anywhere: request.seal_anywhere || loaded.root_control.version.seal_anywhere,
+        integration_branch: loaded.root_control.version.integration_branch.clone(),
         folder: loaded.root.folder.clone(),
         paths: &paths,
-        sweep_after: 3,
+        sweep_after: usize::try_from(loaded.root_control.version.sweep_after).unwrap_or(3),
         sealed_versions: &versions,
         doc_dirs: &docs
             .iter()

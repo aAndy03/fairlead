@@ -118,6 +118,7 @@ impl DiagB {
             did_you_mean: None,
             hint: String::new(),
             text: String::new(),
+            stage: None,
         })
     }
     pub(crate) fn hint(mut self, h: impl Into<String>) -> DiagB {
@@ -134,6 +135,10 @@ impl DiagB {
     }
     pub(crate) fn related(mut self, r: impl Into<String>) -> DiagB {
         self.0.related = Some(r.into());
+        self
+    }
+    pub(crate) fn stage(mut self, s: crate::config::Stage) -> DiagB {
+        self.0.stage = Some(s);
         self
     }
     pub(crate) fn severity(mut self, s: Severity) -> DiagB {

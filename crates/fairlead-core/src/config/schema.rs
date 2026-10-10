@@ -230,10 +230,51 @@ pub struct SecretsConfig {
     pub allow: Vec<String>,
 }
 
+/// `[version]` (20-versions): root only.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct VersionConfig {
+    pub start: String,
+    pub mirror: Option<String>,
+    /// `integration` (default) or `any` (R-VER-055).
+    pub seal_anywhere: bool,
+    pub integration_branch: String,
+    pub ancestor_grace: u32,
+    pub escalation_grace: u32,
+    pub sweep_after: u32,
+}
+
+impl Default for VersionConfig {
+    fn default() -> Self {
+        Self {
+            start: "0.1.0".into(),
+            mirror: None,
+            seal_anywhere: false,
+            integration_branch: "main".into(),
+            ancestor_grace: 3,
+            escalation_grace: 3,
+            sweep_after: 3,
+        }
+    }
+}
+
+/// `[docs-first]` (R-VER-034 to R-VER-048). A child may raise `level`, never lower it.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct DocsFirstConfig {
+    /// `observe`, `warn` or `enforce`; `None` inherits (default warn).
+    pub level: Option<Stage>,
+    pub exempt: Vec<String>,
+    pub hotfix: bool,
+    /// Whole UTC days (default 3).
+    pub hotfix_window: Option<u32>,
+    pub strict_order: bool,
+}
+
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ExceptionsConfig {
     pub max_days: Option<u32>,
     pub max_live_per_rule: u32,
+    /// From 0.2 the cap is version-based: `O` with its minor raised by this (R-VER-075).
+    pub max_minors: Option<u32>,
 }
 
 impl Default for ExceptionsConfig {
@@ -241,6 +282,7 @@ impl Default for ExceptionsConfig {
         Self {
             max_days: None,
             max_live_per_rule: 10,
+            max_minors: None,
         }
     }
 }
