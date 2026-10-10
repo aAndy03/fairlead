@@ -688,6 +688,15 @@ pub(crate) fn doc_cands(
         let Some(ex) = rec.extraction.as_ref() else {
             continue;
         };
+        // R-VER-060: a `def` that exists only in a change doc that is not sealed (draft, ready
+        // or abandoned) declares nothing yet; references to it dangle until the doc is sealed.
+        let unsealed_change_doc = ex
+            .frontmatter
+            .as_ref()
+            .is_some_and(|fm| crate::docs::is_unsealed_change_doc(&fm.table));
+        if unsealed_change_doc {
+            continue;
+        }
         for d in &ex.directives {
             if d.verb != Verb::Def || !is_decl_site(path, scope, folder, d) {
                 continue;

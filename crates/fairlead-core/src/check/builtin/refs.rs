@@ -88,7 +88,15 @@ impl Check for RefsCheck {
             let Some(ex) = rec.extraction.as_ref() else {
                 continue;
             };
+            // R-VER-060: the `def`s of an unsealed change doc are proposals, not references.
+            let unsealed_change_doc = ex
+                .frontmatter
+                .as_ref()
+                .is_some_and(|fm| crate::docs::is_unsealed_change_doc(&fm.table));
             for d in &ex.directives {
+                if unsealed_change_doc && d.verb == Verb::Def {
+                    continue;
+                }
                 for id in referenced(d) {
                     let kind = id.kind.as_str();
                     if RESERVED.contains(&kind) || kind_decl(reg, scope, kind).is_none() {
@@ -193,6 +201,24 @@ mod tests {
             (r[0].location.line, r[0].did_you_mean.as_deref()),
             (1, Some("cmp.sync-button"))
         );
+    }
+
+    #[test]
+    fn r_ver_060__a_def_in_an_unsealed_change_doc_is_not_a_declaration() {
+        let doc = |status: &str| {
+            format!(
+                "+++\nid = \"d-00000001\"\nkind = \"change\"\nstatus = \"{status}\"\ndirectives = [\n  'def cmp.panel',\n]\n+++\n"
+            )
+        };
+        let using = "// fairlead: use cmp.panel\nexport const A = 1;\n";
+        for (status, dangling) in [("draft", 1), ("ready", 1), ("abandoned", 1), ("sealed", 0)] {
+            let b = world()
+                .file("fairlead/docs/changes/d-00000001-p.md", &doc(status))
+                .file("src/a.tsx", using)
+                .build();
+            let ds = b.run_check(&RefsCheck);
+            assert_eq!(of(&ds, c::HN_R001).len(), dangling, "{status}: {ds:?}");
+        }
     }
 
     #[test]

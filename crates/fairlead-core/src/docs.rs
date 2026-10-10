@@ -184,6 +184,12 @@ pub fn parse_change_doc(path: &RepoPath, t: &toml::Table) -> Result<Option<Chang
     }))
 }
 
+/// R-VER-060: a change doc that is not sealed (its `def`s declare nothing yet).
+pub fn is_unsealed_change_doc(t: &toml::Table) -> bool {
+    let s = |k: &str| t.get(k).and_then(|v| v.as_str());
+    s("kind").is_some_and(|k| CHANGE_KINDS.contains(&k)) && s("status") != Some("sealed")
+}
+
 /// Every change doc in the corpus, sorted by path, plus `(path, problem)` for invalid ones.
 pub fn collect_change_docs(corpus: &Corpus) -> (Vec<ChangeDoc>, Vec<(RepoPath, String)>) {
     let mut docs = Vec::new();
