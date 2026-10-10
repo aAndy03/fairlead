@@ -68,14 +68,14 @@ P1 is first because P2 and P3 extend its graph. P4 and P5 depend only on 0.2 and
 | Q-1 | Do the 0.3 keys (`pin=`, `spell=`, `container=`, `layer=`, `vis=`...) stay in edition 1, or does 0.3 ship edition 2? | P1 | Stay in edition 1. They are new keys on known verbs, and older binaries warn and preserve them (R-EDN-021). Ship edition 2 only if a grammar change is unavoidable. Decide before the v1 freeze. |
 | Q-2 | Adopt tree-sitter for TS imports in 0.3? | P6 | Not in 0.3. Keep the regex evidence; build only the extractor seam (R-ARCH-034) and the compatibility test. |
 | Q-3 | Ship the MCP server (`rmcp`) in 0.3? | P6 | Optional. Build it last, as a separate crate, only if P1 to P5 are on time (R-ARCH-004). |
-| Q-4 | The BM25 query set for R-CTX-063 needs real short task texts with expected scopes. | P6 | Human: collect about 100 task prompts from the pilot repositories, labelled with the scope a human would pick. |
-| Q-5 | Hierarchy precision review (4.3 criterion 1): blind review of findings on three repositories. | P7 | Human, like the 0.1 precision review. |
+| Q-4 | The BM25 query set for R-CTX-063 needs real short task texts with expected scopes. | P6 | Agent-run (D-59): protocol B-2, one writer agent and a separate labeller agent. |
+| Q-5 | Hierarchy precision review (4.3 criterion 1): blind review of findings on three repositories. | P7 | Agent-run (D-59): protocol B-1, a blind reviewer agent. |
 
 ## Definition of done for 0.3
 
 | # | Criterion (60-roadmap 4.3, short) | Verified by |
 |---|---|---|
-| 1 | Hierarchy findings: at most 2% false on blind review of three repositories; `stale` skipped with zero entries | P2-T3 (skip), owner (Q-5) |
+| 1 | Hierarchy findings: at most 2% false on blind review of three repositories; `stale` skipped with zero entries | P2-T3 (skip), agent protocol B-1 |
 | 2 | Five-year simulated history compacts idempotently and byte-identically on two machines; leaf `context` size independent of history | P7-T2 |
 | 3 | Cut, copy, mount, submodule and vendored-subtree scenarios pass goldens; no silent rank guessing at attach | P7-T3 |
 | 4 | Scripted request-to-variant cycle completes; every consumer reference migrated; no undeclared fork flagged | P7-T4 |

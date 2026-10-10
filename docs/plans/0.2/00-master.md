@@ -6,7 +6,7 @@
 
 ## Starting point
 
-- 0.1 is code-complete: P1 to P9 are merged (see [../0.1/errata.md](../0.1/errata.md), E-1 to E-45). Its exit criteria still need the owner's runs ([../0.1/owner-runbook.md](../0.1/owner-runbook.md)): the controlled test (E2, E3), gates G0 and G1 (E4), the benchmark baseline (E6), the trials (E8), and the pre-publish checklist (60-roadmap 9.5).
+- 0.1 is accepted as built (D-59; errata E-1 to E-46). Its human-run exit evidence is waived, not passed. Evidence for 0.2 and 0.3 is gathered by AI agents under [../agent-runbook.md](../agent-runbook.md); only `fairlead approve` and release tagging stay with the owner.
 - **Tag `v0.1.0` before 0.2 code lands on `main`.** 0.2 freezes edition 1 (R-REL-002): after the tag, generated output of edition 1 is byte-stable (R-EDN-002), so the first 0.2 task records the edition-1 goldens as the stability fixture (R-EDN-051).
 - The binary already reserves `move`, `seal` and `upgrade` (exit 2, `crates/fairlead/src/commands/reserved.rs`), and the code table already registers every 0.2 code at milestone `M02` (`crates/fairlead-core/src/check/codes.rs`, the `late!` rows). `check/apply.rs` drops inactive codes, so a check can land before its code is active.
 
@@ -75,8 +75,8 @@ The CLI gains `seal`, `move` and `upgrade` (replacing `reserved.rs`), plus flags
 | Q-1 | 0.2 ships the `upgrade` machinery, but edition 2 does not exist yet. How is it tested? | P4 | Ship 0.2 on edition 1 (now frozen). Test the machinery against a test-only edition 2 behind a `test-edition` Cargo feature, with one mechanical change (for example a renamed generated header key). The first real edition 2 is a later decision. |
 | Q-2 | `upgrade --fetch` needs an HTTP client (R-ARCH-124) and a place to publish migration data. | P4 | Defer the client: in 0.2 the flag parses and exits 2 with "no remote migration data is published for this binary". Every supported migration is embedded (R-EDN-025). Revisit when edition 2 exists. |
 | Q-3 | Integration branch for `seal-where = "integration"`. | P1 | Keep the spec default `integration-branch = "main"` (20-versions sample). Detect it by the current branch name through git2. |
-| Q-4 | The eight-week pilot with at least one external repository (R-ROAD-019, gate G2). | P7 | Human: choose the repositories and start the pilot when P1 to P3 are usable. |
-| Q-5 | Review of the 0.2 and 0.3 thresholds after the 0.1 ablation (R-ROAD-020). | P7 | Human: after E2 data exists, freeze them by a dated amendment to 60-roadmap. |
+| Q-4 | The eight-week pilot with at least one external repository (R-ROAD-019, gate G2). | P7 | Agent-run (D-59): protocol A-1 of [../agent-runbook.md](../agent-runbook.md), three public repositories, eight simulated weeks. |
+| Q-5 | Review of the 0.2 and 0.3 thresholds (R-ROAD-020). | P7 | Agent-run (D-59): protocol A-3 drafts the dated amendment from the 0.1 measurements and A-1, A-2. The 0.1 ablation was waived, so it uses no E2 data. |
 | Q-6 | Signed records (`authority.signed-records`) need GPG or SSH signing on the CI runner for tests. | P3 | Unit-test the parser of `git verify-commit` output. Run one integration test with an SSH-signed commit made in the test, and skip it when `ssh-keygen` is missing. |
 
 ## Definition of done for 0.2
@@ -90,7 +90,7 @@ All rows of [60-roadmap.md](../../60-roadmap.md) 4.2 hold. P7 maps each row to a
 | 3 | Docs-first coverage: at most 5% wrong flags on a 100-commit replay | P7-T4 |
 | 4 | Old-edition checkout checkable by the new binary (through `upgrade`), too-new refused | P4-T2, P7-T3 |
 | 5 | Shallow clone, rebase, squash, cherry-pick, revert goldens | P7-T1 |
-| 6 | Eight-week pilot, at most 30% stale or expired exceptions | owner (Q-4) |
+| 6 | Eight-week pilot, at most 30% stale or expired exceptions | agent protocol A-1 (D-59) |
 | 7 | All 0.1 criteria still hold | P7-T8 (0.1 suites unchanged and green) |
 | 8 | Merkle digest and ledger layout benchmarked at 100,000 files | P7-T5 |
 | 9 | 50 `merge=union` merges: checkpoint continuity passes or is repairable | P7-T2 |

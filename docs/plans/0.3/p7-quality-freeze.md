@@ -9,7 +9,7 @@
 - `hier-core`: the backend ladder with Cargo edges, an entry-only shell and a stale engine.
 - `hier-tauri`: the "sync with server" worked example of 30-hierarchy, with bridges.
 
-The expected outputs are reviewed by the owner before the first bless, as in 0.1.
+Before the first bless, a reviewer agent reviews the expected outputs (agent protocol A-5 of [../agent-runbook.md](../agent-runbook.md)).
 
 **T2. Five-year retention simulation.** Exit criterion 2:
 - `cargo xtask retention-sim --years 5 --seals-per-year 12 --seed N` generates records, seals and closures in a temp repository.
@@ -43,12 +43,15 @@ The expected outputs are reviewed by the owner before the first bless, as in 0.1
 - Add `tests/v1_api.rs`, which snapshots `--help` of every verb, the JSON schema of `check --format json` and `context --format json`, and the code table. Any change fails until the snapshot is updated together with an edition or a recorded gap decision.
 - Open `docs/plans/1.0-gaps.md` for the gap list of 0.4 to 0.9.
 
-**T8. Human steps.**
+**T8. Agent-run evidence and owner acts (D-59).** Runners follow [../agent-runbook.md](../agent-runbook.md).
 
 | Step | Rule |
 |---|---|
-| Blind review of hierarchy findings on three repositories (at most 2% false) | 4.3 criterion 1 |
-| Label the BM25 query set (about 100 prompts) | R-CTX-063 |
-| Decide edition 2 for 0.3 (master Q-1), tree-sitter (Q-2), MCP (Q-3) | owner questions |
-| Review `docs/v1-api.md` before tagging `v0.3.0` | D-53 |
-| Track 1.0 preconditions: edition 1 stable for two minors, one external repository for six months | R-REL-034 |
+| Agent protocol B-1: blind review of hierarchy findings on three repositories (at most 2% false) | 4.3 criterion 1 |
+| Agent protocol B-2: BM25 query set, written and labelled by separate agents | R-CTX-063 |
+| Agent protocol B-3: variation cycle played by a consumer agent | 4.3 criterion 4 |
+| Agent protocol B-4: review of `docs/v1-api.md` before the freeze | D-53 |
+| Agent protocols B-5 and B-6: adoption and syntax-card regressions | E8 (agent-run) |
+| Defaults for master Q-1 to Q-3 apply unless the owner overrides them; record which in the errata | owner questions |
+| Owner: `fairlead approve` where a protocol needs it, and tagging `v0.3.0` | R-AGT-026 |
+| 1.0 preconditions stay time-based: edition 1 stable for two minors, one external repository for six months | R-REL-034 |

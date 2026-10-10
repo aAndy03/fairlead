@@ -29,7 +29,7 @@ trycmd: `context-task-query`, `context-task-query-pinned`.
 - Scope-name boosts apply.
 - BM25 is not dropped.
 
-Test: the xtask unit tests; the query set itself is human-made.
+Test: the xtask unit tests. The query set comes from agent protocol B-2 ([../agent-runbook.md](../agent-runbook.md)).
 
 **T4. Hierarchy in the brief.** R-CTX-015. Where hierarchy is adopted, the brief adds:
 - the path's containers;

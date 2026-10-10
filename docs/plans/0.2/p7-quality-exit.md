@@ -38,7 +38,7 @@ Runs in the weekly workflow, not on push (E-18).
 - Write the flagged files to a CSV for human labelling.
 - After the exempt globs are tuned once, the share of wrong flags must be at most 5%.
 
-The labelling and the tuning are human steps; the tool and its unit tests are code.
+The labelling is agent protocol A-2 of [../agent-runbook.md](../agent-runbook.md). The single tuning of exempt globs is done by the reviewer agent's proposal and recorded. The tool and its unit tests are code.
 
 **T5. Merkle and ledger benchmark.** Exit criterion 8, R-VER-016:
 - Extend `bench-corpus` with a seal history: 20 seals across 50 scopes on the 100,000-file corpus.
@@ -56,12 +56,13 @@ The labelling and the tuning are human steps; the tool and its unit tests are co
 
 **T8. Regression of 0.1.** The 11 goldens of 0.1, the determinism matrix, read-only, SARIF validation, secrets and the platform tests still pass unchanged (exit criterion 7). Any changed expected output needs an errata entry that names the 0.2 rule that changed it.
 
-**T9. Human steps (listed so they are not lost).**
+**T9. Agent-run evidence and owner acts (D-59).** Each row follows [../agent-runbook.md](../agent-runbook.md). Build each runner script `xtask/agent/<protocol>.ps1` in this task.
 
 | Step | Rule |
 |---|---|
-| Eight-week pilot on at least two repositories, one external. Record stale or expired exception share (at most 30%). | R-ROAD-019, R-ROAD-012, gate G2, exit criterion 6 |
-| Review and freeze the 0.2 and 0.3 thresholds after the 0.1 ablation data exists (dated amendment). | R-ROAD-020 |
-| Label the coverage-replay CSV (T4). | exit criterion 3 |
-| Review the generated changelog before tagging `v0.2.0`. | R-REL-025 |
-| Approve the version-based dogfood waiver (P6-T10). | A-68 |
+| Agent protocol A-1: simulated eight-week pilot on three public repositories; stale or expired exceptions at most 30% | R-ROAD-019, R-ROAD-012, gate G2, exit criterion 6 |
+| Agent protocol A-3: threshold amendment draft | R-ROAD-020 |
+| Agent protocol A-2: label the coverage-replay CSV (T4) | exit criterion 3 |
+| Agent protocol A-4: changelog review before tagging | R-REL-025 |
+| Agent protocol A-5: golden review before the first bless (T1) | 0.1 practice (E-34) |
+| Owner: `fairlead approve` of the version-based dogfood waiver (P6-T10), and tagging `v0.2.0` | R-AGT-026 |
