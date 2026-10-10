@@ -177,6 +177,29 @@ impl Check for RefsCheck {
                 }
             }
         }
+        // R-LC-024: the only way back for a tombstoned ID is an approved revive doc that creates a
+        // versioned successor.
+        let (docs, _) = crate::docs::collect_change_docs(cx.corpus);
+        for d in docs.iter().filter(|d| {
+            d.kind == "revive" && d.status.is_pending() && reg.scope_of(&d.path) == Some(scope)
+        }) {
+            for p in crate::lifecycle::revive_problems(d, reg, &cx.facts.approvals) {
+                out.push(
+                    DiagB::new(
+                        HN_D003,
+                        &d.path,
+                        1,
+                        1,
+                        format!("revive doc {}: {p}", d.id.as_str()),
+                    )
+                    .hint(
+                        "a tombstoned ID returns only as <id>-v<N> through an approved revive doc",
+                    )
+                    .text(d.id.as_str().to_string())
+                    .build(),
+                );
+            }
+        }
         let used: BTreeSet<&ItemId> = reg
             .edges()
             .iter()
@@ -317,6 +340,51 @@ mod tests {
         );
         assert_eq!(r4[1].severity, Severity::Error, "no alias");
         assert_eq!(of(&ds, c::HN_D003).len(), 1);
+    }
+
+    #[test]
+    fn r_lc_024__revive_needs_approval_and_new_id() {
+        let revive = |as_id: &str| {
+            format!(
+                "+++\nid = \"d-00000001\"\nkind = \"revive\"\nstatus = \"ready\"\nimpact = \"add\"\ncovers = [\"src/**\"]\nrevives = \"cmp.gone\"\nas = \"{as_id}\"\n+++\n"
+            )
+        };
+        let run = |as_id: &str, approved: bool| {
+            world()
+                .facts(|f| {
+                    f.tombstones.insert(
+                        RepoPath::new("fairlead/tombstones/2026.toml").unwrap(),
+                        TOMBS.into(),
+                    );
+                    if approved {
+                        f.approvals.approvals.push(crate::config::Approval {
+                            fp: crate::lifecycle::revive_fp("d-00000001", "cmp.gone", as_id),
+                            target: Id::parse("cmp.gone").unwrap(),
+                            scope: fairlead_syntax::ids::ScopeSlug::parse("root").unwrap(),
+                            approver: "@platform".into(),
+                            date: "2026-10-09".parse().unwrap(),
+                            renewal: 0,
+                        });
+                    }
+                })
+                .file("fairlead/docs/changes/d-00000001-back.md", &revive(as_id))
+                .build()
+                .run_check(&RefsCheck)
+        };
+        let unapproved = run("cmp.gone-v2", false);
+        let d = of(&unapproved, c::HN_D003);
+        assert_eq!(d.len(), 1);
+        assert!(
+            d[0].message
+                .contains("not approved: a human runs `fairlead approve d-00000001`")
+        );
+        assert!(of(&run("cmp.gone-v2", true), c::HN_D003).is_empty());
+        let same = run("cmp.gone", true);
+        assert!(
+            of(&same, c::HN_D003)[0]
+                .message
+                .contains("must be a new ID cmp.gone-v<N>")
+        );
     }
 
     #[test]

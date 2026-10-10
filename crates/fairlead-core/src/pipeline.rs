@@ -477,6 +477,10 @@ pub fn approve_preview_loaded(
     registry: &Registry,
     request: &ApproveRequest,
 ) -> Result<ApprovePreview, Error> {
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    if let Some(p) = crate::write::revive_preview(request, registry, &docs, &loaded.facts)? {
+        return Ok(p);
+    }
     approve_preview(request, registry, &loaded.facts)
 }
 
@@ -550,6 +554,36 @@ fn grave_prints(loaded: &Loaded) -> Result<Vec<(RepoPath, String, String)>, Erro
             .map_err(|err| Error::io(e.path.as_str(), "read", &err, false))?;
         let new = crate::graveyard::with_fingerprint(&old, &fp).map_err(Error::Internal)?;
         out.push((e.path.clone(), old, new));
+    }
+    // R-LC-024, R-LC-035: a revive doc in this seal moves the entries it names in `revisits` to
+    // `revisited`, linked to the doc; entries are never deleted.
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    for d in docs
+        .iter()
+        .filter(|d| d.kind == "revive" && d.status == crate::docs::Status::Ready)
+    {
+        for id in crate::check::builtin::grave::revisits(d) {
+            let Some(e) = entries.iter().find(|e| e.id == id) else {
+                continue;
+            };
+            let draft = d.id.as_str().to_owned();
+            let edit = |text: &str| {
+                crate::graveyard::set_keys(text, |doc| {
+                    doc["state"] = toml_edit::value("revisited");
+                    doc["revisited-by"] = toml_edit::value(draft.as_str());
+                })
+                .map_err(Error::Internal)
+            };
+            if let Some(slot) = out.iter_mut().find(|(p, _, _)| *p == e.path) {
+                slot.2 = edit(&slot.2)?;
+            } else {
+                let abs = loaded.root.dir.join(e.path.as_str());
+                let old = std::fs::read_to_string(abs.as_std_path())
+                    .map_err(|err| Error::io(e.path.as_str(), "read", &err, false))?;
+                let new = edit(&old)?;
+                out.push((e.path.clone(), old, new));
+            }
+        }
     }
     Ok(out)
 }

@@ -470,7 +470,19 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
             )
             .with("title", d.title.as_deref().unwrap_or(""))
             .render();
-        records.entry(ScopeKey(scope)).or_default().push(line);
+        records
+            .entry(ScopeKey(scope.clone()))
+            .or_default()
+            .push(line);
+        if d.kind == "revive"
+            && let (Some(old), Some(new)) = (d.extra.get("revives"), d.extra.get("as"))
+        {
+            // R-LC-024: the link from the tombstoned ID to its versioned successor.
+            records
+                .entry(ScopeKey(scope))
+                .or_default()
+                .push(format!("revive {old} as={new} doc={}", d.id));
+        }
         if d.rolling {
             // R-VER-035: a rolling doc is recorded in this version and a successor draft with the
             // same covers opens the next one. Its draft ID is derived from the old ID and the

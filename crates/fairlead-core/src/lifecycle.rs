@@ -514,6 +514,65 @@ pub fn completed_removals(reg: &Registry, recorded: &BTreeMap<String, RecordedPl
     out
 }
 
+/// The approval fingerprint of a revive doc (R-LC-024): over its draft ID, the revived ID and
+/// the new ID, so editing either needs a new approval.
+pub fn revive_fp(draft: &str, revives: &str, new: &str) -> crate::hash::Fingerprint {
+    crate::hash::Fingerprint::from_hash(&crate::hash::hash_raw(
+        format!("revive {draft} {revives} {new}").as_bytes(),
+    ))
+}
+
+/// A revived item's new ID is the old one with a version suffix `-v<N>`, N >= 2 (R-LC-024).
+pub fn revive_id_ok(old: &str, new: &str) -> bool {
+    new.strip_prefix(old)
+        .and_then(|r| r.strip_prefix("-v"))
+        .and_then(|d| {
+            d.parse::<u32>()
+                .ok()
+                .filter(|n| *n >= 2)
+                .map(|n| n.to_string() == d)
+        })
+        .unwrap_or(false)
+}
+
+/// What is wrong with a revive doc: `revives` must name a tombstoned ID, `as` the new versioned
+/// ID, and an approval must exist for its fingerprint. Empty when valid.
+pub fn revive_problems(
+    d: &ChangeDoc,
+    reg: &Registry,
+    approvals: &crate::config::ApprovalsFile,
+) -> Vec<String> {
+    let mut out = Vec::new();
+    let Some(old) = d.extra.get("revives") else {
+        return vec!["a revive doc needs `revives = \"<tombstoned id>\"`".into()];
+    };
+    let scope = reg
+        .scope_of(&d.path)
+        .cloned()
+        .unwrap_or_else(|| reg.root_scope().clone());
+    let tombed = Id::parse(old)
+        .ok()
+        .is_some_and(|id| reg.tomb_for(&scope, &id).is_some());
+    if !tombed {
+        out.push(format!("revives = {old:?} names no tombstoned ID"));
+    }
+    let new = d.extra.get("as").map(String::as_str).unwrap_or("");
+    if !revive_id_ok(old, new) {
+        out.push(format!(
+            "`as` must be a new ID {old}-v<N> (N >= 2), not {new:?}"
+        ));
+    }
+    let fp = revive_fp(d.id.as_str(), old, new);
+    if !approvals.approvals.iter().any(|a| a.fp == fp) {
+        out.push(format!(
+            "not approved: a human runs `fairlead approve {}` (fingerprint {})",
+            d.id.as_str(),
+            fp.as_str()
+        ));
+    }
+    out
+}
+
 /// `kind.name` of a `scope:kind.name` key.
 pub fn bare_of(key: &str) -> &str {
     key.split_once(':').map_or(key, |(_, b)| b)

@@ -120,6 +120,54 @@ pub fn approve_preview(
     ))
 }
 
+/// `approve <draft>` of a revive doc (R-LC-024): the preview of its approval record.
+pub fn revive_preview(
+    req: &ApproveRequest,
+    reg: &Registry,
+    docs: &[crate::docs::ChangeDoc],
+    facts: &Facts,
+) -> Result<Option<ApprovePreview>, Error> {
+    let Some(draft) = crate::docs::DraftId::parse(&req.target) else {
+        return Ok(None);
+    };
+    let d = docs
+        .iter()
+        .find(|d| d.id == draft)
+        .ok_or_else(|| Error::Usage(format!("no change doc {}", req.target)))?;
+    if d.kind != "revive" {
+        return Err(Error::Usage(format!(
+            "{} is a {} doc; only a revive doc is approved by draft ID",
+            req.target, d.kind
+        )));
+    }
+    let old = d.extra.get("revives").cloned().unwrap_or_default();
+    let new = d.extra.get("as").cloned().unwrap_or_default();
+    let target =
+        Id::parse(&old).map_err(|_| Error::Usage(format!("revives = {old:?} is not an ID")))?;
+    if !crate::lifecycle::revive_id_ok(&old, &new) {
+        return Err(Error::Usage(format!(
+            "`as` must be {old}-v<N> (N >= 2), not {new:?}"
+        )));
+    }
+    let fp = crate::lifecycle::revive_fp(draft.as_str(), &old, &new);
+    let already = facts.approvals.approvals.iter().any(|a| a.fp == fp);
+    let mut line = format!("revive {old} as {new} ({})", draft.as_str());
+    if already {
+        line.push_str(" (already approved)");
+    }
+    Ok(Some(ApprovePreview {
+        confirm_prefix: fp.as_str().chars().take(4).collect(),
+        fp,
+        target,
+        ovr_line: sanitize_data(&line, 240),
+        scope: reg
+            .scope_of(&d.path)
+            .cloned()
+            .unwrap_or_else(|| reg.root_scope().clone()),
+        exp: None,
+    }))
+}
+
 /// `--as` must be an `owners` handle (R-AGT-028); without it a single human owner is the default.
 pub fn resolve_approver(req: &ApproveRequest, reg: &Registry) -> Result<String, Error> {
     let owners: Vec<Owner> = reg
