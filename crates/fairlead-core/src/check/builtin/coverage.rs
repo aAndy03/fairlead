@@ -61,9 +61,24 @@ impl Check for CoverageCheck {
             Coverage::Changed { files, .. } => files,
         };
         let (docs, _) = collect_change_docs(cx.corpus);
-        let open: Vec<_> = docs
+        // R-VER-038: a revert doc (`kind = "revert"`, `of = <draft>`) also covers what the doc
+        // it reverts covered, so reverting a sealed change needs no second list.
+        let open_docs: Vec<crate::docs::ChangeDoc> = docs
             .iter()
             .filter(|d| matches!(d.status, Status::Draft | Status::Ready))
+            .map(|d| {
+                let mut d = d.clone();
+                if d.kind == "revert"
+                    && let Some(of) = d.extra.get("of")
+                    && let Some(orig) = docs.iter().find(|o| o.id.as_str() == of)
+                {
+                    d.covers.extend(orig.covers.iter().cloned());
+                }
+                d
+            })
+            .collect();
+        let open: Vec<_> = open_docs
+            .iter()
             .map(|d| {
                 let dir = reg
                     .scope_of(&d.path)
@@ -186,6 +201,20 @@ mod tests {
                 "fairlead/ledger/hist/2026.hl",
             ],
             &[],
+        );
+        assert!(of(&d, c::HN_D006).is_empty(), "{d:?}");
+    }
+
+    #[test]
+    fn r_ver_038__a_revert_doc_covers_what_the_reverted_doc_covered() {
+        let sealed = "+++\nid = \"d-00000001\"\nkind = \"change\"\nstatus = \"sealed\"\nscope = \"root\"\ncovers = [\"src/**\"]\n+++\n".to_owned();
+        let revert = "+++\nid = \"d-00000002\"\nkind = \"revert\"\nof = \"d-00000001\"\nstatus = \"draft\"\nscope = \"root\"\ncovers = []\n+++\n".to_owned();
+        let d = run(
+            &["src/a.rs"],
+            &[
+                ("fairlead/docs/changes/0001-a.md", sealed),
+                ("fairlead/docs/changes/d-00000002-r.md", revert),
+            ],
         );
         assert!(of(&d, c::HN_D006).is_empty(), "{d:?}");
     }

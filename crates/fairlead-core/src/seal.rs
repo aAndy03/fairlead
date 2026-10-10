@@ -370,6 +370,43 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
             .with("title", d.title.as_deref().unwrap_or(""))
             .render();
         records.entry(ScopeKey(scope)).or_default().push(line);
+        if d.rolling {
+            // R-VER-035: a rolling doc is recorded in this version and a successor draft with the
+            // same covers opens the next one. Its draft ID is derived from the old ID and the
+            // version, so the seal stays deterministic.
+            let digest = crate::hash::hash_raw(format!("{} {}", d.id, plan.open).as_bytes());
+            let mut bits = [0u8; 5];
+            bits.copy_from_slice(&digest.0[..5]);
+            let next = crate::docs::DraftId::from_bits(bits);
+            let slug = d
+                .title
+                .as_deref()
+                .map_or_else(|| "chore".to_owned(), crate::docs::slug);
+            let dir = d
+                .path
+                .parent()
+                .map(|p| p.as_str().to_owned())
+                .unwrap_or_default();
+            let path =
+                RepoPath::new(&format!("{dir}/{next}-{slug}.md")).map_err(|e| format!("{e:?}"))?;
+            let text = format!(
+                "+++\nid = \"{next}\"\nkind = \"{}\"\nstatus = \"draft\"\nrolling = true\nscope = \"{}\"\ntitle = \"{}\"\ncovers = {}\ncreated = \"{}\"\n+++\n\n# {}\n\nSuccessor of {} (rolling).\n",
+                d.kind,
+                d.scope.as_deref().unwrap_or("root"),
+                d.title.as_deref().unwrap_or("chore").replace('"', "'"),
+                toml_list(&d.covers),
+                plan.open,
+                d.title.as_deref().unwrap_or("chore"),
+                d.id
+            );
+            add(PlannedWrite {
+                path,
+                kind: WriteKind::Create,
+                bytes: text.into_bytes(),
+                class: FileClass::Authored,
+                expect_prior: None,
+            })?;
+        }
         let mut sealed = d.clone();
         sealed.status = Status::Sealed;
         sealed.ordinal = Some(ord);

@@ -227,6 +227,43 @@ fn r_ver_032__after_a_seal_changed_files_need_an_open_doc() {
 }
 
 #[test]
+fn r_ver_035__a_rolling_doc_gets_a_successor_draft_at_seal() {
+    let repo = ready_repo();
+    let changes = repo.path().join("fairlead/docs/changes");
+    let doc = std::fs::read_dir(&changes)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&doc).unwrap();
+    std::fs::write(
+        &doc,
+        text.replace("status = \"ready\"", "status = \"ready\"\nrolling = true"),
+    )
+    .unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("rolling");
+    let run = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    let names: Vec<String> = std::fs::read_dir(&changes)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    let successor = names
+        .iter()
+        .find(|n| n.starts_with("d-"))
+        .expect("a successor draft");
+    let s = std::fs::read_to_string(changes.join(successor)).unwrap();
+    assert!(
+        s.contains("status = \"draft\"") && s.contains("rolling = true"),
+        "{s}"
+    );
+    assert!(s.contains("covers = [\"src/**\"]"), "{s}");
+    assert!(names.iter().any(|n| n.starts_with("0001-")), "{names:?}");
+}
+
+#[test]
 fn r_ver_055__seal_refuses_off_the_integration_branch() {
     let repo = ready_repo();
     repo.git(&["checkout", "-q", "-b", "feature/x"]);

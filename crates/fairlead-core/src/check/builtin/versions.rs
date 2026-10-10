@@ -9,8 +9,8 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 8] = [
-    HN_G003, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V009,
+const CODES: [DiagCode; 9] = [
+    HN_G003, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V008, HN_V009,
 ];
 
 fn in_scope(cx: &CheckCx<'_>, d: &ChangeDoc, scope: &ScopeId) -> bool {
@@ -339,6 +339,33 @@ impl Check for VersionsCheck {
                     .hint("restore it from git; supersede it with a new doc (supersedes = \"<id>\") instead")
                     .text(d.id.as_str())
                     .build(),
+                );
+            }
+        }
+        // R-VER-037: `covers` broader than the home subtree, or `**` without `kind = "bulk"`.
+        for d in docs.iter().filter(|d| in_scope(cx, d, scope)) {
+            if !matches!(
+                d.status,
+                crate::docs::Status::Draft | crate::docs::Status::Ready
+            ) {
+                continue;
+            }
+            let outside = d
+                .covers
+                .iter()
+                .find(|c| c.starts_with('/') || c.split('/').any(|seg| seg == ".."));
+            let everything = d.kind != "bulk" && d.covers.iter().any(|c| c == "**" || c == "**/*");
+            let why = match (outside, everything) {
+                (Some(c), _) => Some(format!("covers {c:?} reaches outside its home scope")),
+                (None, true) => Some("covers everything (`**`) without kind = \"bulk\"".to_owned()),
+                _ => None,
+            };
+            if let Some(why) = why {
+                out.push(
+                    DiagB::new(HN_V008, &d.path, 1, 1, format!("change doc {} {why}", d.id))
+                        .hint("narrow covers to the scope's own paths, or use kind = \"bulk\" with a reason")
+                        .text(d.id.as_str())
+                        .build(),
                 );
             }
         }
@@ -746,6 +773,26 @@ mod tests {
         };
         assert!(of(&run("sealed"), c::HN_V005).is_empty());
         assert_eq!(of(&run("ready"), c::HN_V005).len(), 1);
+    }
+
+    #[test]
+    fn r_ver_037__broad_covers_is_h_doc_broad() {
+        let run = |kind: &str, covers: &str| {
+            let text = format!(
+                "+++\nid = \"d-00000001\"\nkind = \"{kind}\"\nstatus = \"draft\"\nscope = \"root\"\ncovers = [{covers}]\n+++\n"
+            );
+            World::new()
+                .file("fairlead/docs/changes/d-00000001-a.md", &text)
+                .build()
+                .run_check(&VersionsCheck)
+        };
+        assert!(of(&run("change", "\"src/**\""), c::HN_V008).is_empty());
+        assert_eq!(of(&run("change", "\"**\""), c::HN_V008).len(), 1);
+        assert!(
+            of(&run("bulk", "\"**\""), c::HN_V008).is_empty(),
+            "bulk may cover all"
+        );
+        assert_eq!(of(&run("change", "\"../other/**\""), c::HN_V008).len(), 1);
     }
 
     #[test]
