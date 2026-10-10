@@ -83,7 +83,7 @@ pub fn parse_explain_target(
     arg: &str,
     exists: &dyn Fn(&RepoPath) -> bool,
 ) -> Result<ExplainTarget, Error> {
-    if topics::TOPICS.contains(&arg) || arg == "pr-template" {
+    if topics::TOPICS.contains(&arg) {
         return Ok(ExplainTarget::Topic(arg.to_owned()));
     }
     if arg.starts_with("HN-") {
@@ -558,14 +558,18 @@ mod tests {
     }
 
     #[test]
-    fn r_cli_035__kinds_topic_is_computed_from_the_registry_and_pr_template_waits_for_0_2() {
+    fn r_cli_035__kinds_topic_is_computed_from_the_registry_and_0_2_topics_exist() {
         let t = text(&explain(&ExplainTarget::Topic("kinds".into()), &env(), None).unwrap());
         assert!(
             t.contains("adr") && t.contains("cmp") && t.contains("handoff"),
             "{t}"
         );
+        let pr = text(&explain(&ExplainTarget::Topic("pr-template".into()), &env(), None).unwrap());
+        assert!(pr.contains("HN-D006"), "R-AGT-031: {pr}");
+        let df = text(&explain(&ExplainTarget::Topic("docs-first".into()), &env(), None).unwrap());
         assert!(
-            matches!(explain(&ExplainTarget::Topic("pr-template".into()), &env(), None), Err(Error::Usage(m)) if m.contains("0.2"))
+            df.contains("docs-present, not docs-first"),
+            "R-VER-039: {df}"
         );
     }
 

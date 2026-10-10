@@ -313,8 +313,7 @@ fn loaded_scope_dir(loaded: &Loaded, path: &RepoPath) -> String {
 
 pub fn explain_target(root: &Root, cwd: &Utf8Path, arg: &str) -> Result<ExplainTarget, Error> {
     let exists = |path: &RepoPath| root.dir.join(path.as_str()).exists();
-    let topic_or_code =
-        matches!(arg, "syntax" | "kinds" | "approve" | "pr-template") || arg.starts_with("HN-");
+    let topic_or_code = crate::explain::topics::TOPICS.contains(&arg) || arg.starts_with("HN-");
     let text = if topic_or_code {
         arg.to_string()
     } else {

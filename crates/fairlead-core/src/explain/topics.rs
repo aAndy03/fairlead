@@ -4,7 +4,28 @@ use crate::config::KindShape;
 use crate::error::Error;
 use crate::registry::Registry;
 
-pub const TOPICS: [&str; 3] = ["syntax", "kinds", "approve"];
+pub const TOPICS: [&str; 5] = ["syntax", "kinds", "approve", "pr-template", "docs-first"];
+
+/// R-AGT-031: the PR template text, printed for the team to paste; `init` never writes it.
+pub const PR_TEMPLATE: &str = "\
+## Change doc
+- [ ] Every changed file is covered by a draft or ready change doc (`fairlead check` shows no HN-D006).
+- [ ] The doc's `covers`, `impact` and summary say what changed and why.
+- [ ] A hotfix without a doc opened a backfill debt (`fairlead new change --hotfix`).
+
+## Exceptions
+- [ ] New `ovr` lines carry `why`, `owner` and an expiry, and are approved (`fairlead approve`).
+- [ ] No pin (`edition`, `fairlead-version`) was lowered.
+";
+
+/// R-VER-039: what coverage proves, stated plainly.
+pub const DOCS_FIRST: &str = "\
+Docs-first coverage proves docs-present, not docs-first.
+Every file changed since the commit that added the latest version file must match the covers
+glob of a draft or ready change doc in its scope. Order (doc before code) is not checked:
+squash merges erase it. A team that wants order uses an optional pre-commit hook.
+Severity follows docs-first.level: observe, warn (default) or enforce; a child scope may raise it.
+";
 
 /// R-CLI-035: at most 800 tokens (estimate: bytes / 4).
 pub const SYNTAX_CARD: &str = "\
@@ -180,7 +201,16 @@ pub fn topic_sections(name: &str, reg: &Registry) -> Result<Vec<ExplainSection>,
             }
             Ok(vec![section("declared kinds", vec![], lines)])
         }
-        "pr-template" => Err(Error::Usage("explain pr-template arrives in 0.2".into())),
+        "pr-template" => Ok(vec![section(
+            "pr-template",
+            PR_TEMPLATE.lines().map(str::to_owned).collect(),
+            vec![],
+        )]),
+        "docs-first" => Ok(vec![section(
+            "docs-first",
+            DOCS_FIRST.lines().map(str::to_owned).collect(),
+            vec![],
+        )]),
         other => Err(Error::Usage(format!("unknown topic {other}"))),
     }
 }
