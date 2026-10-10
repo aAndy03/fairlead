@@ -156,7 +156,7 @@ pub(crate) struct RawOvr {
     pub(crate) why: Option<String>,
     pub(crate) owner: Option<String>,
     pub(crate) exp: Option<String>,
-    pub(crate) until: bool,
+    pub(crate) until: Option<String>,
     pub(crate) base: Option<String>,
     pub(crate) pin: Option<String>,
     pub(crate) text: String,
@@ -180,7 +180,7 @@ impl RawOvr {
             why: None,
             owner: None,
             exp: None,
-            until: false,
+            until: None,
             base: None,
             pin: None,
             text,
@@ -192,7 +192,7 @@ impl RawOvr {
             "why" => self.why = Some(arg_scalar(v)),
             "owner" => self.owner = Some(arg_scalar(v)),
             "exp" => self.exp = Some(arg_scalar(v)),
-            "until" => self.until = true,
+            "until" => self.until = Some(arg_scalar(v)),
             "op" => self.op_text = Some(arg_scalar(v)),
             "base" => self.base = Some(arg_scalar(v)),
             "x-pin" => self.pin = Some(arg_scalar(v)),
@@ -313,6 +313,10 @@ pub(crate) fn collect_raw(
 pub(crate) struct Eval<'a> {
     pub(crate) idx: &'a Index<'a>,
     pub(crate) as_of: AsOf,
+    /// The open version `O`, for `until=` (R-VER-070).
+    pub(crate) open: crate::version::Version,
+    /// `exceptions.max-minors`: the cap of `until` above `O` (R-VER-075).
+    pub(crate) max_minors: Option<u32>,
     pub(crate) grants: &'a [Allow],
     pub(crate) approvals: &'a [Approval],
     pub(crate) waiver: WaiverPolicy,
@@ -548,15 +552,50 @@ fn judge(
         );
     }
     let exp_text = p.raw.exp.as_deref();
-    if p.raw.until || exp_text.is_some_and(looks_like_version) {
+    if exp_text.is_some_and(looks_like_version) {
         return Verdict::inert(
             InertReason::VersionExpiry,
             Some((
                 codes::HN_S012,
-                "version-based expiry needs seals (0.2); the override is dropped".to_string(),
-                "write exp=YYYY-MM-DD",
+                "`exp` is a date; a version expiry is written until=MAJOR.MINOR.PATCH".to_string(),
+                "write exp=YYYY-MM-DD or until=MAJOR.MINOR.PATCH",
             )),
         );
+    }
+    // R-VER-070 to R-VER-075: `until=` is effective while O < until, within the cap.
+    let until = match p.raw.until.as_deref() {
+        None => None,
+        Some(u) => match crate::version::Version::parse(u) {
+            Some(v) => Some(v),
+            None => {
+                return Verdict::inert(
+                    InertReason::VersionExpiry,
+                    Some((
+                        codes::HN_S012,
+                        format!("until={u} is not MAJOR.MINOR.PATCH; the override is dropped"),
+                        "write until=MAJOR.MINOR.PATCH",
+                    )),
+                );
+            }
+        },
+    };
+    if let (Some(u), Some(m)) = (until, ev.max_minors) {
+        let cap = crate::version::Version::new(ev.open.major, ev.open.minor + u64::from(m), 0);
+        if u > cap {
+            return Verdict::inert(
+                InertReason::VersionExpiry,
+                Some((
+                    codes::HN_X016,
+                    format!(
+                        "until={u} is beyond the cap {cap} (open version plus exceptions.max-minors)"
+                    ),
+                    "shorten it; a longer waiver is a decision for the owners, not a later until",
+                )),
+            );
+        }
+    }
+    if until.is_some_and(|u| ev.open >= u) {
+        return Verdict::plain(OvrState::Expired);
     }
     let bad_date = exp_text.is_some_and(|s| s.parse::<jiff::civil::Date>().is_err());
     let bad_op = p
@@ -595,7 +634,7 @@ fn judge(
         let have = [
             ("why", p.raw.why.is_some()),
             ("owner", p.raw.owner.is_some()),
-            ("exp", exp_text.is_some()),
+            ("exp", exp_text.is_some() || until.is_some()),
         ];
         let missing: Vec<&str> = have.iter().filter(|t| !t.1).map(|t| t.0).collect();
         if !missing.is_empty() {

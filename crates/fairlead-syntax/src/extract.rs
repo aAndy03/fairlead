@@ -753,7 +753,7 @@ mod tests {
                 "HN-S012",
             ),
             (
-                "// fairlead: ovr rule.x why=\"w\" until=1.9.0\nfn f() {}\n".into(),
+                "// fairlead: ovr rule.x why=\"w\" until=1.9\nfn f() {}\n".into(),
                 "HN-S012",
             ),
             ("fn f() {}\n// fairlead: end\n".into(), "HN-S008"),

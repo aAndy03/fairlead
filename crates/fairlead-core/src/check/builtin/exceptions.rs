@@ -229,6 +229,48 @@ mod tests {
     use fairlead_syntax::ids::{Id, ScopeSlug};
     use std::collections::BTreeMap;
 
+    fn until_world(until: &str) -> crate::check::testkit::Built {
+        World::new()
+            .root("[rules.r]\ncheck = \"pattern\"\nforbid = \"ZZZ\"\nmsg = \"no\"\nwaivable = true\n[exceptions]\nmax-minors = 2\n")
+            .file(
+                "src/a.ts",
+                &format!("// fairlead: ovr rule.r why=\"legacy\" owner=@platform until={until}\nexport const A = 1;\n"),
+            )
+            .file("fairlead/versions/0.4.0.md", "+++\nversion = \"0.4.0\"\n+++\n")
+            .build()
+    }
+
+    #[test]
+    fn r_ver_070__until_is_effective_while_open_is_below_it() {
+        // S = 0.4.0, nothing pending: O = 0.4.1.
+        let live = until_world("0.5.0");
+        assert_eq!(live.registry.overrides()[0].state, OvrState::Effective);
+        let gone = until_world("0.4.1");
+        assert_eq!(
+            gone.registry.overrides()[0].state,
+            OvrState::Expired,
+            "O >= until"
+        );
+    }
+
+    #[test]
+    fn r_ver_075__until_beyond_the_cap_is_exc_cap() {
+        // cap = 0.(4 + 2).0 = 0.6.0
+        assert_eq!(
+            until_world("0.6.0").registry.overrides()[0].state,
+            OvrState::Effective
+        );
+        let far = until_world("0.7.0");
+        assert!(
+            far.registry
+                .diagnostics()
+                .iter()
+                .any(|d| d.code == c::HN_X016),
+            "{:?}",
+            far.registry.diagnostics()
+        );
+    }
+
     fn ovr(state: OvrState, approval: ApprovalStatus, exp: Option<&str>) -> Override {
         let id = Id::parse("rule.no-raw-hex").unwrap();
         Override {

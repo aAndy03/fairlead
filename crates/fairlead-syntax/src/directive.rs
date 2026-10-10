@@ -552,13 +552,30 @@ fn check_ovr(p: &mut ParsedBody) -> Result<(), BodyError> {
     }
     for (a, &(at, end)) in p.args.iter().zip(p.arg_pos.iter()) {
         if a.key == "until" {
-            return Err(BodyError::new(
-                codes::HN_S012,
-                at,
-                a.key.len(),
-                "`until=` needs seals (edition 1 has none)",
-            )
-            .expected("exp=YYYY-MM-DD"));
+            // R-VER-070, D-49: a full MAJOR.MINOR.PATCH; `never`, `none`, two parts or empty are
+            // not an expiry.
+            let v = match (&a.op, &a.value) {
+                (ArgOp::Set, ArgValue::Word(w) | ArgValue::Quoted(w)) => Some(w.as_str()),
+                _ => None,
+            };
+            let three = v.is_some_and(|v| {
+                let parts: Vec<&str> = v.split('.').collect();
+                parts.len() == 3
+                    && parts.iter().all(|p| {
+                        !p.is_empty()
+                            && p.bytes().all(|b| b.is_ascii_digit())
+                            && (*p == "0" || !p.starts_with('0'))
+                    })
+            });
+            if !three {
+                return Err(BodyError::new(
+                    codes::HN_S012,
+                    at,
+                    end.saturating_sub(at),
+                    "`until` must be a version MAJOR.MINOR.PATCH",
+                )
+                .expected("until=MAJOR.MINOR.PATCH"));
+            }
         }
         if a.key == "exp" {
             let date = match (&a.op, &a.value) {
@@ -665,7 +682,7 @@ const DEF_KEYS: &[&str] = &[
     "in", "mat", "bind", "vis",
 ];
 const USE_KEYS: &[&str] = &["sym"];
-const OVR_KEYS: &[&str] = &["why", "owner", "exp", "op", "base"];
+const OVR_KEYS: &[&str] = &["why", "owner", "exp", "until", "op", "base"];
 const FLAG_KEYS: &[&str] = &["to", "target", "by-date", "since"];
 
 /// R-SYN-015, R-SYN-013, R-SYN-048: built-in keys of edition 1 (kind-declared keys and `x-` keys are extra).
@@ -985,12 +1002,20 @@ mod tests {
     }
 
     #[test]
-    fn r_syn_012__until_is_rejected_in_edition_one() {
-        let e = err("ovr rule.x why=\"w\" until=1.9.0");
-        assert_eq!(e.code, codes::HN_S012);
-        assert_eq!(e.at, 19, "points at the key");
-        assert!(e.message.contains("until"));
-        assert_eq!(e.expected.as_deref(), Some("exp=YYYY-MM-DD"));
+    fn r_syn_012__until_is_a_three_part_version() {
+        assert_eq!(ok("ovr rule.x why=\"w\" until=1.9.0").args[1].key, "until");
+        for bad in [
+            "until=1.9",
+            "until=never",
+            "until=none",
+            "until=\"\"",
+            "until=01.2.3",
+        ] {
+            let e = err(&format!("ovr rule.x why=\"w\" {bad}"));
+            assert_eq!(e.code, codes::HN_S012, "{bad}");
+            assert_eq!(e.at, 19, "points at the key");
+            assert_eq!(e.expected.as_deref(), Some("until=MAJOR.MINOR.PATCH"));
+        }
     }
 
     #[test]
@@ -1118,7 +1143,7 @@ mod tests {
         assert_eq!(known_keys(Verb::Use), &["sym"]);
         assert_eq!(
             known_keys(Verb::Ovr),
-            &["why", "owner", "exp", "op", "base"]
+            &["why", "owner", "exp", "until", "op", "base"]
         );
         assert_eq!(
             known_keys(Verb::Flag),

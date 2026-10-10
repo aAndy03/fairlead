@@ -48,9 +48,15 @@ pub fn resolve(input: &ResolveInput<'_>) -> Registry {
             max_renewals: 2,
             approval_required: true,
         });
+    let start = table
+        .root_control()
+        .and_then(|c| crate::version::Version::parse(&c.version.start))
+        .unwrap_or(crate::version::Version::new(0, 1, 0));
     let ev = Eval {
         idx: &idx,
         as_of: input.as_of,
+        open: crate::docs::line_of(input.corpus, folder, start).open,
+        max_minors: table.root_control().and_then(|c| c.exceptions.max_minors),
         grants: &grants,
         approvals: &input.facts.approvals.approvals,
         horizon_days: max_horizon_days(table.root_control()),
