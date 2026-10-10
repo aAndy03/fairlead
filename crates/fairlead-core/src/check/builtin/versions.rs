@@ -139,6 +139,52 @@ fn version_line_integrity(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagn
     }
 }
 
+/// R-VER-051, R-GIT-051: detection, not log replay. A ledger checkpoint for a version with no
+/// version file (a seal that stopped before its commit point), or a leftover write journal, is
+/// `H-TX-INCOMPLETE`; any writer resumes or rolls the journal back on its next run.
+fn incomplete_writes(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    use crate::hist::{HistLine, YearFile};
+    let folder = crate::check::builtin::root_control(cx.registry)
+        .and_then(|c| c.settings.folder.clone())
+        .unwrap_or_else(|| "fairlead".into());
+    let sealed = crate::docs::version_files(cx.corpus, &folder);
+    for (path, text) in &cx.facts.ledgers {
+        if cx.registry.scope_of(path) != Some(scope) {
+            continue;
+        }
+        let Ok(f) = YearFile::parse(text) else {
+            continue;
+        };
+        for l in &f.lines {
+            if let HistLine::Ckpt { v, .. } = l
+                && !sealed.contains(v)
+            {
+                let msg =
+                    format!("ledger checkpoint for {v} has no version file: an interrupted seal");
+                out.push(
+                    DiagB::new(HN_V005, path, 1, 1, msg.clone())
+                        .hint(
+                            "run fairlead seal again to finish it, or restore the ledger from git",
+                        )
+                        .text(msg)
+                        .build(),
+                );
+            }
+        }
+    }
+    if scope == cx.registry.root_scope() && cx.facts.pending_journal {
+        let msg = "an interrupted write left its journal (.fairlead/sync.journal)".to_owned();
+        if let Some(cp) = crate::check::builtin::control_path(cx.registry, scope) {
+            out.push(
+                DiagB::new(HN_V005, &cp, 0, 0, msg.clone())
+                    .hint("run any writer (fairlead sync) to resume or roll it back")
+                    .text(msg)
+                    .build(),
+            );
+        }
+    }
+}
+
 /// Seals a scope may lag behind its ancestors before `H-SYNC-ANCESTOR` turns from info to warn
 /// (`version.ancestor-grace`, default 3, R-VER-020; the key is read once `[version]` is parsed).
 const ANCESTOR_GRACE: usize = 3;
@@ -264,6 +310,7 @@ impl Check for VersionsCheck {
         }
         ledger_continuity(cx, scope, out);
         version_line_integrity(cx, scope, out);
+        incomplete_writes(cx, scope, out);
         ancestor_drift(cx, scope, out);
         let hash_of = |d: &ChangeDoc| cx.corpus.records.get(&d.path).map(|r| r.hash);
         for group in id_collisions(&docs, hash_of) {
@@ -612,6 +659,36 @@ mod tests {
         // With the version file gone, S is the next lower file and nothing dangles.
         let d = versions(&[("0.1.0", &vfile("0.1.0", None))]);
         assert!(of(&d, c::HN_V002).is_empty() && of(&d, c::HN_V001).is_empty());
+    }
+
+    #[test]
+    fn r_ver_051__checkpoint_without_version_file_is_h_tx_incomplete() {
+        use crate::hist::YearFile;
+        use crate::version::Version;
+        let mut f = YearFile::new("root", 2026, None, 1);
+        f.append_version(Version::new(0, 1, 0), &["d-00000001 kind=change".into()])
+            .unwrap();
+        let text = f.render();
+        let path = crate::path::RepoPath::new("fairlead/ledger/hist/2026.hl").unwrap();
+        let run = |with_version: bool, journal: bool| {
+            let t = text.clone();
+            let p = path.clone();
+            let mut w = World::new().facts(move |f| {
+                f.ledgers.insert(p, t.into());
+                f.pending_journal = journal;
+            });
+            if with_version {
+                w = w.file("fairlead/versions/0.1.0.md", "+++\n+++\n");
+            }
+            w.build().run_check(&VersionsCheck)
+        };
+        assert!(of(&run(true, false), c::HN_V005).is_empty());
+        assert_eq!(of(&run(false, false), c::HN_V005).len(), 1);
+        assert_eq!(
+            of(&run(true, true), c::HN_V005).len(),
+            1,
+            "a leftover journal"
+        );
     }
 
     #[test]

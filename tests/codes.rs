@@ -70,8 +70,8 @@ fn evidence(root: &Path) -> String {
 const PENDING_0_2: &[&str] = &[
     "HN-A003", "HN-C014", "HN-D003", "HN-D006", "HN-E001", "HN-E002", "HN-E003", "HN-E004",
     "HN-E005", "HN-E006", "HN-E007", "HN-G006", "HN-L001", "HN-L002", "HN-M007", "HN-M008",
-    "HN-M011", "HN-R004", "HN-R006", "HN-R008", "HN-T008", "HN-T009", "HN-T010", "HN-V005",
-    "HN-V008", "HN-V010", "HN-V011", "HN-V015", "HN-V016", "HN-X013", "HN-X015", "HN-X016",
+    "HN-M011", "HN-R004", "HN-R006", "HN-R008", "HN-T008", "HN-T009", "HN-T010", "HN-V008",
+    "HN-V010", "HN-V011", "HN-V015", "HN-V016", "HN-X013", "HN-X015", "HN-X016",
 ];
 
 fn asserted(text: &str, code: &str) -> bool {

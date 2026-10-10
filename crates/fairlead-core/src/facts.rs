@@ -48,6 +48,8 @@ pub struct Facts {
     pub doc_body_hashes: BTreeMap<RepoPath, String>,
     /// Raw text of the root's version files, for the collision and gap checks (R-GIT-030, R-GIT-032).
     pub version_texts: BTreeMap<RepoPath, Arc<str>>,
+    /// A write journal is left over: an interrupted writer (R-GIT-051, H-TX-INCOMPLETE).
+    pub pending_journal: bool,
 }
 
 /// Bytes of a regular file; `None` for a missing file, a symlink or a directory (never followed).
@@ -257,6 +259,12 @@ pub fn collect_facts_with(
             parse_approvals(&bytes).map_err(|f| Error::from(f.with_path(&approvals_rel)))?;
     }
     facts.git = git;
+    facts.pending_journal = root
+        .dir
+        .join(".fairlead")
+        .join("sync.journal")
+        .as_std_path()
+        .is_file();
     facts.manifest_hints = read_manifest_hints(root, walk);
     Ok(facts)
 }
