@@ -44,9 +44,36 @@ pub struct Registry {
     pub(crate) locs: BTreeMap<ItemId, Location>,
     pub(crate) meta: Vec<ovr::OvrMeta>,
     pub(crate) proposals: Vec<Proposal>,
+    /// Item and scope tombstones (R-LC-020); never expire, never in default context.
+    pub(crate) retired: Vec<crate::lifecycle::Tomb>,
 }
 
 impl Registry {
+    /// Every tombstone of the tree (R-LC-020).
+    pub fn retired(&self) -> &[crate::lifecycle::Tomb] {
+        &self.retired
+    }
+
+    /// The item tombstone a reference from `from` names: a scope-qualified ID matches that
+    /// scope's tombstones, an unqualified one any scope of the chain (R-LC-021, R-LC-022).
+    pub fn tomb_for(
+        &self,
+        from: &ScopeId,
+        id: &fairlead_syntax::ids::Id,
+    ) -> Option<&crate::lifecycle::Tomb> {
+        let name = format!("{}.{}", id.kind.as_str(), id.name.as_str());
+        let chain = self.chain(from);
+        self.retired.iter().find(|t| {
+            t.is_item()
+                && t.id == name
+                && t.scope.as_ref().is_some_and(|s| match &id.qualifier {
+                    fairlead_syntax::ids::IdQualifier::Scope(q) => s.0 == *q,
+                    fairlead_syntax::ids::IdQualifier::Root => s == self.root_scope(),
+                    _ => chain.contains(&s),
+                })
+        })
+    }
+
     pub fn root_scope(&self) -> &ScopeId {
         &self.table.root
     }

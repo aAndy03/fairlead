@@ -219,6 +219,7 @@ impl WorldBuilder {
             doc_body_hashes: Default::default(),
             version_texts: Default::default(),
             pending_journal: false,
+            tombstones: Default::default(),
             manifest_hints: ManifestHints {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],

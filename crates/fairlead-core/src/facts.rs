@@ -75,6 +75,8 @@ pub struct Facts {
     pub version_texts: BTreeMap<RepoPath, Arc<str>>,
     /// A write journal is left over: an interrupted writer (R-GIT-051, H-TX-INCOMPLETE).
     pub pending_journal: bool,
+    /// Tombstone year files (`<folder>/tombstones/<year>.toml`), raw text (R-LC-020).
+    pub tombstones: BTreeMap<RepoPath, Arc<str>>,
 }
 
 /// Bytes of a regular file; `None` for a missing file, a symlink or a directory (never followed).
@@ -229,6 +231,20 @@ pub fn collect_facts_with(
             FileClass::Ledger if e.path.as_str().ends_with(".hl") => {
                 if let Some(bytes) = read_regular(root, &e.path)? {
                     facts.ledgers.insert(
+                        e.path.clone(),
+                        Arc::<str>::from(String::from_utf8_lossy(&bytes).into_owned()),
+                    );
+                }
+            }
+            FileClass::Authored
+                if e.path.as_str().ends_with(".toml")
+                    && e.path.parent().is_some_and(|d| {
+                        d.file_name() == "tombstones"
+                            && d.parent().is_some_and(|f| f.file_name() == root.folder)
+                    }) =>
+            {
+                if let Some(bytes) = read_regular(root, &e.path)? {
+                    facts.tombstones.insert(
                         e.path.clone(),
                         Arc::<str>::from(String::from_utf8_lossy(&bytes).into_owned()),
                     );

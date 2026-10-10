@@ -1,4 +1,4 @@
-//! References: dangling (R001), unused (R002), too many sites (D002).
+//! References: dangling (R001), unused (R002), too many sites (D002), retired IDs (R004, D003).
 use crate::{
     check::{
         CheckCx,
@@ -19,7 +19,7 @@ use fairlead_syntax::{
 use std::collections::BTreeSet;
 
 pub struct RefsCheck;
-const CODES: [DiagCode; 3] = [HN_R001, HN_R002, HN_D002];
+const CODES: [DiagCode; 5] = [HN_R001, HN_R002, HN_D002, HN_R004, HN_D003];
 /// Kinds that need no declaration in a doc (control tables, foreign regions, built-ins).
 const RESERVED: [&str; 5] = ["rule", "file", "exc", "foreign", "ext"];
 
@@ -75,6 +75,62 @@ fn dangling(reg: &Registry, path: &RepoPath, d: &Directive, id: &Id, nearest: &[
     }
 }
 
+/// R-CHK-059: a `def` of a tombstoned ID is `HN-D003`; any other reference is `HN-R004`, a warning
+/// naming the successor while a `by` alias exists and an error without one (R-LC-022).
+fn retired(path: &RepoPath, d: &Directive, id: &Id, t: &crate::lifecycle::Tomb) -> Diagnostic {
+    let why = if t.why.is_empty() {
+        String::new()
+    } else {
+        format!(": {}", t.why)
+    };
+    if d.verb == Verb::Def {
+        return reserved(path, d.span.line, d.span.col, id, t);
+    }
+    let b = DiagB::new(
+        HN_R004,
+        path,
+        d.span.line,
+        d.span.col,
+        format!("{id} was removed in {}{why}", t.removed),
+    )
+    .related(id.to_string())
+    .text(id.to_string());
+    match &t.by {
+        Some(by) => b
+            .severity(fairlead_syntax::diag::Severity::Warn)
+            .hint(format!("use {by} (the replaced-by alias)"))
+            .dym(by.clone())
+            .build(),
+        None => b
+            .severity(fairlead_syntax::diag::Severity::Error)
+            .hint("remove the reference; the ID is reserved forever")
+            .build(),
+    }
+}
+
+fn reserved(
+    path: &RepoPath,
+    line: u32,
+    col: u32,
+    id: &impl std::fmt::Display,
+    t: &crate::lifecycle::Tomb,
+) -> Diagnostic {
+    DiagB::new(
+        HN_D003,
+        path,
+        line,
+        col,
+        format!(
+            "{id} is tombstoned (removed in {}) and reserved forever",
+            t.removed
+        ),
+    )
+    .hint("choose a new ID; a revive doc creates a versioned successor (R-LC-024)")
+    .related(id.to_string())
+    .text(id.to_string())
+    .build()
+}
+
 impl Check for RefsCheck {
     fn codes(&self) -> &'static [DiagCode] {
         &CODES
@@ -102,6 +158,14 @@ impl Check for RefsCheck {
                     if RESERVED.contains(&kind) || kind_decl(reg, scope, kind).is_none() {
                         continue;
                     } // unknown kind is S002's
+                    if let Some(t) = reg.tomb_for(scope, &id) {
+                        if d.verb == Verb::Def
+                            || matches!(reg.lookup(scope, &id), Lookup::Missing { .. })
+                        {
+                            out.push(retired(path, d, &id, t));
+                        }
+                        continue;
+                    }
                     if let Lookup::Missing { nearest } = reg.lookup(scope, &id) {
                         // R-CHK-057: an ID qualified with a scope absent from the tree is unknown,
                         // not dangling; the absent scope itself is reported (HN-V013, exit 5).
@@ -219,6 +283,71 @@ mod tests {
             let ds = b.run_check(&RefsCheck);
             assert_eq!(of(&ds, c::HN_R001).len(), dangling, "{status}: {ds:?}");
         }
+    }
+
+    const TOMBS: &str = "[[tomb]]\nid = \"cmp.old-button\"\nremoved = \"0.5.0\"\nby = \"cmp.sync-button\"\nwhy = \"merged\"\n\n[[tomb]]\nid = \"cmp.gone\"\nremoved = \"0.5.0\"\nwhy = \"unused\"\n";
+
+    fn tombed(src: &str) -> Vec<Diagnostic> {
+        world()
+            .facts(|f| {
+                f.tombstones.insert(
+                    RepoPath::new("fairlead/tombstones/2026.toml").unwrap(),
+                    TOMBS.into(),
+                );
+            })
+            .file("src/a.tsx", src)
+            .build()
+            .run_check(&RefsCheck)
+    }
+
+    #[test]
+    fn r_chk_059__three_codes_are_distinct() {
+        let ds = tombed(
+            "// fairlead: use cmp.old-button\n// fairlead: use cmp.gone\n// fairlead: def cmp.gone\nexport const A = 1;\n",
+        );
+        assert!(
+            of(&ds, c::HN_R001).is_empty(),
+            "never a generic unknown id: {ds:?}"
+        );
+        let r4 = of(&ds, c::HN_R004);
+        assert_eq!(r4.len(), 2);
+        assert_eq!(
+            (r4[0].severity, r4[0].did_you_mean.as_deref()),
+            (Severity::Warn, Some("cmp.sync-button"))
+        );
+        assert_eq!(r4[1].severity, Severity::Error, "no alias");
+        assert_eq!(of(&ds, c::HN_D003).len(), 1);
+    }
+
+    #[test]
+    fn r_lc_022__alias_reference_warns_names_successor() {
+        let ds = tombed("// fairlead: use cmp.old-button\nexport const A = 1;\n");
+        let r = of(&ds, c::HN_R004);
+        assert!(
+            r[0].message.contains("removed in 0.5.0: merged"),
+            "{}",
+            r[0].message
+        );
+        assert!(r[0].hint.contains("cmp.sync-button"));
+    }
+
+    #[test]
+    fn r_lc_021__a_doc_def_of_a_removed_id_is_reserved() {
+        let b = World::new()
+            .root("[kinds.cmp]\nimpl = 1\n")
+            .file(
+                "fairlead/docs/cmp.md",
+                "+++\ndirectives = ['def cmp.gone']\n+++\n# C\n",
+            )
+            .facts(|f| {
+                f.tombstones.insert(
+                    RepoPath::new("fairlead/tombstones/2026.toml").unwrap(),
+                    TOMBS.into(),
+                );
+            })
+            .build();
+        assert_eq!(of(&b.run_check(&RefsCheck), c::HN_D003).len(), 1);
+        assert_eq!(b.registry.retired().len(), 2);
     }
 
     #[test]

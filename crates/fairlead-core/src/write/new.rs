@@ -331,6 +331,16 @@ fn plan_doc(
         )));
     }
     let id = valid_id(&req.kind, &req.name)?;
+    if let Some(t) = reg.tomb_for(&cx.scope, &id) {
+        return Err(refuse(
+            RefusalKind::NoClobber,
+            format!(
+                "{}.{} was removed in {} and is reserved forever",
+                req.kind, req.name, t.removed
+            ),
+            "pick another name; a revive doc creates a versioned successor (R-LC-024)",
+        ));
+    }
     if !matches!(reg.lookup(&cx.scope, &id), Lookup::Missing { .. }) {
         return Err(refuse(
             RefusalKind::NoClobber,
@@ -949,6 +959,33 @@ mod tests {
             &taken,
             crate::time::AsOf::parse("2026-10-09").unwrap(),
         )
+    }
+
+    #[test]
+    fn r_lc_021__new_refuses_reserved_id() {
+        let mut facts = facts_empty();
+        facts.tombstones.insert(
+            rp("fairlead/tombstones/2026.toml"),
+            "[[tomb]]\nid = \"tok.old\"\nremoved = \"0.3.0\"\nwhy = \"x\"\n".into(),
+        );
+        let (_root, reg) = registry_with(
+            &[("fairlead/control.toml", &format!("{ROOT_CONTROL}{TOK}"))],
+            "2026-10-09",
+            facts,
+        );
+        let mut r = nr("tok", "old");
+        r.fields.insert("role".into(), "brand".into());
+        let e = new_plan(
+            &r,
+            &reg,
+            &facts_empty(),
+            crate::time::AsOf::parse("2026-10-09").unwrap(),
+        )
+        .unwrap_err();
+        assert!(
+            matches!(&e, Error::Refused(f) if f.kind == RefusalKind::NoClobber && f.message.contains("reserved forever")),
+            "{e:?}"
+        );
     }
 
     #[test]

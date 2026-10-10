@@ -273,6 +273,7 @@ pub(crate) mod testutil {
             doc_body_hashes: Default::default(),
             version_texts: Default::default(),
             pending_journal: false,
+            tombstones: Default::default(),
             manifest_hints: ManifestHints {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],
@@ -281,6 +282,9 @@ pub(crate) mod testutil {
     }
     /// In-memory registry from `(repo path of control.toml, text)` pairs; no disk.
     pub fn registry(controls: &[(&str, &str)], as_of: &str) -> (Root, Registry) {
+        registry_with(controls, as_of, facts_empty())
+    }
+    pub fn registry_with(controls: &[(&str, &str)], as_of: &str, facts: Facts) -> (Root, Registry) {
         let root = test_root(std::path::Path::new("/repo"));
         let mut files = BTreeMap::new();
         for (path, text) in controls {
@@ -294,7 +298,6 @@ pub(crate) mod testutil {
         let corpus = Corpus {
             records: BTreeMap::new(),
         };
-        let facts = facts_empty();
         let reg = resolve(&ResolveInput {
             root: &root,
             controls: &controls,

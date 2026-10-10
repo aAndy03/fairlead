@@ -507,6 +507,96 @@ pub fn effective_target(
     }
 }
 
+/// One `[[tomb]]` of `<folder>/tombstones/<year>.toml` (R-LC-020): an item ID (`kind.name`) or,
+/// for a demoted scope, a scope slug. Tombstones never expire (R-RET-041).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Tomb {
+    pub file: RepoPath,
+    /// The scope whose managerial folder holds the file (set by the registry).
+    pub scope: Option<crate::registry::ScopeId>,
+    pub id: String,
+    /// The version (lifecycle removal) or date (scope demotion, user deletion) of the removal.
+    pub removed: String,
+    /// The permanent `replaced-by` alias (R-LC-011).
+    pub by: Option<String>,
+    pub why: String,
+    pub paths: Vec<String>,
+    /// `sync` for an ID deleted outside the lifecycle flow (R-CLI-046).
+    pub deleted_by: Option<String>,
+}
+
+impl Tomb {
+    /// An item tombstone (`kind.name`), not a scope's.
+    pub fn is_item(&self) -> bool {
+        self.id.contains('.')
+    }
+}
+
+/// Parses a tombstone year file. `Err` names the first problem; the caller fails closed.
+pub fn parse_tombs(file: &RepoPath, text: &str) -> Result<Vec<Tomb>, String> {
+    let t: toml::Table = text
+        .parse()
+        .map_err(|e: toml::de::Error| e.message().to_string())?;
+    let Some(arr) = t.get("tomb") else {
+        return Ok(Vec::new());
+    };
+    let arr = arr.as_array().ok_or("`tomb` must be an array of tables")?;
+    let mut out = Vec::new();
+    for (i, v) in arr.iter().enumerate() {
+        let tb = v.as_table().ok_or("every `tomb` entry must be a table")?;
+        let s = |k: &str| tb.get(k).and_then(|x| x.as_str()).map(str::to_string);
+        let removed = match tb.get("removed") {
+            Some(toml::Value::String(x)) => x.clone(),
+            Some(toml::Value::Datetime(d)) => d.to_string(),
+            _ => return Err(format!("tomb {} has no `removed`", i + 1)),
+        };
+        out.push(Tomb {
+            file: file.clone(),
+            scope: None,
+            id: s("id").ok_or_else(|| format!("tomb {} has no `id`", i + 1))?,
+            removed,
+            by: s("by").filter(|b| b.contains('.')),
+            why: s("why").unwrap_or_default(),
+            paths: tb
+                .get("paths")
+                .and_then(|p| p.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| x.as_str().map(str::to_string))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            deleted_by: s("deleted-by"),
+        });
+    }
+    Ok(out)
+}
+
+/// The `[[tomb]]` text seal and sync append (R-LC-020, R-CLI-046).
+pub fn tomb_text(t: &Tomb, at: Option<&str>) -> String {
+    let q = |s: &str| format!("{s:?}");
+    let mut out = format!(
+        "\n[[tomb]]\nid = {}\nremoved = {}\n",
+        q(&t.id),
+        q(&t.removed)
+    );
+    if let Some(b) = &t.by {
+        out.push_str(&format!("by = {}\n", q(b)));
+    }
+    out.push_str(&format!("why = {}\n", q(&t.why)));
+    if !t.paths.is_empty() {
+        let items: Vec<String> = t.paths.iter().map(|p| q(p)).collect();
+        out.push_str(&format!("paths = [{}]\n", items.join(", ")));
+    }
+    if let Some(d) = &t.deleted_by {
+        out.push_str(&format!("deleted-by = {}\n", q(d)));
+    }
+    if let Some(a) = at {
+        out.push_str(&format!("at = {}\n", q(a)));
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

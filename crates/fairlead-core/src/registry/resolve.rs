@@ -94,6 +94,24 @@ pub fn resolve(input: &ResolveInput<'_>) -> Registry {
                 b.message.as_str(),
             ))
     });
+    let mut retired = Vec::new();
+    for (path, text) in &input.facts.tombstones {
+        match crate::lifecycle::parse_tombs(path, text) {
+            Ok(tombs) => {
+                let scope = table.scope_of(path).cloned();
+                retired.extend(tombs.into_iter().map(|mut t| {
+                    t.scope = scope.clone();
+                    t
+                }));
+            }
+            Err(e) => diags.push(Diagnostic::new(
+                crate::diag::codes::HN_C001,
+                crate::diag::Severity::Error,
+                crate::diag::Location::at(path.clone(), 1, 1),
+                format!("tombstone file does not parse: {e}"),
+            )),
+        }
+    }
     let empty_view = view::empty_view(&table.root, &table);
     Registry {
         table,
@@ -111,5 +129,6 @@ pub fn resolve(input: &ResolveInput<'_>) -> Registry {
         diagnostics: diags,
         as_of: input.as_of,
         empty_view,
+        retired,
     }
 }
