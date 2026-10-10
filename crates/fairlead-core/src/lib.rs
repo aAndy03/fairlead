@@ -37,6 +37,7 @@ pub mod path;
 pub mod pipeline;
 pub mod registry;
 pub mod render;
+pub mod seal;
 pub mod secrets;
 pub mod time;
 pub mod version;
