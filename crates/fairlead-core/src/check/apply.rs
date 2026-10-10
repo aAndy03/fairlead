@@ -463,7 +463,7 @@ mod tests {
         let low = DiagB::new(c::HN_F001, &RepoPath::new("a").unwrap(), 1, 1, "m")
             .severity(Severity::Info)
             .build();
-        let f = lifted(&b, vec![low, d(c::HN_V001, 1, "x")]);
+        let f = lifted(&b, vec![low, d(c::HN_H001, 1, "x")]);
         assert_eq!(f.len(), 1);
         assert_eq!(
             (f[0].severity, f[0].stage),

@@ -65,6 +65,20 @@ fn evidence(root: &Path) -> String {
     text
 }
 
+/// 0.2 codes whose checks have not landed yet (plans/0.2 master, constraint 4). Each task that
+/// lands a check removes its codes; 0.2 P7-T7 requires this list to be empty.
+const PENDING_0_2: &[&str] = &[
+    "HN-A003", "HN-C014", "HN-D003", "HN-D006", "HN-E001", "HN-E002", "HN-E003", "HN-E004",
+    "HN-E005", "HN-E006", "HN-E007", "HN-G003", "HN-G006", "HN-L001", "HN-L002", "HN-M007",
+    "HN-M008", "HN-M011", "HN-R004", "HN-R006", "HN-R008", "HN-T008", "HN-T009", "HN-T010",
+    "HN-V001", "HN-V002", "HN-V003", "HN-V004", "HN-V005", "HN-V006", "HN-V007", "HN-V008",
+    "HN-V009", "HN-V010", "HN-V011", "HN-V015", "HN-V016", "HN-X013", "HN-X015", "HN-X016",
+];
+
+fn asserted(text: &str, code: &str) -> bool {
+    text.contains(code) || text.contains(&code.replace('-', "_"))
+}
+
 #[test]
 fn r_arch_151__every_active_code_is_asserted_somewhere() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -73,10 +87,24 @@ fn r_arch_151__every_active_code_is_asserted_somewhere() {
         .iter()
         .filter(|s| fairlead_core::check::is_active(s.code))
         .map(|s| s.code.0)
-        .filter(|code| !text.contains(code) && !text.contains(&code.replace('-', "_")))
+        .filter(|code| !asserted(&text, code) && !PENDING_0_2.contains(code))
         .collect();
     assert!(
         missing.is_empty(),
         "active codes no test asserts: {missing:?}"
+    );
+}
+
+#[test]
+fn r_arch_151__pending_list_holds_only_unasserted_codes() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let text = evidence(&root);
+    let stale: Vec<&&str> = PENDING_0_2
+        .iter()
+        .filter(|code| asserted(&text, code))
+        .collect();
+    assert!(
+        stale.is_empty(),
+        "now asserted, remove from PENDING_0_2: {stale:?}"
     );
 }

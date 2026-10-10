@@ -9,7 +9,8 @@ pub enum Milestone {
     M02,
     M03,
 }
-pub const ACTIVE_MILESTONE: Milestone = Milestone::M01;
+/// 0.2 development: M02 codes are active; `tests/codes.rs` lists those not yet emitted (0.2 P1-T1).
+pub const ACTIVE_MILESTONE: Milestone = Milestone::M02;
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Emitter {
     Syntax,
@@ -941,19 +942,19 @@ mod tests {
 
     #[test]
     fn r_arch_055__later_milestone_codes_are_registered_but_inactive() {
+        for code in [c::HN_H001, c::HN_W001, c::HN_M004, c::HN_K001, c::HN_T006] {
+            assert!(spec(code).is_some(), "{} missing", code.0);
+            assert!(!is_active(code), "{} must be inactive in 0.2", code.0);
+        }
         for code in [
             c::HN_R004,
             c::HN_D003,
             c::HN_V001,
-            c::HN_H001,
-            c::HN_W001,
             c::HN_E002,
             c::HN_X013,
             c::HN_T008,
-            c::HN_M004,
         ] {
-            assert!(spec(code).is_some(), "{} missing", code.0);
-            assert!(!is_active(code), "{} must be inactive in 0.1", code.0);
+            assert!(is_active(code), "{} is a 0.2 code", code.0);
         }
     }
 
