@@ -107,6 +107,37 @@ impl GitRepo {
         run_git(root, &["tag", "-a", &name, "-m", &msg]).map(|_| ())
     }
 
+    /// R-VER-014: the newest commit (first-parent walk from HEAD, at most 5,000 commits) whose
+    /// tree changes `path`, as `(short id, YYYY-MM-DD)`. `None` without history or past the cap.
+    pub fn last_commit_touching(&self, path: &RepoPath) -> Option<(String, String)> {
+        let rel = format!("{}{}", self.prefix, path.as_str());
+        let blob = |c: &git2::Commit<'_>| {
+            c.tree()
+                .ok()
+                .and_then(|t| t.get_path(std::path::Path::new(&rel)).ok())
+                .map(|e| e.id())
+        };
+        let mut commit = self.repo.head().ok()?.peel_to_commit().ok()?;
+        for _ in 0..5_000 {
+            let here = blob(&commit);
+            let parent = commit.parent(0).ok();
+            let before = parent.as_ref().and_then(blob);
+            if here != before {
+                here?; // deleted at HEAD's side: no current version
+                let id = commit.id().to_string();
+                let secs = commit.time().seconds();
+                let date = jiff::Timestamp::from_second(secs)
+                    .ok()?
+                    .to_zoned(jiff::tz::TimeZone::UTC)
+                    .date()
+                    .to_string();
+                return Some((id.get(..10).unwrap_or(&id).to_owned(), date));
+            }
+            commit = parent?;
+        }
+        None
+    }
+
     /// `(detached, branch name)` of HEAD (R-GIT-065, R-VER-055). An unborn HEAD is a branch.
     pub fn head_state(&self) -> (bool, Option<String>) {
         let detached = self.repo.head_detached().unwrap_or(false);

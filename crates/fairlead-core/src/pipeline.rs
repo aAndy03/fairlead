@@ -255,6 +255,45 @@ pub fn context_target(
 }
 
 /// C-21 order: topic and `HN-` code words are never paths; otherwise an existing path wins over an ID.
+/// R-VER-014, R-CLI-036: the virtual version of a file, never written into it: the newest sealed
+/// change doc whose `covers` matches the file, plus the last commit that touched it. Either part
+/// says "unavailable" when it has no source (no seal covers it, no git history).
+pub fn file_version_section(loaded: &Loaded, path: &RepoPath) -> crate::explain::ExplainSection {
+    use crate::render::line::TerseLine;
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    let covering = docs
+        .iter()
+        .filter(|d| d.status == crate::docs::Status::Sealed)
+        .filter(|d| {
+            d.covers.iter().any(|c| {
+                globset::Glob::new(c).is_ok_and(|g| g.compile_matcher().is_match(path.as_str()))
+            })
+        })
+        .max_by_key(|d| (d.sealed, d.ordinal));
+    let mut line = TerseLine::new("file");
+    line = match covering {
+        Some(d) => line
+            .with(
+                "version",
+                &d.sealed.map(|v| v.to_string()).unwrap_or_default(),
+            )
+            .with("doc", d.id.as_str()),
+        None => line.with("version", "unavailable"),
+    };
+    let git = crate::git::GitRepo::open(&loaded.root).and_then(|r| r.last_commit_touching(path));
+    line = match git {
+        Some((id, date)) => line.with("commit", &id).with("date", &date),
+        None => line.with("history", "unavailable"),
+    };
+    crate::explain::ExplainSection {
+        title: "version".into(),
+        prose: vec![
+            "Derived from sealed change docs and git history; never stamped into the file.".into(),
+        ],
+        lines: vec![line],
+    }
+}
+
 pub fn explain_target(root: &Root, cwd: &Utf8Path, arg: &str) -> Result<ExplainTarget, Error> {
     let exists = |path: &RepoPath| root.dir.join(path.as_str()).exists();
     let topic_or_code =

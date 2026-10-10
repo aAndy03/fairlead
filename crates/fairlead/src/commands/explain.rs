@@ -30,7 +30,12 @@ fn explain(global: &GlobalArgs, args: &ExplainArgs) -> Result<CommandResult, Err
         )?),
         _ => None,
     };
-    let output = explain_text(&target, &registry, report.as_ref())?;
+    let mut output = explain_text(&target, &registry, report.as_ref())?;
+    if let ExplainTarget::File(path) = &target {
+        output
+            .sections
+            .push(fairlead_core::pipeline::file_version_section(&loaded, path));
+    }
     let format = default_format(global.format, stdout_is_tty());
     let stdout = renderer(format).explain(&output).ok_or_else(|| {
         Error::Usage("explain has no output in this format; use human or terse".to_string())

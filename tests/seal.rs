@@ -172,6 +172,44 @@ fn r_git_003__no_git_write_without_commit() {
 }
 
 #[test]
+fn r_ver_014__explain_reports_the_virtual_file_version() {
+    let repo = ready_repo();
+    let before = repo.run(&["explain", "src/a.rs", "--format", "terse"]);
+    assert!(
+        before.stdout.contains("file version=unavailable commit="),
+        "{}",
+        before.stdout
+    );
+    assert_eq!(
+        repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF])
+            .code,
+        0
+    );
+    let after = repo.run(&["explain", "src/a.rs", "--format", "terse"]);
+    assert!(
+        after.stdout.contains("file version=0.1.0 doc=d-"),
+        "{}",
+        after.stdout
+    );
+    let src = std::fs::read_to_string(repo.path().join("src/a.rs")).unwrap();
+    assert!(!src.contains("0.1.0"), "never stamped into the file (D-13)");
+}
+
+#[test]
+fn r_ver_014__without_git_history_is_unavailable() {
+    let repo = RepoBuilder::new().file("src/a.rs", "fn a() {}\n").build();
+    assert_eq!(repo.run(&["init", "--yes", "--as-of", AS_OF]).code, 0);
+    let run = repo.run(&["explain", "src/a.rs", "--format", "terse"]);
+    assert!(
+        run.stdout
+            .contains("file version=unavailable history=unavailable"),
+        "{}{}",
+        run.stdout,
+        run.stderr
+    );
+}
+
+#[test]
 fn r_ver_055__seal_refuses_off_the_integration_branch() {
     let repo = ready_repo();
     repo.git(&["checkout", "-q", "-b", "feature/x"]);
