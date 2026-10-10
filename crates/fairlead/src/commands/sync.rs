@@ -27,6 +27,7 @@ fn sync(global: &GlobalArgs, args: &SyncArgs) -> Result<CommandResult, Error> {
         force: args.force,
         scope: scope_pin(args.scope.as_deref())?,
     };
+    fairlead_core::pipeline::merge_gate(&loaded, "sync", true)?;
     let plan = plan_sync(&loaded, &registry, &options, &request)?;
     if args.dry_run {
         return Ok(CommandResult::text(plan.render_text("sync plan")));

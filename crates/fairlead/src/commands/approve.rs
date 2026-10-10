@@ -68,6 +68,7 @@ fn approve(global: &GlobalArgs, args: &ApproveArgs) -> Result<CommandResult, Err
         .as_handle
         .clone()
         .ok_or_else(|| Error::Usage("approve needs --as @handle".to_string()))?;
+    fairlead_core::pipeline::merge_gate(&loaded, "approve", false)?;
     let plan = plan_approve_loaded(&loaded, &preview, &approver, as_of(global))?;
     let outcome = commit_plan(&session, plan)?;
     Ok(CommandResult::text(changed_list(&outcome.report)))

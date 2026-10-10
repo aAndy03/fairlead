@@ -38,6 +38,7 @@ fn new(global: &GlobalArgs, args: &NewArgs) -> Result<CommandResult, Error> {
         at: optional_path(args.at.as_deref())?,
         hoist: args.hoist,
     };
+    fairlead_core::pipeline::merge_gate(&loaded, "new", false)?;
     let plan = plan_new(&loaded, &registry, &request, as_of(global))?;
     if args.print {
         // The planner puts the scaffold text in `notes` for `--print` and writes nothing (Contract issues CI-8).

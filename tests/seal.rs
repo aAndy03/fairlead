@@ -682,3 +682,78 @@ fn r_git_052__no_git_uses_worktree_lock_only() {
     let run = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
     assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
 }
+
+/// Two branches change `path` differently, then merge: the merge stops with `path` unmerged.
+fn conflicted(repo: &TempRepo, path: &str) {
+    let full = repo.path().join(path);
+    let base = std::fs::read_to_string(&full).unwrap_or_default();
+    repo.git(&["checkout", "-q", "-b", "other"]);
+    std::fs::write(&full, format!("{base}from other\n")).unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("other");
+    repo.git(&["checkout", "-q", "-"]);
+    std::fs::write(&full, format!("{base}from main\n")).unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("main");
+    let out = std::process::Command::new("git")
+        .current_dir(repo.path())
+        .args([
+            "-c",
+            "user.name=t",
+            "-c",
+            "user.email=t@invalid",
+            "merge",
+            "-q",
+            "other",
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "the merge must stop on a conflict");
+}
+
+#[test]
+fn r_git_064__writers_refuse_unmerged_authored_files() {
+    let repo = ready_repo();
+    std::fs::write(repo.path().join("fairlead/docs/notes.md"), "# Notes\n").unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("notes");
+    conflicted(&repo, "fairlead/docs/notes.md");
+    let sync = repo.run(&["sync", "--yes", "--as-of", AS_OF]);
+    assert_eq!(sync.code, 4, "{}{}", sync.stdout, sync.stderr);
+    assert!(
+        sync.stderr
+            .contains("1 unmerged authored file(s): fairlead/docs/notes.md"),
+        "{}",
+        sync.stderr
+    );
+    let new = repo.run(&["new", "change", "x", "--as-of", AS_OF]);
+    assert_eq!(new.code, 4, "{}", new.stderr);
+    let seal = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(seal.code, 4, "{}", seal.stderr);
+    let check = repo.run(&["check", "--as-of", AS_OF]);
+    assert_ne!(check.code, 4, "readers work in any state: {}", check.stderr);
+}
+
+#[test]
+fn r_git_011__sync_regenerates_a_conflicted_generated_file() {
+    let repo = ready_repo();
+    conflicted(&repo, "fairlead/gen/members");
+    let sync = repo.run(&["sync", "--yes", "--as-of", AS_OF]);
+    assert_eq!(sync.code, 0, "{}{}", sync.stdout, sync.stderr);
+    let members = std::fs::read_to_string(repo.path().join("fairlead/gen/members")).unwrap();
+    assert!(
+        !members.contains("<<<<<<<") && !members.contains("from main"),
+        "{members}"
+    );
+}
+
+#[test]
+fn r_git_065__detached_head_check_works_seal_refuses() {
+    let repo = ready_repo();
+    repo.git(&["checkout", "-q", "--detach"]);
+    let check = repo.run(&["check", "--as-of", AS_OF]);
+    assert_eq!(check.code, 0, "{}{}", check.stdout, check.stderr);
+    let seal = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(seal.code, 4);
+    assert!(seal.stderr.contains("HEAD is detached"), "{}", seal.stderr);
+}

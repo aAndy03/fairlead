@@ -100,6 +100,7 @@ fn upgrade(global: &GlobalArgs, args: &UpgradeArgs) -> Result<CommandResult, Err
         result.outcome.signal(ExitCode::Refused);
         return Ok(result);
     };
+    fairlead_core::pipeline::merge_gate(&loaded, "upgrade", false)?;
     match upgrade_gate(&loaded, &out, args.allow_dirty)? {
         UpgradeGate::Draft { id, plan } => {
             let outcome = commit_plan(&session, plan)?;
