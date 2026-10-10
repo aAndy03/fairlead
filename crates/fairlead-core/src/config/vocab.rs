@@ -59,6 +59,8 @@ pub struct AuthorityConfig {
 pub struct GraveyardConfig {
     pub ids_percent: u32,
     pub shingles_percent: u32,
+    /// The root has a `[graveyard]` table: files are fingerprinted for re-introduction checks.
+    pub declared: bool,
 }
 
 impl Default for GraveyardConfig {
@@ -66,6 +68,7 @@ impl Default for GraveyardConfig {
         Self {
             ids_percent: 60,
             shingles_percent: 50,
+            declared: false,
         }
     }
 }
@@ -204,6 +207,7 @@ pub(crate) fn parse_authority(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Autho
 pub(crate) fn parse_graveyard(cx: &mut Ctx<'_>, root: &mut toml::Table) -> GraveyardConfig {
     let mut out = GraveyardConfig::default();
     if let Some(mut t) = take_table(cx, root, "", "graveyard") {
+        out.declared = true;
         for (key, slot) in [
             ("ids-percent", &mut out.ids_percent),
             ("shingles-percent", &mut out.shingles_percent),

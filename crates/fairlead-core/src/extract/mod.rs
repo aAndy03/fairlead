@@ -45,6 +45,8 @@ pub struct Extras {
     pub pattern_hits: Vec<PatternHit>,
     #[serde(default)]
     pub env_tokens: Vec<EnvToken>,
+    #[serde(default)]
+    pub grave: Option<crate::graveyard::Fingerprint>,
 }
 
 use crate::classify::{ClassifyRules, FileClass, classify, scans_directives};
@@ -82,6 +84,8 @@ pub struct FileRecord {
     pub pattern_hits: Vec<PatternHit>,
     /// Env gate tokens, only once the root declares an env path (R-ENV-030).
     pub env_tokens: Vec<EnvToken>,
+    /// This file's fingerprint, once the root declares `[graveyard]` (R-LC-033).
+    pub grave: Option<crate::graveyard::Fingerprint>,
     pub skip: Option<SkipReason>,
 }
 
@@ -97,6 +101,8 @@ pub struct ExtractPlan {
     pub pattern_rules: Vec<PatternProbe>,
     /// The root declares `[env] order`: scan env gate tokens (R-ENV-030).
     pub env_scan: bool,
+    /// The root declares `[graveyard]`: fingerprint authored files (R-LC-033).
+    pub grave_scan: bool,
 }
 
 impl ExtractPlan {
@@ -176,6 +182,7 @@ impl ExtractPlan {
             leak_properties,
             pattern_rules: Vec::new(),
             env_scan: rc.lifecycle_declared(),
+            grave_scan: rc.graveyard.declared,
         })
     }
 
@@ -187,6 +194,9 @@ impl ExtractPlan {
         for p in &self.leak_properties {
             h.update(p.as_bytes());
             h.update(&[0]);
+        }
+        if self.grave_scan {
+            h.update(b"grave\0");
         }
         if self.env_scan {
             h.update(b"env\0");
@@ -211,7 +221,8 @@ pub fn extras_wanted(plan: &ExtractPlan, path: &RepoPath, class: FileClass) -> b
         && (plan.styles.applies(path)
             || !plan.leak_properties.is_empty()
             || !plan.pattern_rules.is_empty()
-            || plan.env_scan))
+            || plan.env_scan
+            || plan.grave_scan))
         || plan.classify.in_managerial_folder(path)
 }
 
@@ -247,6 +258,16 @@ fn compute_extras(
     }
     if scanned && class == FileClass::Authored && !plan.pattern_rules.is_empty() {
         out.pattern_hits = scan_patterns(text, path, &plan.pattern_rules);
+    }
+    if scanned
+        && class == FileClass::Authored
+        && plan.grave_scan
+        && !crate::graveyard::is_graveyard_path(path)
+    {
+        out.grave = Some(crate::graveyard::fingerprint(&[(
+            path.as_str().to_owned(),
+            text.to_owned(),
+        )]));
     }
     if scanned && class == FileClass::Authored && plan.env_scan {
         out.env_tokens = scan_env_tokens(text, &ext, path.file_name());
@@ -300,6 +321,7 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
         secrets: extras.secrets,
         pattern_hits: extras.pattern_hits,
         env_tokens: extras.env_tokens,
+        grave: extras.grave,
         skip,
     }
 }
@@ -409,6 +431,7 @@ fn unread_record(e: &WalkEntry, class: FileClass, skip: SkipReason, head: &[u8])
         secrets: Vec::new(),
         pattern_hits: Vec::new(),
         env_tokens: Vec::new(),
+        grave: None,
         skip: Some(skip),
     }
 }
@@ -444,6 +467,7 @@ fn from_cache(
         secrets: extras.secrets,
         pattern_hits: extras.pattern_hits,
         env_tokens: extras.env_tokens,
+        grave: extras.grave,
         skip,
     })
 }
@@ -491,6 +515,7 @@ fn process(
                     secrets: rec.secrets.clone(),
                     pattern_hits: rec.pattern_hits.clone(),
                     env_tokens: rec.env_tokens.clone(),
+                    grave: rec.grave.clone(),
                 };
                 cache.put_extras(&rec.hash, &extras_key(fp, plan, &e.path), &extras);
             }

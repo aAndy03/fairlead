@@ -175,6 +175,9 @@ impl World {
             env_scan: controls
                 .root_control()
                 .is_some_and(|c| c.lifecycle_declared()),
+            grave_scan: controls
+                .root_control()
+                .is_some_and(|c| c.graveyard.declared),
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),
