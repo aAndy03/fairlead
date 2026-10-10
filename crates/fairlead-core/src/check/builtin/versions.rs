@@ -9,7 +9,9 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 6] = [HN_G003, HN_V003, HN_V004, HN_V006, HN_V007, HN_V009];
+const CODES: [DiagCode; 8] = [
+    HN_G003, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V009,
+];
 
 fn in_scope(cx: &CheckCx<'_>, d: &ChangeDoc, scope: &ScopeId) -> bool {
     cx.registry.scope_of(&d.path) == Some(scope)
@@ -66,6 +68,74 @@ fn ledger_continuity(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
                 );
             }
         }
+    }
+}
+
+/// R-GIT-030, R-GIT-032, R-VER-001: version files at the root. An add/add conflict, or a file
+/// that claims another version than its name, is `H-VER-COLLISION`; a `prev` that is not the
+/// next lower version file (a seal cherry-picked alone, a missing predecessor) is `H-VER-GAP`.
+fn version_line_integrity(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    use crate::version::{Version, version_of_file_name};
+    if scope != cx.registry.root_scope() {
+        return;
+    }
+    let mut named: Vec<(Version, &crate::path::RepoPath, Option<Version>)> = Vec::new();
+    for (path, text) in &cx.facts.version_texts {
+        let Some(v) = version_of_file_name(path.file_name()) else {
+            continue;
+        };
+        let collision = |msg: String| {
+            DiagB::new(HN_V001, path, 1, 1, msg.clone())
+                .hint("keep the integration line's seal; reseal the other branch (fairlead seal --reseal)")
+                .text(msg)
+                .build()
+        };
+        if crate::generate::header::has_conflict_markers(text) {
+            out.push(collision(format!(
+                "version file {v} holds a merge conflict: two branches sealed {v}"
+            )));
+            continue;
+        }
+        let fm = text
+            .strip_prefix("+++\n")
+            .and_then(|r| r.split_once("\n+++"))
+            .and_then(|(fm, _)| fm.parse::<toml::Table>().ok());
+        let claimed = fm
+            .as_ref()
+            .and_then(|t| t.get("version"))
+            .and_then(|x| x.as_str())
+            .and_then(Version::parse);
+        if claimed.is_some_and(|c| c != v) {
+            out.push(collision(format!(
+                "version file {v} records version {}",
+                claimed.map(|c| c.to_string()).unwrap_or_default()
+            )));
+            continue;
+        }
+        let prev = fm
+            .as_ref()
+            .and_then(|t| t.get("prev"))
+            .and_then(|x| x.as_str())
+            .and_then(Version::parse);
+        named.push((v, path, prev));
+    }
+    named.sort_by_key(|(v, _, _)| *v);
+    let mut below: Option<Version> = None;
+    for (v, path, prev) in &named {
+        if *prev != below {
+            let msg = format!(
+                "version {v} follows {} but the version line holds {}",
+                prev.map_or_else(|| "nothing".to_owned(), |p| p.to_string()),
+                below.map_or_else(|| "nothing below it".to_owned(), |b| b.to_string())
+            );
+            out.push(
+                DiagB::new(HN_V002, path, 1, 1, msg.clone())
+                    .hint("cherry-pick the change docs, not the seal commit; or reseal (R-GIT-032)")
+                    .text(msg)
+                    .build(),
+            );
+        }
+        below = Some(*v);
     }
 }
 
@@ -193,6 +263,7 @@ impl Check for VersionsCheck {
             }
         }
         ledger_continuity(cx, scope, out);
+        version_line_integrity(cx, scope, out);
         ancestor_drift(cx, scope, out);
         let hash_of = |d: &ChangeDoc| cx.corpus.records.get(&d.path).map(|r| r.hash);
         for group in id_collisions(&docs, hash_of) {
@@ -474,6 +545,73 @@ mod tests {
             "untouched body"
         );
         assert_eq!(of(&run(sealed("\n# x, edited\n")), c::HN_V003).len(), 1);
+    }
+
+    fn versions(files: &[(&str, &str)]) -> Vec<Diagnostic> {
+        let owned: Vec<(String, String)> = files
+            .iter()
+            .map(|(v, t)| (format!("fairlead/versions/{v}.md"), (*t).to_owned()))
+            .collect();
+        World::new()
+            .facts(move |f| {
+                for (p, t) in owned {
+                    f.version_texts
+                        .insert(crate::path::RepoPath::new(&p).unwrap(), t.into());
+                }
+            })
+            .build()
+            .run_check(&VersionsCheck)
+    }
+
+    fn vfile(v: &str, prev: Option<&str>) -> String {
+        let prev = prev
+            .map(|p| format!("prev = \"{p}\"\n"))
+            .unwrap_or_default();
+        format!("+++\nversion = \"{v}\"\n{prev}bump = \"minor\"\n+++\n\n# {v}\n")
+    }
+
+    #[test]
+    fn r_git_032__prev_continuity_and_a_cherry_picked_seal() {
+        let ok = versions(&[
+            ("0.1.0", &vfile("0.1.0", None)),
+            ("0.2.0", &vfile("0.2.0", Some("0.1.0"))),
+        ]);
+        assert!(of(&ok, c::HN_V002).is_empty(), "{ok:?}");
+        let cherry = versions(&[("0.3.0", &vfile("0.3.0", Some("0.2.0")))]);
+        assert_eq!(
+            of(&cherry, c::HN_V002).len(),
+            1,
+            "no predecessor in this line"
+        );
+        let gap = versions(&[
+            ("0.1.0", &vfile("0.1.0", None)),
+            ("0.3.0", &vfile("0.3.0", Some("0.2.0"))),
+        ]);
+        assert_eq!(of(&gap, c::HN_V002).len(), 1);
+    }
+
+    #[test]
+    fn r_git_030__version_collision_from_an_add_add_conflict() {
+        let conflicted = format!(
+            "<<<<<<< ours\n{}=======\n{}>>>>>>> theirs\n",
+            vfile("0.2.0", Some("0.1.0")),
+            vfile("0.2.0", Some("0.1.0"))
+        );
+        let d = versions(&[("0.1.0", &vfile("0.1.0", None)), ("0.2.0", &conflicted)]);
+        assert_eq!(of(&d, c::HN_V001).len(), 1, "{d:?}");
+        let renamed = versions(&[("0.2.0", &vfile("0.3.0", None))]);
+        assert!(
+            of(&renamed, c::HN_V001)[0]
+                .message
+                .contains("records version 0.3.0")
+        );
+    }
+
+    #[test]
+    fn r_git_034__reverting_a_seal_unseals_by_derivation() {
+        // With the version file gone, S is the next lower file and nothing dangles.
+        let d = versions(&[("0.1.0", &vfile("0.1.0", None))]);
+        assert!(of(&d, c::HN_V002).is_empty() && of(&d, c::HN_V001).is_empty());
     }
 
     #[test]

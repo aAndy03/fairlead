@@ -270,6 +270,7 @@ pub(crate) mod testutil {
             },
             ledgers: Default::default(),
             doc_body_hashes: Default::default(),
+            version_texts: Default::default(),
             manifest_hints: ManifestHints {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],

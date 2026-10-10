@@ -46,6 +46,8 @@ pub struct Facts {
     /// `docs::body_hash` of every Markdown file under a `docs/changes/` folder, for the seal
     /// tamper check (R-VER-054).
     pub doc_body_hashes: BTreeMap<RepoPath, String>,
+    /// Raw text of the root's version files, for the collision and gap checks (R-GIT-030, R-GIT-032).
+    pub version_texts: BTreeMap<RepoPath, Arc<str>>,
 }
 
 /// Bytes of a regular file; `None` for a missing file, a symlink or a directory (never followed).
@@ -200,6 +202,19 @@ pub fn collect_facts_with(
                     facts.doc_body_hashes.insert(
                         e.path.clone(),
                         crate::docs::body_hash(&String::from_utf8_lossy(&bytes)),
+                    );
+                }
+            }
+            FileClass::Authored
+                if e.path.as_str().ends_with(".md")
+                    && e.path
+                        .parent()
+                        .is_some_and(|d| d.as_str() == format!("{}/versions", root.folder)) =>
+            {
+                if let Some(bytes) = read_regular(root, &e.path)? {
+                    facts.version_texts.insert(
+                        e.path.clone(),
+                        Arc::<str>::from(String::from_utf8_lossy(&bytes).into_owned()),
                     );
                 }
             }
