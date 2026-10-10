@@ -78,6 +78,8 @@ fn run(dir: &Utf8Path, cwd: &str, threads: usize, use_cache: bool) -> Vec<String
         cwd: dir.join(cwd),
         binary_version: Version::new(0, 1, 0),
         require_root: true,
+        edition: fairlead_core::discover::Edition(1),
+        upgrade: false,
     })
     .unwrap();
     let w = walk(

@@ -53,7 +53,8 @@ fn init(global: &GlobalArgs, args: &InitArgs) -> Result<CommandResult, Error> {
         agents: args.agents.clone(),
         yes: args.yes,
     };
-    let detected = detect_init(&dir, &request, req.binary_version.clone())?;
+    let mut detected = detect_init(&dir, &request, req.binary_version.clone())?;
+    detected.edition = req.edition.0;
     // A-10: the scan sees the control file init writes, or the one already there.
     let control_bytes = detected
         .existing_control

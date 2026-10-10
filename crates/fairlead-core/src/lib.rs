@@ -22,6 +22,7 @@ pub mod context;
 pub mod diag;
 pub mod discover;
 pub mod docs;
+pub mod edition;
 pub mod error;
 pub mod explain;
 pub mod extract;

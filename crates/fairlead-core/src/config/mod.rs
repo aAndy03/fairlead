@@ -766,6 +766,15 @@ msg = "no TODO"
     }
 
     #[test]
+    fn r_edn_005__one_edition_per_root() {
+        let text = "[fairlead]\nscope = \"web\"\nedition = 2\n";
+        let c = parse_control(&p("web/fairlead/control.toml"), text.as_bytes(), false).unwrap();
+        assert_eq!(c.violations.len(), 1);
+        assert_eq!(c.violations[0].related.as_deref(), Some("fairlead.edition"));
+        assert!(c.fairlead.edition.is_none(), "a child's edition is inert");
+    }
+
+    #[test]
     fn r_env_001__child_vocab_becomes_escalation() {
         let text = "[fairlead]\nscope = \"web\"\n\n[env]\norder = [\"dev\", \"canary\"]\n[maturity]\nalpha = 0\n[lifecycle.alias]\nidea = \"proposed\"\n[bind.dev]\nts = [\"import.meta.env.DEV\"]\n[defaults]\nmat = \"alpha\"\n";
         let c = parse_control(&p("web/fairlead/control.toml"), text.as_bytes(), false).unwrap();

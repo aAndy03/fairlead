@@ -25,7 +25,12 @@ camino = "1.2.6"
 clap = { version = "4.6.7", features = ["derive", "std", "help", "usage", "error-context"] }
 semver = "1.0.28"
 
+[features]
+# Owner question Q-1: the synthetic edition 2, selected by FAIRLEAD_TEST_EDITION=2.
+test-edition = ["fairlead-core/test-edition"]
+
 [dev-dependencies]
+fairlead-core = { workspace = true, features = ["test-edition"] }
 tempfile = "3.27.0"
 trycmd = "1.2.1"
 toml = { version = "1.1.7", default-features = false, features = ["std", "parse", "serde"] }
@@ -75,3 +80,7 @@ path = "../../tests/editions.rs"
 [[test]]
 name = "seal"
 path = "../../tests/seal.rs"
+
+[[test]]
+name = "upgrade"
+path = "../../tests/upgrade.rs"

@@ -225,6 +225,10 @@ pub struct DiscoverRequest {
     pub binary_version: Version,
     /// False only for `init`, which calls `discover_optional`.
     pub require_root: bool,
+    /// The edition this binary reads and writes (`edition::current`).
+    pub edition: Edition,
+    /// `upgrade` alone may open a codebase on the previous edition, to migrate it (R-EDN-010).
+    pub upgrade: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -374,9 +378,12 @@ pub fn discover_optional(req: &DiscoverRequest) -> Result<Option<Discovered>, Er
             "{dir} is not a codebase root: {rel} lacks `root = true`"
         )));
     }
-    if let PinVerdict::Refused(mut refusal) =
-        pin_check(&req.binary_version, SUPPORTED_EDITION, &pin)
-    {
+    let reads = if req.upgrade && crate::edition::previous(req.edition) == Some(pin.edition) {
+        pin.edition
+    } else {
+        req.edition
+    };
+    if let PinVerdict::Refused(mut refusal) = pin_check(&req.binary_version, reads, &pin) {
         refusal.diags.push(
             Diagnostic::new(
                 codes::HN_C006,
@@ -452,6 +459,8 @@ mod root_tests {
             cwd: cwd.to_path_buf(),
             binary_version: Version::new(0, 1, 0),
             require_root: true,
+            edition: Edition(1),
+            upgrade: false,
         }
     }
 

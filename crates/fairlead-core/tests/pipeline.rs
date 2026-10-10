@@ -36,6 +36,8 @@ fn request(root: &Utf8PathBuf) -> LoadRequest {
             cwd: root.clone(),
             binary_version: semver::Version::new(0, 1, 0),
             require_root: true,
+            edition: fairlead_core::discover::Edition(1),
+            upgrade: false,
         },
         use_cache: false,
         threads: Some(1),

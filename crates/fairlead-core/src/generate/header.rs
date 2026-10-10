@@ -30,9 +30,10 @@ pub fn body_hash(body: &str) -> String {
 
 pub fn header_line(kind: &HeaderKind, edition: u32, body: &str) -> String {
     let hash = body_hash(body);
+    let key = crate::edition::header_key(edition);
     match kind {
-        HeaderKind::Scope(id) => format!("# scope {id} edition={edition} body={hash}"),
-        HeaderKind::Baseline => format!("# baseline edition={edition} body={hash}"),
+        HeaderKind::Scope(id) => format!("# scope {id} {key}={edition} body={hash}"),
+        HeaderKind::Baseline => format!("# baseline {key}={edition} body={hash}"),
     }
 }
 
@@ -58,11 +59,11 @@ pub fn parse_header(line: &str) -> Option<Header> {
         (HeaderKind::Baseline, r)
     };
     let mut parts = rest.split(' ');
-    let edition = parts
-        .next()?
-        .strip_prefix("edition=")?
-        .parse::<u32>()
-        .ok()?;
+    let (key, value) = parts.next()?.split_once('=')?;
+    let edition = value.parse::<u32>().ok()?;
+    if key != crate::edition::header_key(edition) {
+        return None;
+    }
     let body = parts.next()?.strip_prefix("body=")?.to_string();
     if parts.next().is_some() || body.chars().count() != BODY_HASH_CHARS {
         return None;

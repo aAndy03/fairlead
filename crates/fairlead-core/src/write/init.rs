@@ -36,6 +36,8 @@ pub struct InitRequest {
 /// Everything `init_plan` needs from disk, collected read-only by `detect_init`.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct InitDetection {
+    /// The edition `init` writes (`edition::current`).
+    pub edition: u32,
     pub folder: String,
     pub marker: String,
     pub binary_version: semver::Version,
@@ -171,6 +173,7 @@ pub fn detect_init(
         }
     };
     Ok(InitDetection {
+        edition: 1,
         folder: FOLDER.into(),
         marker: MARKER.into(),
         binary_version,
@@ -254,7 +257,8 @@ fn render_control(req: &InitRequest, det: &InitDetection, targets: &[String]) ->
     ex.extend(det.excluded_dirs.iter().cloned());
     let (maj, min) = (det.binary_version.major, det.binary_version.minor);
     let mut s = format!(
-        "[fairlead]\nedition = 1\nroot = true\nscope = \"root\"\nmarker = {}\n\n[settings]\nfolder = {}\nfairlead-version = {}\nfairlead-range = {}\n",
+        "[fairlead]\nedition = {}\nroot = true\nscope = \"root\"\nmarker = {}\n\n[settings]\nfolder = {}\nfairlead-version = {}\nfairlead-range = {}\n",
+        det.edition,
         toml_str(&det.marker),
         toml_str(&det.folder),
         toml_str(&format!("{maj}.{min}")),
@@ -842,6 +846,7 @@ Do not edit fairlead/control.toml or fairlead/approvals.toml; ask a human.\n\
 
     fn det() -> InitDetection {
         InitDetection {
+            edition: 1,
             folder: "fairlead".into(),
             marker: "fairlead".into(),
             binary_version: semver::Version::new(0, 1, 3),

@@ -93,6 +93,14 @@ pub fn env_root_from(value: Option<OsString>) -> Result<Option<Utf8PathBuf>, Err
     }
 }
 
+/// The edition this binary writes; a `test-edition` build honours `FAIRLEAD_TEST_EDITION` (Q-1).
+pub fn current_edition() -> fairlead_core::discover::Edition {
+    #[allow(clippy::disallowed_methods)]
+    // reason: the bin reads the environment (P8 Global Constraint 9)
+    let over = std::env::var("FAIRLEAD_TEST_EDITION").ok();
+    fairlead_core::edition::current(over.as_deref())
+}
+
 pub fn discover_request(global: &GlobalArgs, require_root: bool) -> Result<DiscoverRequest, Error> {
     Ok(DiscoverRequest {
         root_flag: global.root.clone(),
@@ -101,6 +109,8 @@ pub fn discover_request(global: &GlobalArgs, require_root: bool) -> Result<Disco
         cwd: working_dir(global)?,
         binary_version: binary_version()?,
         require_root,
+        edition: current_edition(),
+        upgrade: false,
     })
 }
 
