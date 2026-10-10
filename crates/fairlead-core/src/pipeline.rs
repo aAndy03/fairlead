@@ -378,6 +378,98 @@ impl<'p> WriteSession<'p> {
     }
 }
 
+/// `check --base <ref>` (R-CLI-022, R-GIT-041): the coverage base and the changed set are the
+/// files changed since `ref` instead of since the latest version file.
+pub fn apply_base(loaded: &mut Loaded, base: &str) -> Result<(), Error> {
+    let repo = crate::git::GitRepo::open(&loaded.root)
+        .ok_or_else(|| Error::Usage("--base needs a git repository".into()))?;
+    let id = repo.resolve(base)?;
+    let files = repo.changed_since(&id)?;
+    loaded.facts.git.changed = Some(crate::facts::ChangedSet(files.clone()));
+    loaded.facts.git.coverage = Some(crate::facts::Coverage::Changed { base: id, files });
+    Ok(())
+}
+
+/// `check --staged`: the staged paths, used as the report filter.
+pub fn staged_paths(loaded: &Loaded) -> Result<BTreeSet<RepoPath>, Error> {
+    crate::git::GitRepo::open(&loaded.root)
+        .ok_or_else(|| Error::Usage("--staged needs a git repository".into()))?
+        .staged_paths()
+}
+
+/// `check --since <rev>` (R-AGT-014, R-AGT-020): what a reviewer must look at, rule-bearing
+/// changes first: a lowered pin, added and deleted `ovr`s, control files, instruction files and
+/// authored managerial docs.
+pub fn must_review(loaded: &Loaded, rev: &str) -> Result<Vec<String>, Error> {
+    let repo = crate::git::GitRepo::open(&loaded.root)
+        .ok_or_else(|| Error::Usage("--since needs a git repository".into()))?;
+    let mut rules: Vec<String> = Vec::new();
+    let mut rest: Vec<String> = Vec::new();
+    let ctl = &loaded.root_control.path;
+    if let Some(old) = repo.file_at(rev, ctl)
+        && let Ok(then) = crate::config::parse_control(ctl, &old, true)
+    {
+        for l in crate::edition::lowered(
+            &crate::edition::Pins::of(&loaded.root_control),
+            &crate::edition::Pins::of(&then),
+        ) {
+            rules.push(format!("must-review {l} (since {rev})"));
+        }
+    }
+    let lines = repo.changed_lines(rev)?;
+    for (p, added, text) in &lines {
+        let t = text.trim();
+        let is_ovr = t.contains("[[ovr]]")
+            || t.split_whitespace()
+                .collect::<Vec<_>>()
+                .windows(2)
+                .any(|w| w[0].ends_with(':') && w[1] == "ovr");
+        if is_ovr {
+            rules.push(format!(
+                "must-review {} ovr in {}: {}",
+                if *added { "added" } else { "deleted" },
+                p.as_str(),
+                crate::render::sanitize::sanitize_data(t, 120)
+            ));
+        }
+    }
+    let agents: BTreeSet<String> = loaded.root_control.agents.iter().cloned().collect();
+    let changed: BTreeSet<&RepoPath> = lines.iter().map(|(p, _, _)| p).collect();
+    for p in changed {
+        let s = p.as_str();
+        if p.file_name() == "control.toml" {
+            rules.push(format!("must-review control file {s}"));
+        } else if agents.contains(s) || matches!(p.file_name(), "AGENTS.md" | "CLAUDE.md") {
+            rest.push(format!("must-review instruction file {s}"));
+        } else if s.split('/').any(|seg| seg == loaded.root.folder) && !s.contains("/gen/") {
+            rest.push(format!("must-review managerial file {s}"));
+        }
+    }
+    rules.extend(rest);
+    Ok(rules)
+}
+
+/// `check --against <ref>` (R-GIT-042): local sealed version files whose content differs from the
+/// copy at `ref` (a force-push divergence).
+pub fn against(loaded: &Loaded, rev: &str) -> Result<Vec<String>, Error> {
+    let repo = crate::git::GitRepo::open(&loaded.root)
+        .ok_or_else(|| Error::Usage("--against needs a git repository".into()))?;
+    repo.resolve(rev)?;
+    let mut out = Vec::new();
+    for (p, text) in &loaded.facts.version_texts {
+        if let Some(theirs) = repo.file_at(rev, p)
+            && crate::hash::hash_normalised(&theirs)
+                != crate::hash::hash_normalised(text.as_bytes())
+        {
+            out.push(format!(
+                "warning: sealed version file {} differs from {rev} (force-push divergence?)",
+                p.as_str()
+            ));
+        }
+    }
+    Ok(out)
+}
+
 /// R-GIT-064, R-GIT-011: during a merge or rebase (unmerged paths), `sync` regenerates conflicted
 /// generated files but refuses while an authored file is unmerged, listing them; every other
 /// writer of authored files refuses outright.

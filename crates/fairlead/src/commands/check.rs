@@ -35,8 +35,14 @@ fn check(global: &GlobalArgs, args: &CheckArgs) -> Result<CommandResult, Error> 
     if args.ci {
         verify_authority(&mut loaded)?;
     }
+    if let Some(base) = &args.base {
+        fairlead_core::pipeline::apply_base(&mut loaded, base)?;
+    }
     let registry = resolve_loaded(&loaded, as_of(global));
-    let options = check_options(global, args, &loaded, &cwd)?;
+    let mut options = check_options(global, args, &loaded, &cwd)?;
+    if args.staged {
+        options.files_from = Some(fairlead_core::pipeline::staged_paths(&loaded)?);
+    }
     let report = check_loaded(&loaded, &registry, &options)?;
     let outcome: VerbOutcome = report.outcome(&options);
     let render = RenderOptions {
@@ -47,7 +53,19 @@ fn check(global: &GlobalArgs, args: &CheckArgs) -> Result<CommandResult, Error> 
         color: colour_enabled(global.color, tty, no_color_set()),
         quiet: global.quiet,
     };
-    let stdout = renderer(render.format).check(&report, &render);
+    let mut stdout = renderer(render.format).check(&report, &render);
+    if let Some(rev) = &args.since {
+        for l in fairlead_core::pipeline::must_review(&loaded, rev)? {
+            stdout.push_str(&l);
+            stdout.push('\n');
+        }
+    }
+    if let Some(rev) = &args.against {
+        for l in fairlead_core::pipeline::against(&loaded, rev)? {
+            stdout.push_str(&l);
+            stdout.push('\n');
+        }
+    }
     Ok(CommandResult {
         stdout,
         stderr: String::new(),

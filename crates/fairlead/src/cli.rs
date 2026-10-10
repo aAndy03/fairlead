@@ -166,6 +166,18 @@ pub struct CheckArgs {
     /// records with `git verify-commit` (R-LC-040).
     #[arg(long)]
     pub ci: bool,
+    /// Report only staged paths (R-CLI-022).
+    #[arg(long)]
+    pub staged: bool,
+    /// Coverage base and changed set: the files changed since REF (R-GIT-041).
+    #[arg(long, value_name = "REF")]
+    pub base: Option<String>,
+    /// List what a reviewer must look at since REV: lowered pins, ovr changes, rules, instructions.
+    #[arg(long, value_name = "REV")]
+    pub since: Option<String>,
+    /// Warn when local sealed version files differ from REF (R-GIT-042).
+    #[arg(long, value_name = "REF")]
+    pub against: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]

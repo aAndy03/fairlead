@@ -229,6 +229,92 @@ impl GitRepo {
         Ok(set)
     }
 
+    /// The commit a revision names (`main`, `HEAD~2`, a hash), as a full hash.
+    pub fn resolve(&self, rev: &str) -> Result<String, Error> {
+        self.repo
+            .revparse_single(rev)
+            .and_then(|o| o.peel_to_commit())
+            .map(|c| c.id().to_string())
+            .map_err(|e| Error::Usage(format!("{rev:?} names no commit: {}", e.message())))
+    }
+
+    /// Paths staged in the index against HEAD (R-CLI-022 `--staged`).
+    pub fn staged_paths(&self) -> Result<BTreeSet<RepoPath>, Error> {
+        let head = self.repo.head().ok().and_then(|h| h.peel_to_tree().ok());
+        let diff = self
+            .repo
+            .diff_tree_to_index(head.as_ref(), None, None)
+            .map_err(|e| cannot_determine("cannot diff the index", &e))?;
+        let mut set = BTreeSet::new();
+        for d in diff.deltas() {
+            for f in [d.old_file(), d.new_file()] {
+                if let Some(p) = f.path().and_then(|p| p.to_str()) {
+                    self.add(&mut set, &p.replace('\\', "/"));
+                }
+            }
+        }
+        Ok(set)
+    }
+
+    /// The bytes of `path` (root-relative) at `rev`, if it existed there.
+    pub fn file_at(&self, rev: &str, path: &RepoPath) -> Option<Vec<u8>> {
+        let rel = format!("{}{}", self.prefix, path.as_str());
+        let tree = self.repo.revparse_single(rev).ok()?.peel_to_tree().ok()?;
+        let entry = tree.get_path(std::path::Path::new(&rel)).ok()?;
+        let blob = entry.to_object(&self.repo).ok()?.peel_to_blob().ok()?;
+        Some(blob.content().to_vec())
+    }
+
+    /// Added (`true`) and removed (`false`) lines of every file between `rev` and the work tree.
+    pub fn changed_lines(&self, rev: &str) -> Result<Vec<(RepoPath, bool, String)>, Error> {
+        let base = self.resolve(rev)?;
+        let tree = git2::Oid::from_str(&base)
+            .and_then(|o| self.repo.find_commit(o))
+            .and_then(|c| c.tree())
+            .map_err(|e| cannot_determine("cannot read the base tree", &e))?;
+        let mut opts = git2::DiffOptions::new();
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .show_untracked_content(true);
+        let diff = self
+            .repo
+            .diff_tree_to_workdir_with_index(Some(&tree), Some(&mut opts))
+            .map_err(|e| cannot_determine("cannot diff against the base", &e))?;
+        let mut out = Vec::new();
+        diff.foreach(
+            &mut |_, _| true,
+            None,
+            None,
+            Some(&mut |delta, _hunk, line| {
+                let added = match line.origin() {
+                    '+' => true,
+                    '-' => false,
+                    _ => return true,
+                };
+                let path = delta
+                    .new_file()
+                    .path()
+                    .or_else(|| delta.old_file().path())
+                    .and_then(|p| p.to_str())
+                    .map(|p| p.replace('\\', "/"));
+                if let Some(rest) = path.as_deref().and_then(|p| p.strip_prefix(&self.prefix))
+                    && let Ok(rp) = RepoPath::new(rest)
+                {
+                    out.push((
+                        rp,
+                        added,
+                        String::from_utf8_lossy(line.content())
+                            .trim_end()
+                            .to_owned(),
+                    ));
+                }
+                true
+            }),
+        )
+        .map_err(|e| cannot_determine("cannot read the diff", &e))?;
+        Ok(out)
+    }
+
     /// `(detached, branch name)` of HEAD (R-GIT-065, R-VER-055). An unborn HEAD is a branch.
     pub fn head_state(&self) -> (bool, Option<String>) {
         let detached = self.repo.head_detached().unwrap_or(false);

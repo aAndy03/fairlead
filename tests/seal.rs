@@ -757,3 +757,123 @@ fn r_git_065__detached_head_check_works_seal_refuses() {
     assert_eq!(seal.code, 4);
     assert!(seal.stderr.contains("HEAD is detached"), "{}", seal.stderr);
 }
+
+#[test]
+fn r_cli_022__staged_limits_reporting_to_staged_paths() {
+    let repo = ready_repo();
+    for f in ["src/staged.ts", "src/unstaged.ts"] {
+        std::fs::write(
+            repo.path().join(f),
+            "// fairlead: frobnicate x\nexport const A = 1;\n",
+        )
+        .unwrap();
+    }
+    repo.git(&["add", "src/staged.ts"]);
+    let all = repo.run(&[
+        "check",
+        "--no-baseline",
+        "--as-of",
+        AS_OF,
+        "--format",
+        "terse",
+    ]);
+    assert!(all.stdout.contains("src/unstaged.ts"), "{}", all.stdout);
+    let staged = repo.run(&[
+        "check",
+        "--staged",
+        "--no-baseline",
+        "--as-of",
+        AS_OF,
+        "--format",
+        "terse",
+    ]);
+    assert!(staged.stdout.contains("src/staged.ts"), "{}", staged.stdout);
+    assert!(
+        !staged.stdout.contains("src/unstaged.ts"),
+        "{}",
+        staged.stdout
+    );
+}
+
+#[test]
+fn r_git_041__base_sets_the_coverage_base() {
+    let repo = ready_repo();
+    std::fs::create_dir_all(repo.path().join("lib")).unwrap();
+    std::fs::write(repo.path().join("lib/x.rs"), "fn x() {}\n").unwrap();
+    let plain = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        !plain.stdout.contains("HN-D006"),
+        "nothing sealed: no base: {}",
+        plain.stdout
+    );
+    let based = repo.run(&[
+        "check", "--base", "HEAD", "--as-of", AS_OF, "--format", "terse",
+    ]);
+    assert!(
+        based.stdout.contains("HN-D006") && based.stdout.contains("lib/x.rs"),
+        "{}",
+        based.stdout
+    );
+}
+
+#[test]
+fn r_agt_014__since_flags_pin_decrease_and_ovr_changes() {
+    let repo = ready_repo();
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        text.replace("fairlead-version = \"0.1\"", "fairlead-version = \"0.0\""),
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/w.ts"),
+        "// fairlead: ovr rule.no-raw-hex why=\"legacy\"\nexport const A = 1;\n",
+    )
+    .unwrap();
+    let run = repo.run(&[
+        "check", "--since", "HEAD", "--as-of", AS_OF, "--format", "terse",
+    ]);
+    let out = &run.stdout;
+    let pin = out.find("must-review pin fairlead-version=0.0").expect(out);
+    let ovr = out.find("must-review added ovr in src/w.ts").expect(out);
+    let ctl = out
+        .find("must-review control file fairlead/control.toml")
+        .expect(out);
+    assert!(
+        pin < ctl && ovr < ctl || pin < ovr,
+        "rule-bearing first: {out}"
+    );
+}
+
+#[test]
+fn r_git_042__against_flags_divergent_version_files() {
+    let repo = ready_repo();
+    assert_eq!(
+        repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF])
+            .code,
+        0
+    );
+    repo.git(&["add", "-A"]);
+    repo.git_commit("seal");
+    repo.git(&["branch", "upstream"]);
+    let v = repo.path().join("fairlead/versions/0.1.0.md");
+    let text = std::fs::read_to_string(&v).unwrap();
+    std::fs::write(&v, format!("{text}rewritten\n")).unwrap();
+    let run = repo.run(&[
+        "check",
+        "--against",
+        "upstream",
+        "--as-of",
+        AS_OF,
+        "--format",
+        "terse",
+    ]);
+    assert!(
+        run.stdout
+            .contains("sealed version file fairlead/versions/0.1.0.md differs from upstream"),
+        "{}{}",
+        run.stdout,
+        run.stderr
+    );
+}
