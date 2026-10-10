@@ -43,6 +43,9 @@ pub struct Facts {
     pub manifest_hints: ManifestHints,
     /// Ledger year files (`ledger/hist/<year>.hl`), raw text, for the continuity check (R-RET-036).
     pub ledgers: BTreeMap<RepoPath, Arc<str>>,
+    /// `docs::body_hash` of every Markdown file under a `docs/changes/` folder, for the seal
+    /// tamper check (R-VER-054).
+    pub doc_body_hashes: BTreeMap<RepoPath, String>,
 }
 
 /// Bytes of a regular file; `None` for a missing file, a symlink or a directory (never followed).
@@ -186,6 +189,17 @@ pub fn collect_facts_with(
                     facts.ledgers.insert(
                         e.path.clone(),
                         Arc::<str>::from(String::from_utf8_lossy(&bytes).into_owned()),
+                    );
+                }
+            }
+            FileClass::Authored
+                if e.path.as_str().ends_with(".md")
+                    && e.path.as_str().contains("docs/changes/") =>
+            {
+                if let Some(bytes) = read_regular(root, &e.path)? {
+                    facts.doc_body_hashes.insert(
+                        e.path.clone(),
+                        crate::docs::body_hash(&String::from_utf8_lossy(&bytes)),
                     );
                 }
             }

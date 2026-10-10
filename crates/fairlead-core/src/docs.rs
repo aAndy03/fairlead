@@ -201,6 +201,19 @@ pub fn collect_change_docs(corpus: &Corpus) -> (Vec<ChangeDoc>, Vec<(RepoPath, S
     (docs, bad)
 }
 
+/// `b3:` and 20 base32 symbols of the normalised body after the frontmatter: written once by
+/// seal (R-VER-012) and compared by `check` (R-VER-054, `H-SEAL-TAMPER`).
+pub fn body_hash(text: &str) -> String {
+    let body = text
+        .strip_prefix("+++")
+        .and_then(|r| r.split_once("\n+++"))
+        .map_or(text, |(_, b)| b);
+    format!(
+        "b3:{}",
+        crate::hash::base32(&crate::hash::hash_normalised(body.as_bytes()).0, 20)
+    )
+}
+
 /// Sealed versions: the file names `<folder>/versions/<MAJOR.MINOR.PATCH>.md` at the root, sorted.
 pub fn version_files(corpus: &Corpus, folder: &str) -> Vec<Version> {
     let prefix = format!("{folder}/versions/");

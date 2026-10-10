@@ -9,7 +9,7 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 5] = [HN_G003, HN_V004, HN_V006, HN_V007, HN_V009];
+const CODES: [DiagCode; 6] = [HN_G003, HN_V003, HN_V004, HN_V006, HN_V007, HN_V009];
 
 fn in_scope(cx: &CheckCx<'_>, d: &ChangeDoc, scope: &ScopeId) -> bool {
     cx.registry.scope_of(&d.path) == Some(scope)
@@ -166,6 +166,27 @@ impl Check for VersionsCheck {
                         ),
                     )
                     .hint("fill `covers` and `impact`, or set `status = \"draft\"`")
+                    .text(d.id.as_str())
+                    .build(),
+                );
+            }
+        }
+        // R-VER-054: a sealed doc whose body no longer matches its recorded body-hash.
+        for d in docs.iter().filter(|d| in_scope(cx, d, scope)) {
+            let (Some(recorded), Some(now)) = (&d.body_hash, cx.facts.doc_body_hashes.get(&d.path))
+            else {
+                continue;
+            };
+            if d.status == crate::docs::Status::Sealed && recorded != now {
+                out.push(
+                    DiagB::new(
+                        HN_V003,
+                        &d.path,
+                        1,
+                        1,
+                        format!("sealed doc {} was edited after its seal (body-hash {recorded}, now {now})", d.id),
+                    )
+                    .hint("restore it from git; supersede it with a new doc (supersedes = \"<id>\") instead")
                     .text(d.id.as_str())
                     .build(),
                 );
@@ -424,6 +445,35 @@ mod tests {
         );
         let missing = sealed_world(None, &["0.2.0"]);
         assert!(of(&missing, c::HN_V004)[0].message.contains("missing"));
+    }
+
+    #[test]
+    fn r_ver_054__edited_sealed_doc_is_tamper() {
+        let path = "fairlead/docs/changes/0001-x.md";
+        let sealed = |body: &str| {
+            format!(
+                "+++\nid = \"d-00000001\"\nkind = \"change\"\nstatus = \"sealed\"\nscope = \"root\"\nimpact = \"add\"\ncovers = [\"src/**\"]\nbody-hash = \"{}\"\nordinal = 1\n+++\n{body}",
+                crate::docs::body_hash(&format!("+++\nx = 1\n+++\n\n# x\n"))
+            )
+        };
+        let run = |text: String| {
+            let t = text.clone();
+            World::new()
+                .file(path, &text)
+                .facts(move |f| {
+                    f.doc_body_hashes.insert(
+                        crate::path::RepoPath::new(path).unwrap(),
+                        crate::docs::body_hash(&t),
+                    );
+                })
+                .build()
+                .run_check(&VersionsCheck)
+        };
+        assert!(
+            of(&run(sealed("\n# x\n")), c::HN_V003).is_empty(),
+            "untouched body"
+        );
+        assert_eq!(of(&run(sealed("\n# x, edited\n")), c::HN_V003).len(), 1);
     }
 
     #[test]

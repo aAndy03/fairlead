@@ -256,17 +256,6 @@ pub struct SealWriteCx<'a> {
     pub gen_dir: &'a str,
 }
 
-fn body_hash(text: &str) -> String {
-    let body = text
-        .strip_prefix("+++")
-        .and_then(|r| r.split_once("\n+++"))
-        .map_or(text, |(_, b)| b);
-    format!(
-        "b3:{}",
-        crate::hash::base32(&crate::hash::hash_normalised(body.as_bytes()).0, 20)
-    )
-}
-
 /// The sealed text of a doc: `status`, `sealed`, `body-hash` and `ordinal` set in its
 /// frontmatter, every other key and the body kept byte for byte (R-VER-012, R-VER-041).
 fn sealed_text(text: &str, open: Version, ordinal: u32) -> Result<String, String> {
@@ -279,7 +268,7 @@ fn sealed_text(text: &str, open: Version, ordinal: u32) -> Result<String, String
     let mut doc: toml_edit::DocumentMut = fm.parse().map_err(|e| format!("{e}"))?;
     doc["status"] = toml_edit::value("sealed");
     doc["sealed"] = toml_edit::value(open.to_string());
-    doc["body-hash"] = toml_edit::value(body_hash(text));
+    doc["body-hash"] = toml_edit::value(crate::docs::body_hash(text));
     doc["ordinal"] = toml_edit::value(i64::from(ordinal));
     let mut fm = doc.to_string();
     if !fm.ends_with('\n') {
