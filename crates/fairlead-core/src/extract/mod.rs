@@ -60,6 +60,7 @@ use fairlead_syntax::delimiters::{CommentTable, Leader};
 use fairlead_syntax::extract::{ExtractConfig, Extraction, ScanStatus, extract as syntax_extract};
 use std::sync::Arc;
 
+pub mod attach;
 pub mod envscan;
 pub mod literals;
 

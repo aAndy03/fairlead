@@ -74,6 +74,8 @@ pub struct ControlFile {
     pub graveyard: GraveyardConfig,
     pub defaults: AxisDefaults,
     pub scope_cfg: ScopeConfig,
+    /// `[[attach]]` entries (R-SYN-047).
+    pub attach: Vec<AttachDecl>,
     /// Root `[delegate]`: G2 key patterns a child may tighten (R-SCOPE-057).
     pub delegate: BTreeMap<String, String>,
     /// A child's non-delegable keys as written, by dotted key, for the delegation judgement.
@@ -275,6 +277,7 @@ pub fn parse_control(
     let defaults = vocab::parse_defaults(&mut cx, &mut table);
     let scope_cfg = vocab::parse_scope_cfg(&mut cx, &mut table);
     let delegate = vocab::parse_delegate(&mut cx, &mut table);
+    let attach = vocab::parse_attach(&mut cx, &mut table);
     cx.unknown_in("", &table);
 
     if baseline.file.is_empty() {
@@ -329,6 +332,7 @@ pub fn parse_control(
         graveyard,
         defaults,
         scope_cfg,
+        attach,
         delegate,
         stripped,
         unknown,

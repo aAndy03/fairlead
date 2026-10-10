@@ -73,6 +73,52 @@ impl Default for GraveyardConfig {
     }
 }
 
+/// `[[attach]]` (R-SYN-047): directives for files that cannot carry comments, bound in file form
+/// to every file matching `path` (a glob relative to the declaring scope).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AttachDecl {
+    pub path: String,
+    pub directives: Vec<String>,
+}
+
+pub(crate) fn parse_attach(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec<AttachDecl> {
+    use fairlead_syntax::directive::{Verb, parse_body};
+    let mut out = Vec::new();
+    for mut t in super::schema::take_table_array(cx, root, "", "attach") {
+        let path = take_string(cx, &mut t, "attach", "path")
+            .and_then(|g| super::schema::clean_rel_path(cx, "attach.path", &g))
+            .filter(|g| super::schema::check_glob(cx, "attach.path", g));
+        let directives = take_string_list(cx, &mut t, "attach", "directives").unwrap_or_default();
+        cx.unknown_in("attach", &t);
+        let mut ok = true;
+        for d in &directives {
+            match parse_body(d) {
+                Err(e) => {
+                    cx.error("attach.directives", format!("{d:?}: {}", e.message));
+                    ok = false;
+                }
+                Ok(b) if b.verb == Verb::End || b.explicit.is_some() => {
+                    cx.error(
+                        "attach.directives",
+                        format!("{d:?}: an attached directive binds the whole file: no `end`, no +N or +end"),
+                    );
+                    ok = false;
+                }
+                Ok(_) => {}
+            }
+        }
+        match path {
+            Some(path) if ok && !directives.is_empty() => out.push(AttachDecl { path, directives }),
+            Some(_) if directives.is_empty() => {
+                cx.error("attach", "an [[attach]] needs `directives`")
+            }
+            None => cx.error("attach", "an [[attach]] needs `path`"),
+            _ => {}
+        }
+    }
+    out
+}
+
 /// Tables whose keys are G1 vocabulary: never delegable (R-SCOPE-051, R-SCOPE-057).
 pub const G1_TABLES: [&str; 18] = [
     "fairlead",

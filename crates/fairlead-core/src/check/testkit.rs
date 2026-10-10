@@ -195,6 +195,7 @@ impl World {
                 .records
                 .insert(rp, extract_file(&entry, text.as_bytes(), &plan));
         }
+        crate::extract::attach::apply_attach(&mut corpus, &controls);
         let registry = resolve(&ResolveInput {
             root: &root,
             controls: &controls,

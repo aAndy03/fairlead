@@ -83,9 +83,10 @@ fn load_rest(
         as_of: None,
     };
     let cache = Cache::open(&root, req.use_cache, key);
-    let corpus = in_pool(req.threads, || {
+    let mut corpus = in_pool(req.threads, || {
         extract_files(&walked, &root, &plan, &cache, req.only.as_ref())
     })?;
+    crate::extract::attach::apply_attach(&mut corpus, &controls);
     let git = git
         .join()
         .map_err(|_| Error::Internal("the git status thread panicked".into()))?;
