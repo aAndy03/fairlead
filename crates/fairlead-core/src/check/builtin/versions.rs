@@ -172,6 +172,40 @@ fn incomplete_writes(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
             }
         }
     }
+    // R-VER-057: every doc a version file lists is sealed at that version.
+    if scope == cx.registry.root_scope() {
+        let (docs, _) = crate::docs::collect_change_docs(cx.corpus);
+        for (path, text) in &cx.facts.version_texts {
+            let Some(v) = crate::version::version_of_file_name(path.file_name()) else {
+                continue;
+            };
+            let listed: Vec<String> = text
+                .strip_prefix("+++\n")
+                .and_then(|r| r.split_once("\n+++"))
+                .and_then(|(fm, _)| fm.parse::<toml::Table>().ok())
+                .and_then(|t| t.get("docs").and_then(|d| d.as_array()).cloned())
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|x| x.as_str().map(str::to_owned))
+                .collect();
+            for id in listed {
+                let ok = docs.iter().any(|d| {
+                    d.id.as_str() == id
+                        && d.status == crate::docs::Status::Sealed
+                        && d.sealed == Some(v)
+                });
+                if !ok {
+                    let msg = format!("version {v} lists {id}, which is not a doc sealed at {v}");
+                    out.push(
+                        DiagB::new(HN_V005, path, 1, 1, msg.clone())
+                            .hint("restore the sealed doc from git, or reseal")
+                            .text(msg)
+                            .build(),
+                    );
+                }
+            }
+        }
+    }
     if scope == cx.registry.root_scope() && cx.facts.pending_journal {
         let msg = "an interrupted write left its journal (.fairlead/sync.journal)".to_owned();
         if let Some(cp) = crate::check::builtin::control_path(cx.registry, scope) {
@@ -689,6 +723,29 @@ mod tests {
             1,
             "a leftover journal"
         );
+    }
+
+    #[test]
+    fn r_ver_057__version_file_listing_an_unsealed_doc_is_inconsistent() {
+        let vtext = "+++\nversion = \"0.1.0\"\ndocs = [\"d-00000001\"]\n+++\n";
+        let run = |status: &str| {
+            World::new()
+                .file("fairlead/versions/0.1.0.md", vtext)
+                .file(
+                    "fairlead/docs/changes/0001-x.md",
+                    &change("d-00000001", status, "sealed = \"0.1.0\"\nordinal = 1\nimpact = \"add\"\ncovers = [\"src/**\"]\n"),
+                )
+                .facts(|f| {
+                    f.version_texts.insert(
+                        crate::path::RepoPath::new("fairlead/versions/0.1.0.md").unwrap(),
+                        vtext.into(),
+                    );
+                })
+                .build()
+                .run_check(&VersionsCheck)
+        };
+        assert!(of(&run("sealed"), c::HN_V005).is_empty());
+        assert_eq!(of(&run("ready"), c::HN_V005).len(), 1);
     }
 
     #[test]
