@@ -287,6 +287,9 @@ pub struct SealArgs {
     /// Tag the seal commit `fairlead/<version>`; needs `--commit`.
     #[arg(long, requires = "commit")]
     pub tag: bool,
+    /// Roll an interrupted seal back and stop (any writer would roll it forward instead).
+    #[arg(long, conflicts_with_all = ["yes", "commit"])]
+    pub abort: bool,
 }
 
 /// Arguments of a verb that arrives later. They are accepted so the refusal is exact (R-CLI-001).

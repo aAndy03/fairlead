@@ -56,6 +56,21 @@ impl<'l> Transaction<'l> {
         Self::recover_with(root, &REAL_FS)
     }
 
+    /// Roll an interrupted journal back to the prior tree (`seal --abort`, R-VER-051).
+    pub fn abort(root: &Root, _lock: &WriterLock<'_>) -> Result<Recovery, Error> {
+        Self::abort_with(root, &REAL_FS)
+    }
+
+    pub fn abort_with(root: &Root, fs: &dyn Fs) -> Result<Recovery, Error> {
+        let journal = Journal::at(&root.dir);
+        let Some(doc) = journal.read(fs)? else {
+            return Ok(Recovery::Clean);
+        };
+        rollback(fs, &root.dir, &doc)?;
+        journal.clear(fs)?;
+        Ok(Recovery::RolledBack)
+    }
+
     pub fn recover_with(root: &Root, fs: &dyn Fs) -> Result<Recovery, Error> {
         let journal = Journal::at(&root.dir);
         let Some(doc) = journal.read(fs)? else {
@@ -672,6 +687,30 @@ mod tests {
                 .unwrap()
                 .commit()
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn r_ver_051__abort_rolls_an_interrupted_commit_back() {
+        let e = env();
+        let lock = WriterLock::acquire(&e.root, &e.probe).unwrap();
+        interrupted(&e, &lock);
+        assert_eq!(
+            Transaction::abort(&e.root, &lock).unwrap(),
+            Recovery::RolledBack
+        );
+        assert_eq!(
+            (
+                read(&e, "fairlead/docs/adr/a.md"),
+                read(&e, "fairlead/docs/adr/b.md")
+            ),
+            ("old a\n".into(), "old b\n".into())
+        );
+        assert!(leftovers(&e).is_empty(), "{:?}", leftovers(&e));
+        assert_eq!(
+            Transaction::abort(&e.root, &lock).unwrap(),
+            Recovery::Clean,
+            "nothing left to abort"
         );
     }
 

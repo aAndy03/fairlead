@@ -21,6 +21,13 @@ pub fn run(global: &GlobalArgs, args: &SealArgs) -> CommandResult {
 }
 
 fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
+    if args.abort {
+        let session = WriteSession::open_abort(&discover_request(global, true)?, &SysProbe)?;
+        return Ok(CommandResult::text(match session.recovery {
+            fairlead_core::write::Recovery::Clean => "nothing to abort\n".to_owned(),
+            _ => "interrupted seal rolled back\n".to_owned(),
+        }));
+    }
     let session = WriteSession::open(&discover_request(global, true)?, &SysProbe)?;
     let loaded = load(&load_request(global, false, None)?)?;
     let registry = resolve_loaded(&loaded, as_of(global));

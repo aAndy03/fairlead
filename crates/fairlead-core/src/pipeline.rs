@@ -333,6 +333,18 @@ impl<'p> WriteSession<'p> {
             recovery,
         })
     }
+
+    /// `seal --abort` (R-VER-051): lock, then roll an interrupted journal BACK instead of forward.
+    pub fn open_abort(req: &DiscoverRequest, probe: &'p dyn PidLiveness) -> Result<Self, Error> {
+        let root = discover(req)?.root;
+        let lock = WriterLock::acquire(&root, probe)?;
+        let recovery = Transaction::abort(&root, &lock)?;
+        Ok(WriteSession {
+            root,
+            lock,
+            recovery,
+        })
+    }
 }
 
 /// What a writer reports: the recovery it performed before writing, and what it wrote (R-CLI-007).
