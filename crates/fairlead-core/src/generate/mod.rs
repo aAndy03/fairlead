@@ -33,6 +33,8 @@ pub enum GenKind {
     Members,
     Baseline,
     VendorLock,
+    /// `gen/alias`: draft ID to ordinal of sealed change docs (R-VER-046).
+    Alias,
 }
 
 /// One generated file. `body` is the sorted terse lines, each ending in `\n`, without the header.
@@ -277,6 +279,7 @@ pub fn generate(
         .map(|c| c.settings.index_values)
         .unwrap_or(IndexValues::Value);
     let tokens = token_sites(reg, corpus);
+    let (change_docs, _) = crate::docs::collect_change_docs(corpus);
 
     for scope in reg.scopes() {
         if !matches!(scope.state, ScopeState::Resolved) {
@@ -382,6 +385,23 @@ pub fn generate(
             GenKind::Members,
             members_body(&view_members),
         );
+
+        // 3b. alias map of sealed change docs homed here (R-VER-046), only when one exists
+        let here: Vec<&crate::docs::ChangeDoc> = change_docs
+            .iter()
+            .filter(|d| reg.scope_of(&d.path) == Some(&scope.id))
+            .collect();
+        let alias = crate::docs::alias_body(&here);
+        if !alias.is_empty() {
+            put(
+                &mut files,
+                dir,
+                &format!("{folder}/{gen_dir}/alias"),
+                &scope.id,
+                GenKind::Alias,
+                alias,
+            );
+        }
 
         // 4. vendor lock (R-FILE-040)
         if let Some(ctl) = scope.control.as_ref()

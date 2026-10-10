@@ -10,6 +10,7 @@ pub mod scopes;
 pub mod syntax;
 pub mod tokens;
 pub mod vendor;
+pub mod versions;
 
 use std::sync::Arc;
 

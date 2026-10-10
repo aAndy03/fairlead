@@ -214,6 +214,92 @@ pub fn readiness_problems(d: &ChangeDoc) -> Vec<&'static str> {
     out
 }
 
+/// The (scope, kind) a doc's ordinal is counted in (R-VER-041): its `scope` key, else the root.
+fn ordinal_key(d: &ChangeDoc) -> (String, String) {
+    (
+        d.scope.clone().unwrap_or_else(|| "root".to_owned()),
+        d.kind.clone(),
+    )
+}
+
+/// Comparison key of `created`: a version sorts by value, any other text after all versions.
+fn created_key(d: &ChangeDoc) -> (Option<Version>, String) {
+    let c = d.created.clone().unwrap_or_default();
+    (Version::parse(&c), c)
+}
+
+/// R-VER-041: ordinals for the docs being sealed, per scope and kind, continuing from
+/// `max(existing) + 1` in (`created`, draft ID) order. Docs that already carry an ordinal keep it.
+pub fn assign_ordinals(sealing: &[&ChangeDoc], existing: &[&ChangeDoc]) -> BTreeMap<DraftId, u32> {
+    let mut next: BTreeMap<(String, String), u32> = BTreeMap::new();
+    for d in existing {
+        if let Some(o) = d.ordinal {
+            let e = next.entry(ordinal_key(d)).or_insert(0);
+            *e = (*e).max(o);
+        }
+    }
+    let mut order: Vec<&&ChangeDoc> = sealing.iter().filter(|d| d.ordinal.is_none()).collect();
+    order.sort_by(|a, b| {
+        (created_key(a), &a.id)
+            .partial_cmp(&(created_key(b), &b.id))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let mut out = BTreeMap::new();
+    for d in order {
+        let n = next.entry(ordinal_key(d)).or_insert(0);
+        *n += 1;
+        out.insert(d.id.clone(), *n);
+    }
+    for d in sealing {
+        if let Some(o) = d.ordinal {
+            out.insert(d.id.clone(), o);
+        }
+    }
+    out
+}
+
+/// The alias map body of one scope (R-VER-046): `d-<draft> kind=<k> ord=<n>` per sealed doc that
+/// has an ordinal, sorted by draft ID. A pure function of the docs; it holds no counter.
+pub fn alias_body(docs: &[&ChangeDoc]) -> String {
+    let mut rows: Vec<(&DraftId, String)> = docs
+        .iter()
+        .filter(|d| d.status == Status::Sealed)
+        .filter_map(|d| {
+            d.ordinal
+                .map(|o| (&d.id, format!("{} kind={} ord={o:04}\n", d.id, d.kind)))
+        })
+        .collect();
+    rows.sort();
+    rows.into_iter().map(|(_, l)| l).collect()
+}
+
+/// R-VER-042 `H-ID-COLLISION`: groups of docs that share a draft ID but differ in content
+/// (`hash_of` gives each doc's content hash). Identical copies are not a collision.
+pub fn id_collisions<H: PartialEq>(
+    docs: &[ChangeDoc],
+    hash_of: impl Fn(&ChangeDoc) -> H,
+) -> Vec<Vec<&ChangeDoc>> {
+    let mut by_id: BTreeMap<&DraftId, Vec<&ChangeDoc>> = BTreeMap::new();
+    for d in docs {
+        by_id.entry(&d.id).or_default().push(d);
+    }
+    by_id
+        .into_values()
+        .filter(|g| g.len() > 1 && g.iter().any(|d| hash_of(d) != hash_of(g[0])))
+        .collect()
+}
+
+/// R-VER-042 `H-ORD-DUP`: groups of docs with the same ordinal in one scope and kind.
+pub fn ordinal_duplicates(docs: &[ChangeDoc]) -> Vec<Vec<&ChangeDoc>> {
+    let mut by_ord: BTreeMap<((String, String), u32), Vec<&ChangeDoc>> = BTreeMap::new();
+    for d in docs {
+        if let Some(o) = d.ordinal {
+            by_ord.entry((ordinal_key(d), o)).or_default().push(d);
+        }
+    }
+    by_ord.into_values().filter(|g| g.len() > 1).collect()
+}
+
 /// A filename slug: lowercase ASCII words joined by `-`, at most 48 characters.
 pub fn slug(title: &str) -> String {
     let mut s = String::new();
@@ -312,6 +398,82 @@ mod tests {
             readiness_problems(&draft).is_empty(),
             "drafts may be incomplete"
         );
+    }
+
+    fn doc(id: &str, kind: &str, created: &str, ord: Option<u32>, status: Status) -> ChangeDoc {
+        ChangeDoc {
+            path: RepoPath::new(&format!("fairlead/docs/changes/{id}.md")).unwrap(),
+            id: DraftId::parse(id).unwrap(),
+            kind: kind.into(),
+            status,
+            impact: Some(Impact::Add),
+            scope: Some("root".into()),
+            covers: vec!["src/**".into()],
+            created: Some(created.into()),
+            sealed: None,
+            body_hash: None,
+            ordinal: ord,
+            rolling: false,
+            hotfix: false,
+            extra: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn r_ver_041__ordinals_continue_per_scope_and_kind_in_created_then_id_order() {
+        let old = doc("d-00000009", "change", "0.9.0", Some(41), Status::Sealed);
+        let other_kind = doc("d-0000000a", "revert", "0.9.0", Some(7), Status::Sealed);
+        let late = doc("d-00000001", "change", "0.10.0", None, Status::Ready);
+        let early_b = doc("d-00000003", "change", "0.2.0", None, Status::Ready);
+        let early_a = doc("d-00000002", "change", "0.2.0", None, Status::Ready);
+        let rev = doc("d-00000004", "revert", "0.2.0", None, Status::Ready);
+        let got = assign_ordinals(&[&late, &early_b, &early_a, &rev], &[&old, &other_kind]);
+        let ord = |id: &str| got[&DraftId::parse(id).unwrap()];
+        assert_eq!(
+            (ord("d-00000002"), ord("d-00000003"), ord("d-00000001")),
+            (42, 43, 44),
+            "versions compare by value: 0.2.0 before 0.10.0, then draft ID"
+        );
+        assert_eq!(ord("d-00000004"), 8, "each kind counts on its own");
+    }
+
+    #[test]
+    fn r_ver_046__alias_map_is_a_pure_function_of_docs() {
+        let a = doc("d-00000002", "change", "0.2.0", Some(42), Status::Sealed);
+        let b = doc("d-00000001", "change", "0.2.0", Some(43), Status::Sealed);
+        let draft = doc("d-00000005", "change", "0.2.0", None, Status::Draft);
+        let body = alias_body(&[&a, &b, &draft]);
+        assert_eq!(
+            body,
+            "d-00000001 kind=change ord=0043\nd-00000002 kind=change ord=0042\n"
+        );
+        assert_eq!(
+            body,
+            alias_body(&[&draft, &b, &a]),
+            "input order is irrelevant"
+        );
+    }
+
+    #[test]
+    fn r_ver_042__same_draft_id_with_a_different_body_collides() {
+        let a = doc("d-00000001", "change", "0.2.0", None, Status::Draft);
+        let mut b = a.clone();
+        b.path = RepoPath::new("apps/x/fairlead/docs/changes/d-00000001.md").unwrap();
+        let docs = vec![a.clone(), b.clone()];
+        assert!(id_collisions(&docs, |_| 1).is_empty(), "identical copies");
+        let g = id_collisions(&docs, |d| d.path.as_str().len());
+        assert_eq!(g.len(), 1);
+    }
+
+    #[test]
+    fn r_ver_042__duplicate_ordinal_in_one_scope_and_kind() {
+        let a = doc("d-00000001", "change", "0.2.0", Some(5), Status::Sealed);
+        let b = doc("d-00000002", "change", "0.2.0", Some(5), Status::Sealed);
+        let c = doc("d-00000003", "revert", "0.2.0", Some(5), Status::Sealed);
+        let all = [a, b, c];
+        let dups = ordinal_duplicates(&all);
+        assert_eq!(dups.len(), 1);
+        assert_eq!(dups[0].len(), 2);
     }
 
     #[test]
