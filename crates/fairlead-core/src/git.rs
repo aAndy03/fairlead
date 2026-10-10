@@ -21,6 +21,33 @@ pub struct GitRepo {
     prefix: String,
 }
 
+/// Runs `git <args>` in the root directory, in the foreground (D-26). A missing executable is a
+/// usage error naming the flag (R-GIT-076); a failing command returns its stderr.
+fn run_git(root: &Root, args: &[&str]) -> Result<String, Error> {
+    let out = std::process::Command::new("git")
+        .args(args)
+        .current_dir(root.dir.as_std_path())
+        .output()
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Error::Usage(
+                    "git is not on the PATH; --commit and --tag need the git executable".into(),
+                )
+            } else {
+                Error::Internal(format!("cannot run git: {e}"))
+            }
+        })?;
+    if out.status.success() {
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    } else {
+        Err(Error::Internal(format!(
+            "git {} failed: {}",
+            args.first().copied().unwrap_or(""),
+            String::from_utf8_lossy(&out.stderr).trim()
+        )))
+    }
+}
+
 fn cannot_determine(what: &str, e: &git2::Error) -> Error {
     Error::CannotDetermine(format!("{what}: {e}"))
 }
@@ -55,6 +82,29 @@ impl GitRepo {
         {
             set.insert(p);
         }
+    }
+
+    /// R-GIT-003, R-GIT-076 (D-48): `seal --commit` makes exactly one commit of exactly `paths`
+    /// with the `Fairlead-Version` trailer, through the user's `git` executable in the foreground
+    /// so hooks and signing run. The only subprocess fairlead starts, beside `verify-commit`.
+    pub fn commit_paths(root: &Root, paths: &[RepoPath], version: &str) -> Result<(), Error> {
+        let mut add = vec!["add", "-A", "--"];
+        add.extend(paths.iter().map(RepoPath::as_str));
+        run_git(root, &add)?;
+        let subject = format!("seal {version}");
+        let trailer = format!("Fairlead-Version: {version}");
+        let mut commit = vec![
+            "commit", "-q", "-m", &subject, "-m", &trailer, "--only", "--",
+        ];
+        commit.extend(paths.iter().map(RepoPath::as_str));
+        run_git(root, &commit).map(|_| ())
+    }
+
+    /// `seal --tag`: an annotated tag `fairlead/<version>` on the commit just made (R-VER-050 step 7).
+    pub fn tag(root: &Root, version: &str) -> Result<(), Error> {
+        let name = format!("fairlead/{version}");
+        let msg = format!("fairlead {version}");
+        run_git(root, &["tag", "-a", &name, "-m", &msg]).map(|_| ())
     }
 
     /// `(detached, branch name)` of HEAD (R-GIT-065, R-VER-055). An unborn HEAD is a branch.
@@ -458,7 +508,13 @@ mod tests {
     #[test]
     fn r_arch_005__the_git_library_is_named_only_in_git_rs() {
         // The needles are built from pieces so this file does not contain them.
-        let needles = [concat!("git", "2::"), concat!("use git", "2")];
+        // R-GIT-076: the one subprocess (the `git` executable) also lives only here.
+        let needles = [
+            concat!("git", "2::"),
+            concat!("use git", "2"),
+            concat!("Command", "::new"),
+            concat!("process::", "Command"),
+        ];
         let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut stack = vec![src];
         let mut checked = 0;

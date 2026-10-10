@@ -281,6 +281,12 @@ pub struct SealArgs {
     /// Seal on any branch (`version.seal-where = "any"`), for solo work (R-VER-055).
     #[arg(long)]
     pub anywhere: bool,
+    /// Commit exactly the seal's files with the user's `git` (trailer `Fairlead-Version`).
+    #[arg(long)]
+    pub commit: bool,
+    /// Tag the seal commit `fairlead/<version>`; needs `--commit`.
+    #[arg(long, requires = "commit")]
+    pub tag: bool,
 }
 
 /// Arguments of a verb that arrives later. They are accepted so the refusal is exact (R-CLI-001).

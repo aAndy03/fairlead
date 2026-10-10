@@ -117,6 +117,57 @@ fn r_ver_051__a_rerun_after_sealing_refuses_and_changes_nothing() {
 }
 
 #[test]
+fn r_git_003__commit_makes_one_commit_of_the_seal_with_the_trailer_and_tag() {
+    let repo = ready_repo();
+    repo.git(&["config", "user.name", "seal test"]);
+    repo.git(&["config", "user.email", "seal@test.invalid"]);
+    let before = repo.git(&["rev-list", "--count", "HEAD"]);
+    let run = repo.run(&[
+        "seal",
+        "--yes",
+        "--anywhere",
+        "--commit",
+        "--tag",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("committed and tagged fairlead/0.1.0"));
+    let after = repo.git(&["rev-list", "--count", "HEAD"]);
+    assert_eq!(
+        after.trim().parse::<u32>().unwrap(),
+        before.trim().parse::<u32>().unwrap() + 1,
+        "exactly one commit"
+    );
+    let msg = repo.git(&["log", "-1", "--format=%B"]);
+    assert!(
+        msg.contains("seal 0.1.0") && msg.contains("Fairlead-Version: 0.1.0"),
+        "{msg}"
+    );
+    assert!(
+        repo.git_status().trim().is_empty(),
+        "nothing left uncommitted"
+    );
+    assert!(repo.git(&["tag", "--list"]).contains("fairlead/0.1.0"));
+}
+
+#[test]
+fn r_git_003__no_git_write_without_commit() {
+    let repo = ready_repo();
+    let before = repo.git(&["rev-parse", "HEAD"]);
+    assert_eq!(
+        repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF])
+            .code,
+        0
+    );
+    assert_eq!(repo.git(&["rev-parse", "HEAD"]), before);
+    assert!(
+        !repo.git_status().trim().is_empty(),
+        "the seal is left for the user to commit"
+    );
+}
+
+#[test]
 fn r_ver_055__seal_refuses_off_the_integration_branch() {
     let repo = ready_repo();
     repo.git(&["checkout", "-q", "-b", "feature/x"]);

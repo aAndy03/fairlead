@@ -1,6 +1,7 @@
 //! `fairlead seal` (R-CLI-041, R-VER-050). Plan-only without `--yes` (R-CLI-002).
 
 use fairlead_core::error::Error;
+use fairlead_core::git::GitRepo;
 use fairlead_core::outcome::ExitCode;
 use fairlead_core::pipeline::{
     SealRequest, WriteSession, commit_plan, load, plan_seal, resolve_loaded,
@@ -53,9 +54,20 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
         return Ok(result);
     }
     let outcome = commit_plan(&session, plan)?;
+    let version = seal_plan.open.to_string();
+    let tail = if args.commit {
+        GitRepo::commit_paths(&loaded.root, &outcome.report.written, &version)?;
+        if args.tag {
+            GitRepo::tag(&loaded.root, &version)?;
+            format!("sealed {version}; committed and tagged fairlead/{version}\n")
+        } else {
+            format!("sealed {version}; committed\n")
+        }
+    } else {
+        format!("sealed {version}; run: git add -A && git commit   (or re-run with --commit)\n")
+    };
     Ok(CommandResult::text(format!(
-        "{head}{}sealed {}; run: git add -A && git commit\n",
-        changed_list(&outcome.report),
-        seal_plan.open
+        "{head}{}{tail}",
+        changed_list(&outcome.report)
     )))
 }
