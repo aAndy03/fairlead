@@ -9,9 +9,9 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 11] = [
-    HN_G003, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V008, HN_V009, HN_V011,
-    HN_V015,
+const CODES: [DiagCode; 12] = [
+    HN_G003, HN_M008, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V008, HN_V009,
+    HN_V011, HN_V015,
 ];
 
 /// R-EDN-032: a generated file whose header names another edition than the codebase's is the
@@ -242,6 +242,18 @@ fn incomplete_writes(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
                 }
             }
         }
+    }
+    if scope == cx.registry.root_scope() && cx.facts.pending_move {
+        let msg = "an interrupted move left mixed membership and stale shards".to_owned();
+        if let Some(cp) = crate::check::builtin::control_path(cx.registry, scope) {
+            out.push(
+                DiagB::new(HN_M008, &cp, 0, 0, msg.clone())
+                    .hint("run any writer (fairlead sync) to replay or roll the move back (R-PORT-005)")
+                    .text(msg)
+                    .build(),
+            );
+        }
+        return;
     }
     if scope == cx.registry.root_scope() && cx.facts.pending_journal {
         let msg = "an interrupted write left its journal (.fairlead/sync.journal)".to_owned();

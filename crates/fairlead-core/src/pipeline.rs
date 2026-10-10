@@ -833,6 +833,382 @@ pub fn plan_rename(
     })
 }
 
+/// `move SRC DST` (R-CLI-040).
+#[derive(Clone, Debug)]
+pub struct MoveRequest {
+    pub src: RepoPath,
+    pub dst: RepoPath,
+    pub allow_dirty: bool,
+}
+
+/// The `move` plan: the write-set, the obligations diff (`+ rule.x`, `- rule.y`, inert
+/// exceptions), the code sites to fix by hand, and what refuses the move.
+pub struct MoveOut {
+    pub plan: Plan,
+    pub hash: String,
+    pub obligations: Vec<String>,
+    pub code_sites: Vec<String>,
+    /// R-PORT-004: a loosening reparent; applying needs `fairlead approve move-<fp>`.
+    pub loosening: bool,
+    pub fp: crate::hash::Fingerprint,
+}
+
+/// The deepest resolved scope whose directory holds `p`, skipping `moving` scopes.
+use crate::registry::ScopeId;
+
+fn owner_of(reg: &Registry, p: &str, moving: &BTreeSet<ScopeId>) -> ScopeId {
+    reg.scopes()
+        .filter(|s| !moving.contains(&s.id))
+        .filter(|s| {
+            let d = s.dir.as_str();
+            d.is_empty() || p == d || p.starts_with(&format!("{d}/"))
+        })
+        .max_by_key(|s| s.dir.as_str().len())
+        .map_or_else(|| reg.root_scope().clone(), |s| s.id.clone())
+}
+
+fn rule_ids(rules: &crate::check::RuleSet, s: &ScopeId) -> BTreeSet<String> {
+    rules
+        .for_scope(s)
+        .iter()
+        .map(|r| format!("rule.{}", r.id.0.as_str()))
+        .collect()
+}
+
+/// R-CLI-040, R-CLI-044, R-PORT-004 to R-PORT-006: plan a move of a file, a folder or a scope.
+/// Files move (create plus delete); quoted paths and globs in control files and docs follow;
+/// code sites are listed; a draft restructure doc covering both paths is written (R-VER-032).
+pub fn plan_move(loaded: &Loaded, reg: &Registry, req: &MoveRequest) -> Result<MoveOut, Error> {
+    use crate::restructure::{code_sites, moved_path, needles, rel_to, rewrite_quoted};
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let (src, dst) = (req.src.as_str().to_owned(), req.dst.as_str().to_owned());
+    if src.is_empty() || dst.is_empty() || src == dst {
+        return Err(Error::Usage(
+            "move needs two different paths under the root".into(),
+        ));
+    }
+    if moved_path(&dst, &src, &dst).is_some() && dst.starts_with(&format!("{src}/")) {
+        return Err(Error::Usage(format!("cannot move {src} into itself")));
+    }
+    let files: Vec<&RepoPath> = loaded
+        .walk
+        .files
+        .iter()
+        .map(|e| &e.path)
+        .filter(|p| moved_path(p.as_str(), &src, &dst).is_some())
+        .collect();
+    if files.is_empty() {
+        return Err(Error::Usage(format!(
+            "{src} names no file or folder in the tree"
+        )));
+    }
+    if loaded
+        .walk
+        .files
+        .iter()
+        .any(|e| moved_path(e.path.as_str(), &dst, &dst).is_some())
+    {
+        return Err(refusal(
+            crate::error::RefusalKind::NoClobber,
+            format!("{dst} already exists"),
+            "pick a new destination; move never overwrites",
+        ));
+    }
+    let moving: BTreeSet<ScopeId> = reg
+        .scopes()
+        .filter(|s| !s.dir.as_str().is_empty() && moved_path(s.dir.as_str(), &src, &dst).is_some())
+        .map(|s| s.id.clone())
+        .collect();
+    let rules = crate::check::RuleSet::collect(reg);
+    // Obligations: what applies to each moved scope, or to the moved files' owner, before and after.
+    let mut obligations: Vec<String> = Vec::new();
+    let mut loosening = false;
+    let mut diff =
+        |label: &str, before: BTreeSet<String>, after: BTreeSet<String>, out: &mut Vec<String>| {
+            for r in after.difference(&before) {
+                out.push(format!("+ {r} ({label})"));
+            }
+            for r in before.difference(&after) {
+                out.push(format!("- {r} ({label})"));
+                loosening = true;
+            }
+        };
+    for s in reg.scopes().filter(|s| moving.contains(&s.id)) {
+        let new_dir = moved_path(s.dir.as_str(), &src, &dst).unwrap_or_default();
+        let new_parent = owner_of(reg, &new_dir, &moving);
+        let own: BTreeSet<String> = rules
+            .for_scope(&s.id)
+            .iter()
+            .filter(|r| r.home == s.id)
+            .map(|r| format!("rule.{}", r.id.0.as_str()))
+            .collect();
+        let before = rule_ids(&rules, &s.id);
+        let after: BTreeSet<String> = rule_ids(&rules, &new_parent).union(&own).cloned().collect();
+        diff(
+            &format!("scope {}", s.id.0.as_str()),
+            before,
+            after,
+            &mut obligations,
+        );
+        // R-PORT-006: grants from ancestors that are no longer ancestors lapse.
+        let old_chain: BTreeSet<&ScopeId> = reg.chain(&s.id).into_iter().collect();
+        let mut new_chain: BTreeSet<&ScopeId> = reg.chain(&new_parent).into_iter().collect();
+        new_chain.insert(&s.id);
+        for a in reg.grants().iter().filter(|a| {
+            a.for_scopes.contains(&s.id)
+                && old_chain.contains(&a.granting)
+                && !new_chain.contains(&a.granting)
+        }) {
+            for o in reg
+                .overrides()
+                .iter()
+                .filter(|o| o.declared_in == s.id && o.target == a.target)
+            {
+                obligations.push(format!(
+                    "~ inert ovr {}.{} at {}:{} (the [[allow]] {} of {} lapses)",
+                    o.target.kind.as_str(),
+                    o.target.name.as_str(),
+                    o.at.path.as_str(),
+                    o.at.line,
+                    a.id,
+                    a.granting.0.as_str()
+                ));
+            }
+        }
+    }
+    if moving.is_empty() {
+        let old_owner = reg
+            .scope_of(files[0])
+            .cloned()
+            .unwrap_or_else(|| reg.root_scope().clone());
+        let new_owner = owner_of(reg, &dst, &moving);
+        if old_owner != new_owner {
+            diff(
+                &format!(
+                    "{src} from scope {} to {}",
+                    old_owner.0.as_str(),
+                    new_owner.0.as_str()
+                ),
+                rule_ids(&rules, &old_owner),
+                rule_ids(&rules, &new_owner),
+                &mut obligations,
+            );
+        }
+    }
+    let read = |p: &RepoPath| -> Result<Vec<u8>, Error> {
+        let b = std::fs::read(loaded.root.dir.join(p.as_str()).as_std_path())
+            .map_err(|e| Error::io(p.as_str(), "read", &e, false))?;
+        Ok(match String::from_utf8(b) {
+            Ok(t) => t.replace("\r\n", "\n").into_bytes(),
+            Err(e) => e.into_bytes(),
+        })
+    };
+    let managerial = |p: &RepoPath| {
+        p.as_str().split('/').any(|seg| seg == loaded.root.folder)
+            && (p.as_str().ends_with(".toml") || p.as_str().ends_with(".md"))
+            && !p.as_str().contains("/gen/")
+    };
+    let mut set = WriteSet::new(WriteSetKind::Move);
+    let mut lines = Vec::new();
+    let mut code = Vec::new();
+    let pats = needles(&src);
+    for e in &loaded.walk.files {
+        let p = &e.path;
+        let target = moved_path(p.as_str(), &src, &dst);
+        let mut text_rewrite = false;
+        let old = if target.is_some() || managerial(p) {
+            Some(read(p)?)
+        } else {
+            None
+        };
+        let mut new = old.clone();
+        if managerial(p)
+            && let Some(o) = &old
+            && let Ok(t) = std::str::from_utf8(o)
+        {
+            let dir = reg
+                .scope_of(p)
+                .and_then(|s| reg.scope(s))
+                .map(|s| s.dir.as_str().to_owned())
+                .unwrap_or_default();
+            let mut r = rewrite_quoted(t, &src, &dst);
+            if let (Some(a), Some(b)) = (rel_to(&dir, &src), rel_to(&dir, &dst))
+                && !dir.is_empty()
+            {
+                r = rewrite_quoted(&r, &a, &b);
+            }
+            text_rewrite = r != t;
+            new = Some(r.into_bytes());
+        }
+        let class = loaded
+            .corpus
+            .records
+            .get(p)
+            .map_or(crate::classify::FileClass::Authored, |r| r.class);
+        match (target, old, new) {
+            (Some(to), Some(old), Some(new)) => {
+                let to = RepoPath::new(&to).map_err(|e| Error::Usage(format!("{to}: {e:?}")))?;
+                set.add(PlannedWrite {
+                    path: to.clone(),
+                    kind: WriteKind::Create,
+                    bytes: new,
+                    class,
+                    expect_prior: None,
+                })?;
+                set.add(PlannedWrite {
+                    path: p.clone(),
+                    kind: WriteKind::Delete,
+                    bytes: Vec::new(),
+                    class,
+                    expect_prior: Some(crate::hash::hash_normalised(&old)),
+                })?;
+                lines.push(PlanLine {
+                    action: PlanAction::Create,
+                    path: to,
+                    detail: format!("moved from {}", p.as_str()),
+                    diff: None,
+                });
+            }
+            (None, Some(old), Some(new)) if text_rewrite => {
+                set.add(PlannedWrite {
+                    path: p.clone(),
+                    kind: WriteKind::Replace,
+                    bytes: new,
+                    class,
+                    expect_prior: Some(crate::hash::hash_normalised(&old)),
+                })?;
+                lines.push(PlanLine {
+                    action: PlanAction::Edit,
+                    path: p.clone(),
+                    detail: format!("paths {src} -> {dst}"),
+                    diff: None,
+                });
+            }
+            _ => {}
+        }
+        if class == crate::classify::FileClass::Authored && !managerial(p) {
+            let text = std::fs::read_to_string(loaded.root.dir.join(p.as_str()).as_std_path())
+                .unwrap_or_default();
+            code.extend(code_sites(p, &text, &pats));
+        }
+    }
+    // R-VER-032, R-CHK-044: a generated restructure doc covers the move under docs-first.
+    let id = crate::docs::DraftId::from_bits({
+        let h = crate::hash::hash_raw(format!("move {src} {dst}").as_bytes());
+        let mut b = [0u8; 5];
+        b.copy_from_slice(&h.0[..5]);
+        b
+    });
+    let slug = crate::docs::slug(&format!("restructure {dst}"));
+    let doc_path = RepoPath::new(&format!(
+        "{}/docs/changes/{id}-{slug}.md",
+        loaded.root.folder
+    ))
+    .map_err(|e| Error::Internal(format!("{e:?}")))?;
+    let glob = |p: &str, file: bool| {
+        if file {
+            p.to_owned()
+        } else {
+            format!("{p}/**")
+        }
+    };
+    let is_file = files.len() == 1 && files[0].as_str() == src;
+    let doc = format!(
+        "+++\nid = \"{id}\"\nkind = \"chore\"\nstatus = \"draft\"\nimpact = \"fix\"\nscope = \"root\"\ntitle = \"Restructure: move {src} to {dst}\"\ncovers = [\"{}\", \"{}\"]\ncreated = \"{}\"\nrestructure = true\n+++\n\n# Restructure: move {src} to {dst}\n\nWritten by `fairlead move`. Obligations:\n\n{}\n",
+        glob(&src, is_file),
+        glob(&dst, is_file),
+        version_line(loaded).open,
+        if obligations.is_empty() {
+            "- none".to_owned()
+        } else {
+            obligations
+                .iter()
+                .map(|o| format!("- {o}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        }
+    );
+    set.add(PlannedWrite {
+        path: doc_path.clone(),
+        kind: WriteKind::Create,
+        bytes: doc.into_bytes(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: None,
+    })?;
+    lines.push(PlanLine {
+        action: PlanAction::Create,
+        path: doc_path,
+        detail: "restructure doc (draft)".into(),
+        diff: None,
+    });
+    let plan = Plan::new(set, lines, Vec::new());
+    let hash = crate::upgrade::hash_text(&plan.plan_hash);
+    let fp = crate::hash::Fingerprint::from_hash(&plan.plan_hash);
+    Ok(MoveOut {
+        plan,
+        hash,
+        obligations,
+        code_sites: code,
+        loosening,
+        fp,
+    })
+}
+
+/// R-PORT-004, R-GIT-062: a loosening move needs `fairlead approve move-<fp>`; the write-set must
+/// equal HEAD unless `--allow-dirty`.
+pub fn move_gate(loaded: &Loaded, out: &MoveOut, allow_dirty: bool) -> Result<(), Error> {
+    if out.loosening
+        && !loaded
+            .facts
+            .approvals
+            .approvals
+            .iter()
+            .any(|a| a.fp == out.fp)
+    {
+        return Err(refusal(
+            crate::error::RefusalKind::PlanNotConfirmed,
+            format!(
+                "the move loosens the restrictions of the moved subtree (rules stop applying); a human runs `fairlead approve move-{}` to accept it",
+                out.fp.as_str()
+            ),
+            &format!(
+                "a human runs `fairlead approve move-{}` to accept it (R-PORT-004)",
+                out.fp.as_str()
+            ),
+        ));
+    }
+    if !allow_dirty && let Some(repo) = crate::git::GitRepo::open(&loaded.root) {
+        let changed = repo.changed_files()?.0;
+        if let Some(p) = out
+            .plan
+            .set
+            .writes
+            .iter()
+            .filter(|(_, w)| w.kind != crate::write::WriteKind::Create)
+            .map(|(p, _)| p)
+            .find(|p| changed.contains(*p))
+        {
+            return Err(refusal(
+                crate::error::RefusalKind::PlanNotConfirmed,
+                format!(
+                    "{} differs from HEAD; the write-set must equal HEAD",
+                    p.as_str()
+                ),
+                "commit or stash it, or pass --allow-dirty",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn refusal(kind: crate::error::RefusalKind, message: String, hint: &str) -> Error {
+    Error::Refused(crate::error::Refusal {
+        kind,
+        message,
+        hint: hint.into(),
+    })
+}
+
 /// What `upgrade --yes` may do (R-EDN-031).
 pub enum UpgradeGate {
     /// A ready, approved doc matches the plan hash and the write-set is clean.
@@ -1117,6 +1493,9 @@ pub fn approve_preview_loaded(
         return Ok(p);
     }
     if let Some(p) = crate::write::pin_preview(request, registry, &loaded.facts)? {
+        return Ok(p);
+    }
+    if let Some(p) = crate::write::move_preview(request, registry, &loaded.facts)? {
         return Ok(p);
     }
     approve_preview(request, registry, &loaded.facts)

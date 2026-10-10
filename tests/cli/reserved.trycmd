@@ -1,7 +1,7 @@
 ```console
-$ fairlead move a b
+$ fairlead move a b --cut
 ? 2
-move arrives in 0.2
+move --cut arrives in 0.3
 
 $ fairlead upgrade --fetch
 ? 2

@@ -277,6 +277,7 @@ impl Kit {
             doc_body_hashes: Default::default(),
             version_texts: Default::default(),
             pending_journal: false,
+            pending_move: false,
             tombstones: Default::default(),
             authority: Vec::new(),
             manifest_hints: ManifestHints {

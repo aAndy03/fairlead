@@ -75,6 +75,8 @@ pub struct Facts {
     pub version_texts: BTreeMap<RepoPath, Arc<str>>,
     /// A write journal is left over: an interrupted writer (R-GIT-051, H-TX-INCOMPLETE).
     pub pending_journal: bool,
+    /// The left-over journal belongs to a `move` (R-PORT-005, MOVE-INCOMPLETE).
+    pub pending_move: bool,
     /// Tombstone year files (`<folder>/tombstones/<year>.toml`), raw text (R-LC-020).
     pub tombstones: BTreeMap<RepoPath, Arc<str>>,
     /// Authority records and the signature state of the commit that last wrote each, filled only
@@ -325,12 +327,13 @@ pub fn collect_facts_with(
             parse_approvals(&bytes).map_err(|f| Error::from(f.with_path(&approvals_rel)))?;
     }
     facts.git = git;
-    facts.pending_journal = root
-        .dir
-        .join(".fairlead")
-        .join("sync.journal")
-        .as_std_path()
-        .is_file();
+    let journal = root.dir.join(".fairlead").join("sync.journal");
+    facts.pending_journal = journal.as_std_path().is_file();
+    facts.pending_move = facts.pending_journal
+        && std::fs::read(journal.as_std_path())
+            .ok()
+            .and_then(|b| serde_json::from_slice::<crate::write::JournalDoc>(&b).ok())
+            .is_some_and(|d| d.kind.as_deref() == Some("Move"));
     facts.manifest_hints = read_manifest_hints(root, walk);
     Ok(facts)
 }

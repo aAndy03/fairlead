@@ -120,6 +120,31 @@ pub fn approve_preview(
     ))
 }
 
+/// `approve move-<fp>` (R-PORT-004): approves one loosening move plan.
+pub fn move_preview(
+    req: &ApproveRequest,
+    reg: &Registry,
+    facts: &Facts,
+) -> Result<Option<ApprovePreview>, Error> {
+    let Some(fp) = req.target.strip_prefix("move-") else {
+        return Ok(None);
+    };
+    let fp = Fingerprint::parse(fp).map_err(|e| Error::Usage(format!("move-{fp}: {e:?}")))?;
+    let already = facts.approvals.approvals.iter().any(|a| a.fp == fp);
+    let mut line = format!("loosening move, plan {}", fp.as_str());
+    if already {
+        line.push_str(" (already approved)");
+    }
+    Ok(Some(ApprovePreview {
+        confirm_prefix: fp.as_str().chars().take(4).collect(),
+        fp,
+        target: Id::parse("move.reparent").map_err(|_| Error::Internal("move id".into()))?,
+        ovr_line: sanitize_data(&line, 240),
+        scope: reg.root_scope().clone(),
+        exp: None,
+    }))
+}
+
 /// `approve pin` (R-EDN-006): approves the root's current pins, so a lowered pin stops being a
 /// relaxation. Any later change to a pin needs a new approval.
 pub fn pin_preview(

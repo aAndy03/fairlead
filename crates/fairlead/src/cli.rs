@@ -1,7 +1,7 @@
 //! clap derive tree: the fixed verb set (R-CLI-001), common flags (R-CLI-006) and the
 //! [0.1] arguments of each verb from the flag table of 15-cli.md. Parsing only; no behaviour here.
 
-use crate::commands::{self, CommandResult, reserved::ReservedVerb};
+use crate::commands::{self, CommandResult};
 use crate::output::{write_internal_error, write_text};
 use camino::Utf8PathBuf;
 use clap::builder::TypedValueParser as _;
@@ -84,8 +84,8 @@ pub enum Command {
     Explain(ExplainArgs),
     /// Record or list human approvals; terminal-gated (R-CLI-037).
     Approve(ApproveArgs),
-    /// Arrives in 0.2 (R-CLI-040).
-    Move(ReservedArgs),
+    /// Relocate files, folders and scopes; rewrites fairlead's own text only (R-CLI-040).
+    Move(MoveArgs),
     /// Close the open version: seal ready change docs, write the version file last (R-CLI-041).
     Seal(SealArgs),
     /// Move a codebase one edition forward through an approved, plan-hashed transaction (R-CLI-042).
@@ -312,6 +312,52 @@ pub struct SealArgs {
 }
 
 #[derive(Args, Debug, Clone, Default)]
+pub struct MoveArgs {
+    /// The file, folder or scope directory to move.
+    #[arg(value_name = "SRC")]
+    pub src: String,
+    /// Where it goes; omitted for --detach, --demote and --delete.
+    #[arg(value_name = "DST")]
+    pub dst: Option<String>,
+    /// Print the plan and write nothing; exit 0.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Apply the plan.
+    #[arg(long)]
+    pub yes: bool,
+    /// Apply although files of the write-set differ from HEAD (R-GIT-062).
+    #[arg(long)]
+    pub allow_dirty: bool,
+    /// Merge into an existing scope or folder; colliding IDs are renamed through aliases.
+    #[arg(long)]
+    pub merge: bool,
+    /// Detach a scope from its ancestors without moving it (R-CLI-047).
+    #[arg(long)]
+    pub detach: bool,
+    /// Turn a scope back into a folder of its parent.
+    #[arg(long)]
+    pub demote: bool,
+    /// Delete a scope; its items are tombstoned (R-PORT-010).
+    #[arg(long)]
+    pub delete: bool,
+    /// With --delete: override the zero-live-references gate (needs an approve record).
+    #[arg(long)]
+    pub force: bool,
+    /// Arrives in 0.3.
+    #[arg(long)]
+    pub cut: bool,
+    /// Arrives in 0.3.
+    #[arg(long)]
+    pub copy: bool,
+    /// Arrives in 0.3.
+    #[arg(long)]
+    pub attach: bool,
+    /// Arrives in 0.3.
+    #[arg(long)]
+    pub adopt: bool,
+}
+
+#[derive(Args, Debug, Clone, Default)]
 pub struct UpgradeArgs {
     /// Apply: the first run writes the draft upgrade doc; an approved doc applies the plan.
     #[arg(long)]
@@ -331,13 +377,6 @@ pub struct UpgradeArgs {
     /// Rename the managerial folder (a rename step; the edition is unchanged, R-EDN-007).
     #[arg(long, value_name = "FOLDER")]
     pub rename_folder: Option<String>,
-}
-
-/// Arguments of a verb that arrives later. They are accepted so the refusal is exact (R-CLI-001).
-#[derive(Args, Debug, Clone, Default)]
-pub struct ReservedArgs {
-    #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-    pub rest: Vec<String>,
 }
 
 fn format_parser() -> impl clap::builder::TypedValueParser<Value = OutputFormat> {
@@ -388,7 +427,7 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Context(args)) => commands::context::run(&global, &args),
         Some(Command::Explain(args)) => commands::explain::run(&global, &args),
         Some(Command::Approve(args)) => commands::approve::run(&global, &args),
-        Some(Command::Move(_)) => commands::reserved::run(&global, ReservedVerb::Move),
+        Some(Command::Move(args)) => commands::mv::run(&global, &args),
         Some(Command::Seal(args)) => commands::seal::run(&global, &args),
         Some(Command::Upgrade(args)) => commands::upgrade::run(&global, &args),
     };
@@ -549,10 +588,14 @@ mod tests {
     }
 
     #[test]
-    fn r_cli_001__a_reserved_verb_dispatches_to_exit_2() {
+    fn r_cli_001__a_later_flag_dispatches_to_exit_2() {
         let cli = Cli {
             global: GlobalArgs::default(),
-            command: Some(Command::Move(ReservedArgs::default())),
+            command: Some(Command::Move(MoveArgs {
+                src: "a".into(),
+                cut: true,
+                ..MoveArgs::default()
+            })),
         };
         assert_eq!(dispatch(cli), ExitCode::Usage);
     }

@@ -39,6 +39,8 @@ pub enum WriteSetKind {
     Upgrade,
     /// R-EDN-007: marker and folder rename; directive lines anywhere and managerial files move.
     Rename,
+    /// R-CLI-040: `move` relocates any file and rewrites fairlead's own text.
+    Move,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -132,7 +134,7 @@ fn allowed(kind: WriteSetKind, w: &PlannedWrite, folder: &str) -> bool {
             (Some(0), ["versions", _]) => w.class == FileClass::Authored && ext == "md",
             _ => false,
         },
-        WriteSetKind::Rename => !segs.starts_with(&[".fairlead"]),
+        WriteSetKind::Rename | WriteSetKind::Move => !segs.starts_with(&[".fairlead"]),
         WriteSetKind::Upgrade => match (fpos, after.as_slice()) {
             (Some(_), ["gen", ..]) => w.class == FileClass::Generated,
             (Some(0), ["control.toml"]) => w.class == FileClass::Authored,

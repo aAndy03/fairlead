@@ -279,6 +279,7 @@ impl<'l> Transaction<'l> {
         Ok(JournalDoc {
             tx: txid.to_owned(),
             entries,
+            kind: Some(format!("{:?}", self.set.kind)),
         })
     }
 

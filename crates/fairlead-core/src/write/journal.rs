@@ -127,6 +127,9 @@ pub struct JournalEntry {
 pub struct JournalDoc {
     pub tx: String,
     pub entries: Vec<JournalEntry>,
+    /// The write-set kind (`Move`, `Seal`...), so `check` can name an interrupted `move`.
+    #[serde(default)]
+    pub kind: Option<String>,
 }
 
 /// `.fairlead/sync.journal` (R-CLI-007).
@@ -233,6 +236,7 @@ mod tests {
                 new_hash: "00".into(),
                 exec: false,
             }],
+            kind: None,
         };
         j.write(&RealFs, &doc).unwrap();
         assert_eq!(j.read(&RealFs).unwrap(), Some(doc));
