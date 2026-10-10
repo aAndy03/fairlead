@@ -34,6 +34,8 @@ pub struct VocabConfig {
 pub struct LcConfig {
     pub warn_window: u32,
     pub stale_after: u32,
+    /// The root has an `[lc]` table.
+    pub declared: bool,
 }
 
 impl Default for LcConfig {
@@ -41,6 +43,7 @@ impl Default for LcConfig {
         Self {
             warn_window: 1,
             stale_after: 3,
+            declared: false,
         }
     }
 }
@@ -177,6 +180,7 @@ pub(crate) fn parse_vocab(cx: &mut Ctx<'_>, root: &mut toml::Table) -> VocabConf
 pub(crate) fn parse_lc(cx: &mut Ctx<'_>, root: &mut toml::Table) -> LcConfig {
     let mut out = LcConfig::default();
     if let Some(mut t) = take_table(cx, root, "", "lc") {
+        out.declared = true;
         if let Some(v) = take_u32(cx, &mut t, "lc", "warn-window") {
             out.warn_window = v;
         }

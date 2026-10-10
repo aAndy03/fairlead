@@ -175,7 +175,7 @@ impl ExtractPlan {
             styles,
             leak_properties,
             pattern_rules: Vec::new(),
-            env_scan: !rc.vocab.env_order.is_empty(),
+            env_scan: rc.lifecycle_declared(),
         })
     }
 

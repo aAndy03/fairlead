@@ -1,7 +1,8 @@
 //! Env gate tokens (R-ENV-030 to R-ENV-036): textual only, never evaluated. TS/JS files yield
 //! `import.meta.env.X` and `process.env.NODE_ENV`; Rust files `cfg(...)` (spaces removed) and
 //! `feature:X`; a `Cargo.toml` yields `package:X`, `feature:X`, `default:X` and `dep:X` (normal
-//! and target `[dependencies]` only). No AST, no `cargo metadata` (D-27, D-16).
+//! and target `[dependencies]` only). No AST, no `cargo metadata` (D-27, D-16). Native deprecation
+//! markers are tokens too: `#[deprecated]` in Rust, `@deprecated` in TS/JS (R-LC-010).
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
@@ -25,6 +26,12 @@ fn ident_end(s: &str) -> usize {
 
 fn ts_tokens(text: &str, out: &mut Vec<EnvToken>) {
     for (i, line) in text.lines().enumerate() {
+        if line.contains("@deprecated") {
+            out.push(EnvToken {
+                token: "@deprecated".into(),
+                line: line_no(i),
+            });
+        }
         let mut rest = line;
         while let Some(at) = rest.find("import.meta.env.") {
             let tail = &rest[at + 16..];
@@ -63,6 +70,12 @@ fn features_in(expr: &str, line: u32, out: &mut Vec<EnvToken>) {
 fn rust_tokens(text: &str, out: &mut Vec<EnvToken>) {
     for (i, line) in text.lines().enumerate() {
         let squashed: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+        if squashed.contains("#[deprecated") {
+            out.push(EnvToken {
+                token: "#[deprecated]".into(),
+                line: line_no(i),
+            });
+        }
         let mut rest = squashed.as_str();
         while let Some(at) = rest.find("cfg(") {
             let tail = &rest[at..];

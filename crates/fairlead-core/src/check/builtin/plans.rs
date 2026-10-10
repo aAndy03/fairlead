@@ -178,6 +178,9 @@ impl Check for PlansCheck {
                 );
             }
         }
+        if root.lifecycle_declared() {
+            native(cx, scope, &v, &dc.plans, out);
+        }
         for e in reg.edges().iter().filter(|e| e.from.scope == *scope) {
             let Some(to) = e.resolved.as_ref() else {
                 continue;
@@ -216,6 +219,77 @@ impl Check for PlansCheck {
                 b = b.severity(Severity::Error);
             }
             out.push(b.build());
+        }
+    }
+}
+
+const MARKERS: [&str; 2] = ["#[deprecated]", "@deprecated"];
+
+/// The line range a native attribute of a code `def` site may sit in: the bound extent and the
+/// two lines above it (attributes precede the item).
+fn near(site: &crate::registry::Site, line: u32) -> bool {
+    match site.extent {
+        fairlead_syntax::directive::Extent::File | fairlead_syntax::directive::Extent::Doc => true,
+        fairlead_syntax::directive::Extent::Lines { first, last } => {
+            (first.saturating_sub(2)..=last).contains(&line)
+        }
+    }
+}
+
+/// R-LC-010: a deprecate or replace plan and the language's own deprecation marker must agree on
+/// the item's code `def` sites (textual, within the bound extent). The flag stays authoritative.
+fn native(
+    cx: &CheckCx<'_>,
+    scope: &ScopeId,
+    v: &Vocab<'_>,
+    plans: &[Plan],
+    out: &mut Vec<Diagnostic>,
+) {
+    use crate::lifecycle::PlanWord;
+    let reg = cx.registry;
+    let markers = |path: &crate::path::RepoPath| -> Vec<u32> {
+        cx.corpus
+            .records
+            .get(path)
+            .map(|r| {
+                r.env_tokens
+                    .iter()
+                    .filter(|t| MARKERS.contains(&t.token.as_str()))
+                    .map(|t| t.line)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let deprecating = |id: &ItemId| {
+        plans
+            .iter()
+            .any(|p| p.item == *id && matches!(p.word, PlanWord::Deprecate | PlanWord::Replace))
+    };
+    let mut ids: Vec<&ItemId> = reg.items().map(|i| &i.id).collect();
+    ids.sort();
+    for id in ids {
+        for site in reg.sites_of(id).iter().filter(|s| s.scope == *scope) {
+            let lines = markers(&site.path);
+            let marked = lines.iter().any(|l| near(site, *l));
+            let flagged = deprecating(id) || declared_deprecated(reg, v, id);
+            let msg = match (flagged, marked) {
+                (true, false) => format!(
+                    "{} is flagged deprecated but its code has no native deprecation attribute",
+                    bare_id(id)
+                ),
+                (false, true) => format!(
+                    "{} carries a native deprecation attribute but no deprecate flag",
+                    bare_id(id)
+                ),
+                _ => continue,
+            };
+            out.push(
+                DiagB::new(HN_L001, &site.path, site.span.line, site.span.col, msg)
+                    .hint("add #[deprecated] / @deprecated, or the flag; the flag's target is authoritative")
+                    .related(bare_id(id))
+                    .text(bare_id(id))
+                    .build(),
+            );
         }
     }
 }
@@ -270,6 +344,40 @@ mod tests {
             of(&due, c::HN_R006)[0].severity,
             Severity::Error,
             "O = 1.4.1 reached"
+        );
+    }
+
+    #[test]
+    fn r_lc_010__flag_and_attribute_must_agree() {
+        let w = |flag: bool, attr: bool| {
+            let mut defs = vec!["def engine.old"];
+            if flag {
+                defs.push("flag deprecate engine.old target=9.0.0");
+            }
+            let src = format!(
+                "// fairlead: def engine.old\n{}pub fn old() {{}}\n",
+                if attr { "#[deprecated]\n" } else { "" }
+            );
+            World::new()
+                .root(&format!("{ROOT}[lc]\nwarn-window = 1\n"))
+                .file("fairlead/docs/engine.md", &doc(&defs))
+                .file("src/old.rs", &src)
+                .build()
+                .run_check(&PlansCheck)
+        };
+        assert!(of(&w(true, true), c::HN_L001).is_empty());
+        assert!(of(&w(false, false), c::HN_L001).is_empty());
+        let missing = w(true, false);
+        assert!(
+            of(&missing, c::HN_L001)[0]
+                .message
+                .contains("no native deprecation attribute")
+        );
+        let stray = w(false, true);
+        assert!(
+            of(&stray, c::HN_L001)[0]
+                .message
+                .contains("but no deprecate flag")
         );
     }
 

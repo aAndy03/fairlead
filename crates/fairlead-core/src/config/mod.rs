@@ -80,6 +80,12 @@ pub struct ControlFile {
 }
 
 impl ControlFile {
+    /// The root declares chapter 21 vocabulary (`[env]`, `[maturity]` or `[lc]`): extraction then
+    /// scans env gate tokens and native deprecation markers.
+    pub fn lifecycle_declared(&self) -> bool {
+        !self.vocab.env_order.is_empty() || !self.vocab.maturity.is_empty() || self.lc.declared
+    }
+
     /// The warnings and inert-key errors of this file: `HN-C002` per unknown key, then `violations`.
     pub fn diagnostics(&self) -> Vec<Diagnostic> {
         let mut out: Vec<Diagnostic> = self

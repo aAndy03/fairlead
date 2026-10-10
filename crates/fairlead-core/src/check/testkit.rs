@@ -174,7 +174,7 @@ impl World {
             pattern_rules: probes,
             env_scan: controls
                 .root_control()
-                .is_some_and(|c| !c.vocab.env_order.is_empty()),
+                .is_some_and(|c| c.lifecycle_declared()),
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),
