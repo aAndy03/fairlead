@@ -386,6 +386,7 @@ pub fn plan_new(
             version_line(loaded).open,
             random_bits(),
             &taken,
+            as_of,
         );
     }
     new_plan(request, registry, &loaded.facts, as_of)

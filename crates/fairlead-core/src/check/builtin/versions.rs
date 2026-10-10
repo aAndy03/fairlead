@@ -9,8 +9,8 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 9] = [
-    HN_G003, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V008, HN_V009,
+const CODES: [DiagCode; 10] = [
+    HN_G003, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V008, HN_V009, HN_V015,
 ];
 
 fn in_scope(cx: &CheckCx<'_>, d: &ChangeDoc, scope: &ScopeId) -> bool {
@@ -219,6 +219,57 @@ fn incomplete_writes(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
     }
 }
 
+/// R-VER-047: an open hotfix doc is a backfill debt. It warns while open and is an error once
+/// `opened` plus `docs-first.hotfix-window` whole UTC days (default 3) is before `--as-of`.
+fn hotfix_debts(cx: &CheckCx<'_>, scope: &ScopeId, docs: &[ChangeDoc], out: &mut Vec<Diagnostic>) {
+    use crate::diag::Severity;
+    let window = crate::check::builtin::root_control(cx.registry)
+        .and_then(|c| c.docs_first.hotfix_window)
+        .unwrap_or(3);
+    for d in docs.iter().filter(|d| d.hotfix && in_scope(cx, d, scope)) {
+        if !matches!(
+            d.status,
+            crate::docs::Status::Draft | crate::docs::Status::Ready
+        ) {
+            continue;
+        }
+        let opened = d
+            .extra
+            .get("opened")
+            .and_then(|o| o.parse::<jiff::civil::Date>().ok());
+        let deadline = opened.and_then(|o| {
+            o.checked_add(jiff::Span::new().days(i64::from(window)))
+                .ok()
+        });
+        let (severity, msg) = match deadline {
+            Some(dl) if cx.options.as_of.0 > dl => (
+                Severity::Error,
+                format!("hotfix debt {} is past its deadline {dl}", d.id),
+            ),
+            Some(dl) => (
+                Severity::Warn,
+                format!("hotfix debt {} is open until {dl}", d.id),
+            ),
+            None => (
+                Severity::Warn,
+                format!("hotfix debt {} has no `opened` date", d.id),
+            ),
+        };
+        out.push(
+            DiagB::new(HN_V015, &d.path, 1, 1, msg.clone())
+                .severity(severity)
+                .stage(if severity == Severity::Error {
+                    crate::config::Stage::Enforce
+                } else {
+                    crate::config::Stage::Warn
+                })
+                .hint("fill the doc and set status = \"ready\", or seal it")
+                .text(msg)
+                .build(),
+        );
+    }
+}
+
 /// Seals a scope may lag behind its ancestors before `H-SYNC-ANCESTOR` turns from info to warn
 /// (`version.ancestor-grace`, default 3, R-VER-020; the key is read once `[version]` is parsed).
 const ANCESTOR_GRACE: usize = 3;
@@ -372,6 +423,7 @@ impl Check for VersionsCheck {
                 );
             }
         }
+        hotfix_debts(cx, scope, &docs, out);
         ledger_continuity(cx, scope, out);
         version_line_integrity(cx, scope, out);
         incomplete_writes(cx, scope, out);
@@ -796,6 +848,31 @@ mod tests {
             "bulk may cover all"
         );
         assert_eq!(of(&run("change", "\"../other/**\""), c::HN_V008).len(), 1);
+    }
+
+    #[test]
+    fn r_ver_047__hotfix_debt_warns_then_errors_after_the_window() {
+        use crate::diag::Severity;
+        let doc = change(
+            "d-00000001",
+            "draft",
+            "hotfix = true\nopened = \"2026-10-01\"\n",
+        );
+        let run = |as_of: &str| {
+            let mut b = World::new()
+                .file("fairlead/docs/changes/d-00000001-h.md", &doc)
+                .build();
+            b.as_of = crate::time::AsOf::parse(as_of).unwrap();
+            b.run_check(&VersionsCheck)
+        };
+        assert_eq!(
+            of(&run("2026-10-04"), c::HN_V015)[0].severity,
+            Severity::Warn
+        );
+        assert_eq!(
+            of(&run("2026-10-05"), c::HN_V015)[0].severity,
+            Severity::Error
+        );
     }
 
     #[test]

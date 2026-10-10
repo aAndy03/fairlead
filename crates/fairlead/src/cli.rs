@@ -219,6 +219,9 @@ pub struct NewArgs {
     /// Lift identical file-local lines into one scope-level item (R-SCOPE-013).
     #[arg(long)]
     pub hoist: bool,
+    /// `new change --hotfix`: open a backfill debt (needs `docs-first.hotfix = true`, R-VER-047).
+    #[arg(long)]
+    pub hotfix: bool,
 }
 
 #[derive(Args, Debug, Clone)]

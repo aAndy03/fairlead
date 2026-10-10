@@ -208,10 +208,21 @@ pub fn new_change_plan(
     open: crate::version::Version,
     bits: [u8; 5],
     taken: &BTreeSet<crate::docs::DraftId>,
+    as_of: AsOf,
 ) -> Result<Plan, Error> {
     use crate::docs::{DraftId, slug};
     let cx = ctx(req, reg)?;
-    check_fields(&req.fields, &["impact", "covers"], "change")?;
+    check_fields(&req.fields, &["impact", "covers", "hotfix"], "change")?;
+    let hotfix = req.fields.contains_key("hotfix");
+    let hotfix_on = reg
+        .scope(reg.root_scope())
+        .and_then(|s| s.control.as_ref())
+        .is_some_and(|c| c.docs_first.hotfix);
+    if hotfix && !hotfix_on {
+        return Err(Error::Usage(
+            "the hotfix path is off: set docs-first.hotfix = true at the root (R-VER-047)".into(),
+        ));
+    }
     if let Some(i) = req.fields.get("impact")
         && crate::version::Impact::parse(i).is_none()
     {
@@ -240,6 +251,10 @@ pub fn new_change_plan(
         fm.push_str(&format!("impact = \"{i}\"\n"));
     }
     let covers: Vec<String> = req.fields.get("covers").map(|c| csv(c)).unwrap_or_default();
+    if hotfix {
+        // R-VER-047: the debt window counts whole UTC days from this date.
+        fm.push_str(&format!("hotfix = true\nopened = \"{}\"\n", as_of.0));
+    }
     fm.push_str(&format!(
         "scope = {}\ntitle = {}\ncovers = {}\ncreated = \"{open}\"\n+++\n",
         toml_str(cx.scope.0.as_str()),
@@ -932,6 +947,7 @@ mod tests {
             crate::version::Version::new(1, 2, 0),
             [0, 0, 0, 0, 1],
             &taken,
+            crate::time::AsOf::parse("2026-10-09").unwrap(),
         )
     }
 

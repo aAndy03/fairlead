@@ -27,7 +27,13 @@ fn new(global: &GlobalArgs, args: &NewArgs) -> Result<CommandResult, Error> {
         kind: args.kind.clone(),
         name: args.name.clone(),
         scope: scope_pin(args.scope.as_deref())?,
-        fields: parse_fields(&args.fields)?,
+        fields: {
+            let mut f = parse_fields(&args.fields)?;
+            if args.hotfix {
+                f.insert("hotfix".to_owned(), "true".to_owned());
+            }
+            f
+        },
         print: args.print,
         at: optional_path(args.at.as_deref())?,
         hoist: args.hoist,
