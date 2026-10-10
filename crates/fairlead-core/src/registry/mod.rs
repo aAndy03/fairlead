@@ -63,6 +63,14 @@ impl Registry {
     ) -> Option<&crate::lifecycle::Tomb> {
         let name = format!("{}.{}", id.kind.as_str(), id.name.as_str());
         let chain = self.chain(from);
+        // A tombstone written as `scope:kind.name` (a merged-away scope, R-PORT-011) answers only
+        // references qualified with that scope.
+        if let fairlead_syntax::ids::IdQualifier::Scope(q) = &id.qualifier {
+            let qualified = format!("{}:{name}", q.as_str());
+            if let Some(t) = self.retired.iter().find(|t| t.id == qualified) {
+                return Some(t);
+            }
+        }
         self.retired.iter().find(|t| {
             t.is_item()
                 && t.id == name

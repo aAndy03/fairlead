@@ -704,7 +704,7 @@ pub struct Tomb {
 impl Tomb {
     /// An item tombstone (`kind.name`), not a scope's.
     pub fn is_item(&self) -> bool {
-        self.id.contains('.')
+        self.id.contains('.') && !self.id.contains(':')
     }
 }
 

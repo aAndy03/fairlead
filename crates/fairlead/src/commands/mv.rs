@@ -5,7 +5,7 @@ use fairlead_core::error::Error;
 use fairlead_core::outcome::ExitCode;
 use fairlead_core::pipeline::{
     MoveRequest, ScopeOp, WriteSession, commit_plan, load, merge_gate, move_gate, plan_detach,
-    plan_move, plan_scope_op, plan_sync, resolve_loaded, to_root_relative,
+    plan_merge, plan_move, plan_scope_op, plan_sync, resolve_loaded, to_root_relative,
 };
 use fairlead_core::write::{BaselineMode, SyncRequest, SysProbe};
 
@@ -73,15 +73,19 @@ fn mv(global: &GlobalArgs, args: &MoveArgs) -> Result<CommandResult, Error> {
                 return Err(Error::Usage("move SRC DST: DST is missing".into()));
             };
             let dst = to_root_relative(&loaded.root, &cwd, dst)?;
-            plan_move(
-                &loaded,
-                &registry,
-                &MoveRequest {
-                    src,
-                    dst,
-                    allow_dirty: args.allow_dirty,
-                },
-            )?
+            if args.merge {
+                plan_merge(&loaded, &registry, &src, &dst)?
+            } else {
+                plan_move(
+                    &loaded,
+                    &registry,
+                    &MoveRequest {
+                        src,
+                        dst,
+                        allow_dirty: args.allow_dirty,
+                    },
+                )?
+            }
         }
     };
     let mut head = format!(

@@ -1461,6 +1461,277 @@ pub fn plan_scope_op(
     })
 }
 
+/// Renames a frontmatter `def kind.name` to `def kind.name-<suffix>` (R-PORT-011).
+fn rename_def(text: &str, id: &str, suffix: &str) -> String {
+    let mut out = text.to_owned();
+    for q in ['\'', '"'] {
+        for end in [' ', q] {
+            out = out.replace(
+                &format!("{q}def {id}{end}"),
+                &format!("{q}def {id}-{suffix}{end}"),
+            );
+        }
+    }
+    out
+}
+
+/// `move SRC DST --merge` (R-PORT-011): SRC's files join DST's directory, SRC's docs join
+/// DST's managerial folder, and an ID both declare is renamed on SRC's side to
+/// `<name>-<src scope>` with a `src:kind.name` tombstone whose `by` is the new name.
+pub fn plan_merge(
+    loaded: &Loaded,
+    reg: &Registry,
+    src: &RepoPath,
+    dst: &RepoPath,
+) -> Result<MoveOut, Error> {
+    use crate::restructure::{code_sites, moved_path, needles, rewrite_quoted};
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let folder = loaded.root.folder.clone();
+    let (s, d) = (src.as_str().to_owned(), dst.as_str().to_owned());
+    let s_scope = reg.scopes().find(|x| x.dir.as_str() == s && !s.is_empty());
+    let d_scope = reg.scopes().find(|x| x.dir.as_str() == d && !d.is_empty());
+    let in_tree = |p: &str| {
+        loaded
+            .walk
+            .files
+            .iter()
+            .any(|e| moved_path(e.path.as_str(), p, p).is_some())
+    };
+    if !in_tree(&s) || !in_tree(&d) {
+        return Err(Error::Usage("--merge needs SRC and DST to exist".into()));
+    }
+    if s_scope.is_some() && d_scope.is_none() {
+        return Err(Error::Usage(
+            "a scope merges into a scope: DST is not a scope directory".into(),
+        ));
+    }
+    let src_mgr = format!("{s}/{folder}");
+    let dst_mgr = format!("{d}/{folder}");
+    if let Some(sc) = s_scope
+        && let Some(c) = sc.control.as_ref()
+        && (!c.rules.is_empty()
+            || !c.kinds.is_empty()
+            || !c.ovrs.is_empty()
+            || !c.allows.is_empty())
+    {
+        return Err(refusal(
+            crate::error::RefusalKind::PlanNotConfirmed,
+            format!("{} declares control tables", sc.id.0.as_str()),
+            "move them into the destination's control file first; merge moves docs and files",
+        ));
+    }
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    if loaded
+        .walk
+        .files
+        .iter()
+        .any(|e| e.path.as_str().starts_with(&format!("{src_mgr}/ledger/")))
+        || docs.iter().any(|x| {
+            x.status == crate::docs::Status::Sealed
+                && x.path.as_str().starts_with(&format!("{src_mgr}/"))
+        })
+    {
+        return Err(refusal(
+            crate::error::RefusalKind::PlanNotConfirmed,
+            format!("{s} has sealed history"),
+            "merging sealed ledgers and renumbering ordinals is not built yet; merge before the first seal",
+        ));
+    }
+    // R-PORT-011: live collisions are renamed; a reserved ID against a live one is an error.
+    let mut renames: Vec<String> = Vec::new();
+    let mut obligations = Vec::new();
+    let mut tombs = String::new();
+    if let (Some(sc), Some(dc)) = (s_scope, d_scope) {
+        let live = |scope: &ScopeId| -> BTreeSet<String> {
+            reg.items()
+                .filter(|i| i.id.scope == *scope)
+                .map(|i| format!("{}.{}", i.id.kind.as_str(), i.id.name.as_str()))
+                .collect()
+        };
+        let (sl, dl) = (live(&sc.id), live(&dc.id));
+        let reserved = |scope: &ScopeId| -> BTreeSet<String> {
+            reg.retired()
+                .iter()
+                .filter(|t| t.is_item() && t.scope.as_ref() == Some(scope))
+                .map(|t| t.id.clone())
+                .collect()
+        };
+        let clash: Vec<String> = reserved(&sc.id)
+            .intersection(&dl)
+            .chain(reserved(&dc.id).intersection(&sl))
+            .cloned()
+            .collect();
+        if !clash.is_empty() {
+            return Err(refusal(
+                crate::error::RefusalKind::NoClobber,
+                format!("reserved IDs collide with live ones: {}", clash.join(", ")),
+                "a tombstoned ID is reserved forever; rename the live one first (R-PORT-011)",
+            ));
+        }
+        let suffix = sc.id.0.as_str().to_owned();
+        for id in sl.intersection(&dl) {
+            renames.push(id.clone());
+            obligations.push(format!(
+                "~ {id} of {} renamed {id}-{suffix}; references qualified {}:{id} follow the alias, bare ones inside {s} now name {}'s {id}",
+                sc.id.0.as_str(),
+                sc.id.0.as_str(),
+                dc.id.0.as_str()
+            ));
+            tombs.push_str(&crate::lifecycle::tomb_text(
+                &crate::lifecycle::Tomb {
+                    file: RepoPath::root(),
+                    scope: None,
+                    id: format!("{}:{id}", sc.id.0.as_str()),
+                    removed: reg.as_of().0.to_string(),
+                    by: Some(format!("{id}-{suffix}")),
+                    why: format!(
+                        "scope {} merged into {}",
+                        sc.id.0.as_str(),
+                        dc.id.0.as_str()
+                    ),
+                    paths: Vec::new(),
+                    deleted_by: None,
+                },
+                None,
+            ));
+        }
+    }
+    let read = |p: &RepoPath| -> Result<Vec<u8>, Error> {
+        let b = std::fs::read(loaded.root.dir.join(p.as_str()).as_std_path())
+            .map_err(|e| Error::io(p.as_str(), "read", &e, false))?;
+        Ok(match String::from_utf8(b) {
+            Ok(t) => t.replace("\r\n", "\n").into_bytes(),
+            Err(e) => e.into_bytes(),
+        })
+    };
+    let mut set = WriteSet::new(WriteSetKind::Move);
+    let mut lines = Vec::new();
+    let mut code = Vec::new();
+    let pats = needles(&s);
+    let existing: BTreeSet<&str> = loaded.walk.files.iter().map(|e| e.path.as_str()).collect();
+    for e in &loaded.walk.files {
+        let p = &e.path;
+        let Some(_) = moved_path(p.as_str(), &s, &d) else {
+            let managerial = p.as_str().split('/').any(|seg| seg == folder)
+                && (p.as_str().ends_with(".toml") || p.as_str().ends_with(".md"))
+                && !p.as_str().contains("/gen/");
+            if managerial {
+                let old = read(p)?;
+                let t = String::from_utf8_lossy(&old).into_owned();
+                let new = rewrite_quoted(&t, &s, &d);
+                if new != t {
+                    set.add(PlannedWrite {
+                        path: p.clone(),
+                        kind: WriteKind::Replace,
+                        bytes: new.into_bytes(),
+                        class: crate::classify::FileClass::Authored,
+                        expect_prior: Some(crate::hash::hash_normalised(&old)),
+                    })?;
+                    lines.push(PlanLine {
+                        action: PlanAction::Edit,
+                        path: p.clone(),
+                        detail: format!("paths {s} -> {d}"),
+                        diff: None,
+                    });
+                }
+            } else if loaded
+                .corpus
+                .records
+                .get(p)
+                .is_some_and(|r| r.class == crate::classify::FileClass::Authored)
+            {
+                let text = std::fs::read_to_string(loaded.root.dir.join(p.as_str()).as_std_path())
+                    .unwrap_or_default();
+                code.extend(code_sites(p, &text, &pats));
+            }
+            continue;
+        };
+        let old = read(p)?;
+        let class = loaded
+            .corpus
+            .records
+            .get(p)
+            .map_or(crate::classify::FileClass::Authored, |r| r.class);
+        let rest_mgr = p.as_str().strip_prefix(&format!("{src_mgr}/"));
+        let target = match rest_mgr {
+            Some("control.toml") => None,
+            Some(r) if r.starts_with("gen/") => None,
+            Some(r) => Some(format!("{dst_mgr}/{r}")),
+            None => moved_path(p.as_str(), &s, &d),
+        };
+        if let Some(to) = target {
+            if existing.contains(to.as_str()) {
+                return Err(refusal(
+                    crate::error::RefusalKind::NoClobber,
+                    format!("{} and {to} collide", p.as_str()),
+                    "rename one of them first; merge never overwrites",
+                ));
+            }
+            let mut bytes = old.clone();
+            if rest_mgr.is_some() && !renames.is_empty() {
+                let mut t = String::from_utf8_lossy(&bytes).into_owned();
+                let suffix = s_scope.map_or_else(String::new, |x| x.id.0.as_str().to_owned());
+                for id in &renames {
+                    t = rename_def(&t, id, &suffix);
+                }
+                bytes = t.into_bytes();
+            }
+            let to = RepoPath::new(&to).map_err(|e| Error::Usage(format!("{to}: {e:?}")))?;
+            set.add(PlannedWrite {
+                path: to.clone(),
+                kind: WriteKind::Create,
+                bytes,
+                class,
+                expect_prior: None,
+            })?;
+            lines.push(PlanLine {
+                action: PlanAction::Create,
+                path: to,
+                detail: format!("merged from {}", p.as_str()),
+                diff: None,
+            });
+        }
+        set.add(PlannedWrite {
+            path: p.clone(),
+            kind: WriteKind::Delete,
+            bytes: Vec::new(),
+            class,
+            expect_prior: Some(crate::hash::hash_normalised(&old)),
+        })?;
+    }
+    if !tombs.is_empty() {
+        let tp = RepoPath::new(&format!(
+            "{dst_mgr}/tombstones/{}.toml",
+            reg.as_of().0.year()
+        ))
+        .map_err(|e| Error::Internal(format!("{e:?}")))?;
+        set.add(PlannedWrite {
+            path: tp.clone(),
+            kind: WriteKind::AppendBlock {
+                marker: String::new(),
+            },
+            bytes: tombs.into_bytes(),
+            class: crate::classify::FileClass::Authored,
+            expect_prior: None,
+        })?;
+        lines.push(PlanLine {
+            action: PlanAction::Edit,
+            path: tp,
+            detail: "replaced-by aliases of the renamed IDs".into(),
+            diff: None,
+        });
+    }
+    let plan = Plan::new(set, lines, Vec::new());
+    Ok(MoveOut {
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        fp: crate::hash::Fingerprint::from_hash(&plan.plan_hash),
+        plan,
+        obligations,
+        code_sites: code,
+        loosening: false,
+    })
+}
+
 /// `move SRC --detach` (R-CLI-047, R-PORT-013): refused (exit 4) unless the scope inherits
 /// nothing or is `portable`; writes `[scope] detached = true`; grants from the old ancestors
 /// lapse and the exceptions relying on them are listed as inert.

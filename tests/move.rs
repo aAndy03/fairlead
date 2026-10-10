@@ -297,3 +297,85 @@ fn r_port_013__detached_scope_is_marked_and_reported() {
     let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
     assert!(check.stdout.contains("HN-M011"), "{}", check.stdout);
 }
+
+fn mergeable() -> TempRepo {
+    let r = repo(&[
+        ("lib/fairlead/control.toml", "[fairlead]\nscope = \"lib\"\n"),
+        (
+            "lib/fairlead/docs/a.md",
+            "+++\ndirectives = ['def cmp.x sum=\"lib x\"']\n+++\n# A\n",
+        ),
+        ("lib/src/a.ts", "export const A = 1;\n"),
+        (
+            "lib2/fairlead/control.toml",
+            "[fairlead]\nscope = \"lib2\"\n",
+        ),
+        (
+            "lib2/fairlead/docs/b.md",
+            "+++\ndirectives = ['def cmp.x sum=\"lib2 x\"', 'def cmp.y sum=\"y\"']\n+++\n# B\n",
+        ),
+        ("lib2/src/b.ts", "export const B = 1;\n"),
+        ("app/fairlead/control.toml", "[fairlead]\nscope = \"app\"\n"),
+        (
+            "app/main.ts",
+            "// fairlead: use lib2:cmp.x\nexport const M = 1;\n",
+        ),
+    ]);
+    let control = r.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(&control, format!("{text}\n[kinds.cmp]\nimpl = 1\n")).unwrap();
+    assert_eq!(r.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    r.git(&["add", "-A"]);
+    r.git_commit("kinds");
+    r
+}
+
+#[test]
+fn r_port_011__collision_renamed_through_alias() {
+    let repo = mergeable();
+    let run = repo.run(&["move", "lib2", "lib", "--merge", "--yes", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let b = read(&repo, "lib/fairlead/docs/b.md");
+    assert!(
+        b.contains("'def cmp.x-lib2 sum=\"lib2 x\"'") && b.contains("'def cmp.y "),
+        "{b}"
+    );
+    assert!(
+        repo.path().join("lib/src/b.ts").exists(),
+        "files join the destination"
+    );
+    assert!(!repo.path().join("lib2/fairlead/control.toml").exists());
+    let tombs = read(&repo, "lib/fairlead/tombstones/2026.toml");
+    assert!(
+        tombs.contains("id = \"lib2:cmp.x\"") && tombs.contains("by = \"cmp.x-lib2\""),
+        "{tombs}"
+    );
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        check.stdout.contains("HN-R004") && check.stdout.contains("cmp.x-lib2"),
+        "the old qualified reference follows the alias: {}",
+        check.stdout
+    );
+    assert!(!check.stdout.contains("HN-D001"), "{}", check.stdout);
+}
+
+#[test]
+fn r_port_011__reserved_vs_live_is_error() {
+    let repo = mergeable();
+    std::fs::create_dir_all(repo.path().join("lib/fairlead/tombstones")).unwrap();
+    std::fs::write(
+        repo.path().join("lib/fairlead/tombstones/2026.toml"),
+        "[[tomb]]\nid = \"cmp.y\"\nremoved = \"0.1.0\"\nwhy = \"gone\"\n",
+    )
+    .unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("tomb");
+    let run = repo.run(&["move", "lib2", "lib", "--merge", "--yes", "--as-of", AS_OF]);
+    assert_eq!(run.code, 4, "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stderr
+            .contains("reserved IDs collide with live ones: cmp.y"),
+        "{}",
+        run.stderr
+    );
+}
