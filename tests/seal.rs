@@ -531,3 +531,56 @@ fn r_lc_032__new_change_matching_the_graveyard_needs_revisits() {
     ]);
     assert_eq!(ok.code, 0, "{}{}", ok.stdout, ok.stderr);
 }
+
+fn authority_repo(signed_records: bool) -> TempRepo {
+    let repo = ready_repo();
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        format!("{text}\n[authority]\nsigned-records = {signed_records}\n"),
+    )
+    .unwrap();
+    std::fs::create_dir_all(repo.path().join("fairlead/docs/graveyard")).unwrap();
+    std::fs::write(
+        repo.path().join("fairlead/docs/graveyard/x.md"),
+        "+++\nid = \"grv.x\"\nstate = \"rejected\"\nwhat = \"x\"\nwhy = \"y\"\nmatch = [\"never again\"]\n+++\n",
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    repo.git(&["add", "-A"]);
+    repo.git(&[
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-q",
+        "-m",
+        "reject x",
+    ]);
+    repo
+}
+
+#[test]
+fn r_lc_040__unsigned_approval_reported_in_ci_mode() {
+    let repo = authority_repo(true);
+    let ci = repo.run(&["check", "--ci", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        ci.stdout.contains("HN-X015") && ci.stdout.contains("fairlead/docs/graveyard/x.md"),
+        "{}{}",
+        ci.stdout,
+        ci.stderr
+    );
+    let plain = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        !plain.stdout.contains("HN-X015"),
+        "only under --ci: {}",
+        plain.stdout
+    );
+}
+
+#[test]
+fn r_lc_040__no_subprocess_without_setting() {
+    let repo = authority_repo(false);
+    let ci = repo.run(&["check", "--ci", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(!ci.stdout.contains("HN-X015"), "{}", ci.stdout);
+}

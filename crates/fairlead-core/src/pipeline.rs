@@ -409,6 +409,58 @@ fn graveyard_gate(loaded: &Loaded, registry: &Registry, request: &NewRequest) ->
     Ok(())
 }
 
+/// R-LC-040: under `check --ci` with `authority.signed-records = true`, find the commit that last
+/// wrote each authority record (graveyard entries that are rejected or revisited or carry
+/// `do-not-reintroduce`, and the approvals file) and ask `git verify-commit` about it. Without
+/// the setting nothing runs and no subprocess starts.
+pub fn verify_authority(loaded: &mut Loaded) -> Result<(), Error> {
+    if !loaded.root_control.authority.signed_records {
+        return Ok(());
+    }
+    let mut paths: Vec<RepoPath> = Vec::new();
+    let (entries, _) = crate::graveyard::collect(&loaded.corpus);
+    for e in &entries {
+        let dnr = loaded
+            .corpus
+            .records
+            .get(&e.path)
+            .and_then(|r| r.extraction.as_ref())
+            .and_then(|x| x.frontmatter.as_ref())
+            .is_some_and(|f| f.table.contains_key("do-not-reintroduce"));
+        if dnr
+            || matches!(
+                e.state,
+                crate::graveyard::GrvState::Rejected | crate::graveyard::GrvState::Revisited
+            )
+        {
+            paths.push(e.path.clone());
+        }
+    }
+    let approvals = RepoPath::new(&format!("{}/approvals.toml", loaded.root.folder))
+        .map_err(|e| Error::Internal(format!("approvals path: {e}")))?;
+    if !loaded.facts.approvals.approvals.is_empty() {
+        paths.push(approvals);
+    }
+    let Some(repo) = crate::git::GitRepo::open(&loaded.root) else {
+        return Ok(());
+    };
+    let mut out = Vec::new();
+    for p in paths {
+        let commit = repo.last_commit_touching(&p).map(|(c, _)| c);
+        let signed = match &commit {
+            Some(c) => crate::git::GitRepo::verify_commit(&loaded.root, c)?,
+            None => false,
+        };
+        out.push(crate::facts::AuthorityRecord {
+            path: p,
+            commit,
+            signed,
+        });
+    }
+    loaded.facts.authority = out;
+    Ok(())
+}
+
 /// `new` plan (R-CLI-028). Pure: never touches disk.
 pub fn plan_new(
     loaded: &Loaded,

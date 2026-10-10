@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod authority;
 pub mod bindings;
 pub mod controls;
 pub mod coverage;

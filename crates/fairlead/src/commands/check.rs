@@ -10,7 +10,9 @@ use fairlead_core::diag::DiagCode;
 use fairlead_core::error::Error;
 use fairlead_core::outcome::VerbOutcome;
 use fairlead_core::path::RepoPath;
-use fairlead_core::pipeline::{Loaded, check_loaded, load, resolve_loaded, to_root_relative};
+use fairlead_core::pipeline::{
+    Loaded, check_loaded, load, resolve_loaded, to_root_relative, verify_authority,
+};
 use fairlead_core::render::{OutputFormat, RenderOptions, renderer};
 use fairlead_core::time::AsOf;
 
@@ -29,7 +31,10 @@ fn check(global: &GlobalArgs, args: &CheckArgs) -> Result<CommandResult, Error> 
     let tty = stdout_is_tty();
     let format = check_format(global.format, tty, args.for_agent);
     let cwd = working_dir(global)?;
-    let loaded = load(&load_request(global, args.changed, None)?)?;
+    let mut loaded = load(&load_request(global, args.changed, None)?)?;
+    if args.ci {
+        verify_authority(&mut loaded)?;
+    }
     let registry = resolve_loaded(&loaded, as_of(global));
     let options = check_options(global, args, &loaded, &cwd)?;
     let report = check_loaded(&loaded, &registry, &options)?;

@@ -4,7 +4,14 @@ use crate::config::KindShape;
 use crate::error::Error;
 use crate::registry::Registry;
 
-pub const TOPICS: [&str; 5] = ["syntax", "kinds", "approve", "pr-template", "docs-first"];
+pub const TOPICS: [&str; 6] = [
+    "syntax",
+    "kinds",
+    "approve",
+    "pr-template",
+    "docs-first",
+    "authority",
+];
 
 /// R-AGT-031: the PR template text, printed for the team to paste; `init` never writes it.
 pub const PR_TEMPLATE: &str = "\
@@ -25,6 +32,16 @@ Every file changed since the commit that added the latest version file must matc
 glob of a draft or ready change doc in its scope. Order (doc before code) is not checked:
 squash merges erase it. A team that wants order uses an optional pre-commit hook.
 Severity follows docs-first.level: observe, warn (default) or enforce; a child scope may raise it.
+";
+
+/// R-LC-038, R-LC-039, R-LC-040: what fairlead cannot prove about who rejected or approved.
+pub const AUTHORITY: &str = "\
+Rejected, revisited and do-not-reintroduce records and [[approval]] tables are unauthenticated in the repository:
+the owner and an agent may share a git author, so fairlead cannot verify who rejected or approved anything.
+Protection is CODEOWNERS review of the managerial folder plus `fairlead approve` at a terminal (D-03).
+Optional: authority.signed-records = true makes `check --ci` run `git verify-commit` on the commit that last wrote
+each record; an unsigned one is H-AUTH-UNSIGNED (HN-X015). That proves a key signed it, not whose decision it was.
+Graveyard matching is lexical and fingerprint-based: synonyms and rewritten code evade it.
 ";
 
 /// R-CLI-035: at most 800 tokens (estimate: bytes / 4).
@@ -204,6 +221,11 @@ pub fn topic_sections(name: &str, reg: &Registry) -> Result<Vec<ExplainSection>,
         "pr-template" => Ok(vec![section(
             "pr-template",
             PR_TEMPLATE.lines().map(str::to_owned).collect(),
+            vec![],
+        )]),
+        "authority" => Ok(vec![section(
+            "authority",
+            AUTHORITY.lines().map(str::to_owned).collect(),
             vec![],
         )]),
         "docs-first" => Ok(vec![section(

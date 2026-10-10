@@ -87,6 +87,17 @@ impl GitRepo {
     /// R-GIT-003, R-GIT-076 (D-48): `seal --commit` makes exactly one commit of exactly `paths`
     /// with the `Fairlead-Version` trailer, through the user's `git` executable in the foreground
     /// so hooks and signing run. The only subprocess fairlead starts, beside `verify-commit`.
+    /// R-LC-040: `git verify-commit <rev>` as an explicit foreground subprocess; `true` when the
+    /// commit carries a good signature. Run only by `check --ci` with `authority.signed-records`.
+    pub fn verify_commit(root: &Root, rev: &str) -> Result<bool, Error> {
+        let out = std::process::Command::new("git")
+            .args(["verify-commit", rev])
+            .current_dir(root.dir.as_std_path())
+            .output()
+            .map_err(|e| Error::Internal(format!("cannot run git verify-commit: {e}")))?;
+        Ok(out.status.success())
+    }
+
     pub fn commit_paths(root: &Root, paths: &[RepoPath], version: &str) -> Result<(), Error> {
         let mut add = vec!["add", "-A", "--"];
         add.extend(paths.iter().map(RepoPath::as_str));

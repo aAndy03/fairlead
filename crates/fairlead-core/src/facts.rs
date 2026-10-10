@@ -77,6 +77,18 @@ pub struct Facts {
     pub pending_journal: bool,
     /// Tombstone year files (`<folder>/tombstones/<year>.toml`), raw text (R-LC-020).
     pub tombstones: BTreeMap<RepoPath, Arc<str>>,
+    /// Authority records and the signature state of the commit that last wrote each, filled only
+    /// by `check --ci` with `authority.signed-records = true` (R-LC-040).
+    pub authority: Vec<AuthorityRecord>,
+}
+
+/// One authority record file checked for a signed commit (R-LC-040).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct AuthorityRecord {
+    pub path: RepoPath,
+    /// The commit that last wrote the file, if git knows one.
+    pub commit: Option<String>,
+    pub signed: bool,
 }
 
 /// Bytes of a regular file; `None` for a missing file, a symlink or a directory (never followed).

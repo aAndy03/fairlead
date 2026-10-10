@@ -162,6 +162,10 @@ pub struct CheckArgs {
     /// Changed files only: working tree and index against HEAD (D-43).
     #[arg(long)]
     pub changed: bool,
+    /// Integration-branch mode: with authority.signed-records, verify the signatures of authority
+    /// records with `git verify-commit` (R-LC-040).
+    #[arg(long)]
+    pub ci: bool,
 }
 
 #[derive(Args, Debug, Clone)]
