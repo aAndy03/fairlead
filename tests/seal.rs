@@ -877,3 +877,51 @@ fn r_git_042__against_flags_divergent_version_files() {
         run.stderr
     );
 }
+
+#[test]
+fn r_git_054__skip_variable_ignored_under_ci() {
+    let repo = ready_repo();
+    std::fs::write(
+        repo.path().join("src/bad.ts"),
+        "// fairlead: frobnicate x\n",
+    )
+    .unwrap();
+    let args = [
+        "check",
+        "--no-baseline",
+        "--as-of",
+        AS_OF,
+        "--format",
+        "terse",
+    ];
+    let skipped = repo.run_in(repo.path(), &args, &[("FAIRLEAD_SKIP", "1"), ("CI", "")]);
+    assert_eq!(skipped.code, 0, "{}{}", skipped.stdout, skipped.stderr);
+    assert!(
+        skipped.stderr.contains("check skipped"),
+        "{}",
+        skipped.stderr
+    );
+    let ci = repo.run_in(
+        repo.path(),
+        &args,
+        &[("FAIRLEAD_SKIP", "1"), ("CI", "true")],
+    );
+    assert_ne!(ci.code, 0, "{}{}", ci.stdout, ci.stderr);
+    assert!(
+        ci.stdout
+            .contains("skip: FAIRLEAD_SKIP=1 is set and ignored under CI"),
+        "{}",
+        ci.stdout
+    );
+}
+
+#[test]
+fn r_chk_058__ci_runs_no_subprocess_by_default() {
+    let repo = ready_repo();
+    let ci = repo.run(&["check", "--ci", "--as-of", AS_OF, "--format", "terse"]);
+    assert_eq!(ci.code, 0, "{}{}", ci.stdout, ci.stderr);
+    assert!(
+        !ci.stdout.contains("HN-X015"),
+        "verify-commit runs only with signed-records"
+    );
+}

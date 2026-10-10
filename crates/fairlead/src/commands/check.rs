@@ -27,7 +27,38 @@ pub fn run(global: &GlobalArgs, args: &CheckArgs) -> CommandResult {
     }
 }
 
+/// R-GIT-054: `FAIRLEAD_SKIP` (set by a person who must commit past the hook) skips the run,
+/// except under `CI`, where it is ignored and its use is listed in the summary.
+fn skip_state() -> (bool, Option<String>) {
+    #[allow(clippy::disallowed_methods)]
+    // reason: the bin reads the environment (P8 Global Constraint 9)
+    let skip = std::env::var("FAIRLEAD_SKIP")
+        .ok()
+        .filter(|v| !v.is_empty());
+    #[allow(clippy::disallowed_methods)]
+    // reason: the bin reads the environment (P8 Global Constraint 9)
+    let ci = std::env::var_os("CI").is_some_and(|v| !v.is_empty());
+    match (skip, ci) {
+        (None, _) => (false, None),
+        (Some(_), false) => (true, None),
+        (Some(v), true) => (
+            false,
+            Some(format!(
+                "skip: FAIRLEAD_SKIP={v} is set and ignored under CI (R-GIT-054)\n"
+            )),
+        ),
+    }
+}
+
 fn check(global: &GlobalArgs, args: &CheckArgs) -> Result<CommandResult, Error> {
+    let (skipped, ci_note) = skip_state();
+    if skipped {
+        return Ok(CommandResult {
+            stdout: String::new(),
+            stderr: "check skipped: FAIRLEAD_SKIP is set (ignored under CI)\n".into(),
+            outcome: VerbOutcome::default(),
+        });
+    }
     let tty = stdout_is_tty();
     let format = check_format(global.format, tty, args.for_agent);
     let cwd = working_dir(global)?;
@@ -65,6 +96,9 @@ fn check(global: &GlobalArgs, args: &CheckArgs) -> Result<CommandResult, Error> 
             stdout.push_str(&l);
             stdout.push('\n');
         }
+    }
+    if let Some(n) = ci_note {
+        stdout.push_str(&n);
     }
     Ok(CommandResult {
         stdout,
