@@ -521,6 +521,35 @@ mod tests {
         assert_eq!(paths(&r2), ["src/a.rs"]);
     }
 
+    #[test]
+    fn r_git_021__nested_worktree_excluded() {
+        let (_g, t) = utf8_tmp();
+        write_file(
+            &t,
+            ".claude/worktrees/wt/.git",
+            "gitdir: ../../../.git/worktrees/wt\n",
+        );
+        write_file(&t, ".claude/worktrees/wt/fairlead/control.toml", "x");
+        write_file(&t, ".claude/worktrees/wt/src/a.rs", "x");
+        write_file(&t, "src/a.rs", "x");
+        let r = walk(&test_root(&t), &WalkOptions::default()).unwrap();
+        assert_eq!(paths(&r), ["src/a.rs"]);
+    }
+
+    #[test]
+    fn r_git_021__submodule_excluded() {
+        let (_g, t) = utf8_tmp();
+        write_file(
+            &t,
+            "vendor/lib/.git",
+            "gitdir: ../../.git/modules/vendor/lib\n",
+        );
+        write_file(&t, "vendor/lib/src/lib.rs", "x");
+        write_file(&t, "vendor/notes.md", "x");
+        let r = walk(&test_root(&t), &WalkOptions::default()).unwrap();
+        assert_eq!(paths(&r), ["vendor/notes.md"]);
+    }
+
     #[cfg(unix)]
     #[test]
     fn r_scope_006__symlinks_are_not_followed_and_are_errors_inside_a_managerial_folder() {

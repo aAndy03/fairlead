@@ -48,6 +48,12 @@ fn run_git(root: &Root, args: &[&str]) -> Result<String, Error> {
     }
 }
 
+/// R-GIT-078: a rename that changes only letter case is a move of one file, not a deletion
+/// plus an addition; the changed set keeps the new spelling only.
+pub fn case_only_rename(old: &str, new: &str) -> bool {
+    old != new && old.to_lowercase() == new.to_lowercase()
+}
+
 fn cannot_determine(what: &str, e: &git2::Error) -> Error {
     Error::CannotDetermine(format!("{what}: {e}"))
 }
@@ -202,11 +208,22 @@ impl GitRepo {
             .diff_tree_to_workdir_with_index(Some(&tree), Some(&mut opts))
             .map_err(|e| cannot_determine("cannot diff against the base", &e))?;
         let mut set = BTreeSet::new();
+        let (mut news, mut olds) = (Vec::new(), Vec::new());
         for delta in diff.deltas() {
-            for f in [delta.old_file(), delta.new_file()] {
-                if let Some(p) = f.path().and_then(|p| p.to_str()) {
-                    self.add(&mut set, &p.replace('\\', "/"));
-                }
+            if let Some(p) = delta.new_file().path().and_then(|p| p.to_str()) {
+                news.push(p.replace('\\', "/"));
+            }
+            if let Some(p) = delta.old_file().path().and_then(|p| p.to_str()) {
+                olds.push(p.replace('\\', "/"));
+            }
+        }
+        for n in &news {
+            self.add(&mut set, n);
+        }
+        // A deleted path whose new spelling differs only in case is the same file, moved.
+        for o in olds {
+            if !news.iter().any(|n| case_only_rename(&o, n)) {
+                self.add(&mut set, &o);
             }
         }
         Ok(set)
@@ -415,6 +432,18 @@ pub(crate) mod test_support {
             }
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod case_tests {
+    use super::*;
+
+    #[test]
+    fn r_git_078__case_only_rename_is_move() {
+        assert!(case_only_rename("Src/Button.tsx", "src/button.tsx"));
+        assert!(!case_only_rename("src/a.tsx", "src/a.tsx"));
+        assert!(!case_only_rename("src/a.tsx", "src/b.tsx"));
     }
 }
 
