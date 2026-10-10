@@ -90,7 +90,11 @@ fn r_ver_059__seal_writes_exactly_its_write_set_and_check_stays_clean() {
     assert!(sealed.contains("status = \"sealed\"") && sealed.contains("ordinal = 1"));
     assert!(sealed.contains("sealed = \"0.1.0\"") && sealed.contains("body-hash = \"b3:"));
     let ledger = std::fs::read_to_string(repo.path().join("fairlead/ledger/hist/2026.hl")).unwrap();
-    assert!(ledger.contains("# ckpt v=0.1.0 n=1 d="), "{ledger}");
+    assert!(ledger.contains("# ckpt v=0.1.0 n=2 d="), "{ledger}");
+    assert!(
+        ledger.contains("rollup.0.1.0 kind=rollup waivers=0 subtree-waivers=0 digest="),
+        "R-VER-052 rollup record: {ledger}"
+    );
     let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
     assert_eq!(check.code, 0, "{}{}", check.stdout, check.stderr);
 }

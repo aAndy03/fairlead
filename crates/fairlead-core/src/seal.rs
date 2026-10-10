@@ -254,6 +254,8 @@ pub struct SealWriteCx<'a> {
     pub edition: u32,
     pub folder: &'a str,
     pub gen_dir: &'a str,
+    /// Merkle digest of every scope (`merkle::scope_digests`), for the rollup records.
+    pub digests: &'a BTreeMap<crate::registry::ScopeId, String>,
 }
 
 /// The sealed text of a doc: `status`, `sealed`, `body-hash` and `ordinal` set in its
@@ -373,6 +375,41 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
         sealed.ordinal = Some(ord);
         sealed.path = target;
         sealed_now.push(sealed);
+    }
+
+    // Rollups (R-VER-052): every touched scope and every ancestor of one gets a rollup record:
+    // its own waivers, the subtree's waivers and its Merkle digest, so a reader of the root never
+    // descends. Computed only here, at seal (D-10).
+    let own_waivers = |s: &crate::registry::ScopeId| {
+        cx.reg
+            .ledger(s)
+            .entries
+            .iter()
+            .filter(|e| &e.varied_in == s && e.state == crate::registry::OvrState::Effective)
+            .count()
+    };
+    let subtree_of = |s: &crate::registry::ScopeId| {
+        cx.reg
+            .scopes()
+            .filter(|x| cx.reg.chain(&x.id).contains(&s))
+            .map(|x| own_waivers(&x.id))
+            .sum::<usize>()
+    };
+    let touched: Vec<crate::registry::ScopeId> = records.keys().map(|k| k.0.clone()).collect();
+    let mut rolled: BTreeSet<crate::registry::ScopeId> = BTreeSet::new();
+    for s in &touched {
+        for a in cx.reg.chain(s) {
+            rolled.insert(a.clone());
+        }
+    }
+    for s in rolled {
+        let line = TerseLine::new(&format!("rollup.{}", plan.open))
+            .with("kind", "rollup")
+            .with("waivers", &own_waivers(&s).to_string())
+            .with("subtree-waivers", &subtree_of(&s).to_string())
+            .with("digest", cx.digests.get(&s).map_or("", String::as_str))
+            .render();
+        records.entry(ScopeKey(s)).or_default().push(line);
     }
 
     // Ledger year files of the touched scopes (R-VER-059, R-RET-031).

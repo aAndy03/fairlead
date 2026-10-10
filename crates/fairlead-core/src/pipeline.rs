@@ -488,6 +488,7 @@ pub fn plan_seal(
             edition: loaded.root.edition.0,
             folder: &loaded.root.folder,
             gen_dir: &gen_dir,
+            digests: &crate::merkle::scope_digests(registry, &loaded.corpus),
         },
     )
     .map_err(Error::Internal)?;
