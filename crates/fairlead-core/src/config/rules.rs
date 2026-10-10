@@ -823,6 +823,7 @@ mod tests {
         assert_eq!((e.max_days, e.max_live_per_rule), (Some(45), 3));
         let el = parse_eligibility(&mut c, &mut t);
         assert_eq!((el.min_lines, el.min_files), (8, 3));
+        assert!(c.diags.is_empty(), "{:?}", c.diags);
         let (mut c2, mut t2) = cx("[secrets]\nallow = [\"not-a-fingerprint\"]\n");
         let _ = parse_secrets(&mut c2, &mut t2);
         assert_eq!(c2.diags.len(), 1);
