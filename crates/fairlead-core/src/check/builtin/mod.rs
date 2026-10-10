@@ -1,6 +1,7 @@
 pub mod agents;
 pub mod authority;
 pub mod bindings;
+pub mod cascade;
 pub mod controls;
 pub mod coverage;
 pub mod envs;

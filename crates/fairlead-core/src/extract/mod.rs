@@ -47,6 +47,8 @@ pub struct Extras {
     pub env_tokens: Vec<EnvToken>,
     #[serde(default)]
     pub grave: Option<crate::graveyard::Fingerprint>,
+    #[serde(default)]
+    pub css: Option<cssscan::CssFacts>,
 }
 
 use crate::classify::{ClassifyRules, FileClass, classify, scans_directives};
@@ -61,6 +63,7 @@ use fairlead_syntax::extract::{ExtractConfig, Extraction, ScanStatus, extract as
 use std::sync::Arc;
 
 pub mod attach;
+pub mod cssscan;
 pub mod envscan;
 pub mod literals;
 
@@ -87,6 +90,8 @@ pub struct FileRecord {
     pub env_tokens: Vec<EnvToken>,
     /// This file's fingerprint, once the root declares `[graveyard]` (R-LC-033).
     pub grave: Option<crate::graveyard::Fingerprint>,
+    /// The cascade structure of a stylesheet (R-CHK-047).
+    pub css: Option<cssscan::CssFacts>,
     pub skip: Option<SkipReason>,
 }
 
@@ -202,7 +207,7 @@ impl ExtractPlan {
         if self.env_scan {
             h.update(b"env\0");
         }
-        h.update(b"styles\0");
+        h.update(b"styles-cascade\0");
         for e in &self.styles.extensions {
             h.update(e.as_bytes());
             h.update(&[0]);
@@ -253,6 +258,7 @@ fn compute_extras(
     if scanned && class == FileClass::Authored && plan.styles.applies(path) {
         let foreign = ex.map(foreign_ranges).unwrap_or_default();
         out.css_tokens = extract_css_tokens(text, &foreign);
+        out.css = Some(cssscan::scan_css(text));
     }
     if scanned && class == FileClass::Authored && !plan.leak_properties.is_empty() {
         out.literals = scan_literals(text, &ext, &plan.leak_properties);
@@ -323,6 +329,7 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
         pattern_hits: extras.pattern_hits,
         env_tokens: extras.env_tokens,
         grave: extras.grave,
+        css: extras.css,
         skip,
     }
 }
@@ -433,6 +440,7 @@ fn unread_record(e: &WalkEntry, class: FileClass, skip: SkipReason, head: &[u8])
         pattern_hits: Vec::new(),
         env_tokens: Vec::new(),
         grave: None,
+        css: None,
         skip: Some(skip),
     }
 }
@@ -469,6 +477,7 @@ fn from_cache(
         pattern_hits: extras.pattern_hits,
         env_tokens: extras.env_tokens,
         grave: extras.grave,
+        css: extras.css,
         skip,
     })
 }
@@ -517,6 +526,7 @@ fn process(
                     pattern_hits: rec.pattern_hits.clone(),
                     env_tokens: rec.env_tokens.clone(),
                     grave: rec.grave.clone(),
+                    css: rec.css.clone(),
                 };
                 cache.put_extras(&rec.hash, &extras_key(fp, plan, &e.path), &extras);
             }

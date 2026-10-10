@@ -470,6 +470,7 @@ pub(crate) mod testutil {
             pattern_hits: vec![],
             env_tokens: vec![],
             grave: None,
+            css: None,
             skip: None,
         }
     }
