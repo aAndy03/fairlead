@@ -78,7 +78,32 @@ impl<'a> WriterLock<'a> {
         let dir = root.dir.join(".fairlead");
         std::fs::create_dir_all(dir.as_std_path())
             .map_err(|e| io_err("mkdir", dir.as_str(), &e))?;
-        let path = dir.join("lock");
+        Self::acquire_at(dir.join("lock"), ".fairlead/lock", probe)
+    }
+
+    /// R-GIT-052, D-52: the allocation lock `fairlead-alloc.lock` in the git common directory, shared
+    /// by every worktree of the repository; `seal`, `move` and `upgrade` hold it besides the
+    /// worktree lock. `None` without git: then only the worktree lock applies.
+    pub fn acquire_alloc(
+        root: &Root,
+        probe: &'a dyn PidLiveness,
+    ) -> Result<Option<WriterLock<'a>>, Error> {
+        let Some(common) = crate::git::GitRepo::open(root).map(|r| r.common_dir()) else {
+            return Ok(None);
+        };
+        Self::acquire_at(
+            common.join("fairlead-alloc.lock"),
+            "fairlead-alloc.lock",
+            probe,
+        )
+        .map(Some)
+    }
+
+    fn acquire_at(
+        path: Utf8PathBuf,
+        label: &str,
+        probe: &'a dyn PidLiveness,
+    ) -> Result<WriterLock<'a>, Error> {
         let pid = std::process::id();
         let me = Record {
             pid,
@@ -107,8 +132,8 @@ impl<'a> WriterLock<'a> {
                     let Some(h) = read_record(&path) else {
                         return Err(refuse(
                             RefusalKind::LockHeld,
-                            "the writer lock .fairlead/lock is unreadable",
-                            "remove .fairlead/lock if no fairlead command is running",
+                            format!("the writer lock {label} is unreadable"),
+                            format!("remove {label} if no fairlead command is running"),
                         ));
                     };
                     let mut answer = probe.is_alive(h.pid, &h.host);
@@ -127,14 +152,18 @@ impl<'a> WriterLock<'a> {
                         continue;
                     }
                     let hint = if answer == LivenessAnswer::OtherHost {
-                        "the lock was taken on another host; shared mounts are unsupported; remove .fairlead/lock if you are sure"
+                        format!(
+                            "the lock was taken on another host; shared mounts are unsupported; remove {label} if you are sure"
+                        )
+                    } else if label == ".fairlead/lock" {
+                        "wait for the other fairlead command to finish".to_owned()
                     } else {
-                        "wait for the other fairlead command to finish"
+                        "another worktree of this repository is sealing, moving or upgrading; wait for it".to_owned()
                     };
                     return Err(refuse(
                         RefusalKind::LockHeld,
                         format!(
-                            "another fairlead writer holds .fairlead/lock (pid {} on {})",
+                            "another fairlead writer holds {label} (pid {} on {})",
                             h.pid, h.host
                         ),
                         hint,

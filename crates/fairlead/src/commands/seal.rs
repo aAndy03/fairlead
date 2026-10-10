@@ -28,7 +28,7 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
             _ => "interrupted seal rolled back\n".to_owned(),
         }));
     }
-    let session = WriteSession::open(&discover_request(global, true)?, &SysProbe)?;
+    let session = WriteSession::open_allocating(&discover_request(global, true)?, &SysProbe)?;
     let loaded = load(&load_request(global, false, None)?)?;
     let registry = resolve_loaded(&loaded, as_of(global));
     let options = default_options(as_of(global));

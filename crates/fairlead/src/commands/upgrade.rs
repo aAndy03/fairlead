@@ -38,7 +38,7 @@ fn upgrade(global: &GlobalArgs, args: &UpgradeArgs) -> Result<CommandResult, Err
     let mut discover = discover_request(global, true)?;
     discover.upgrade = true;
     let session = if args.yes {
-        Some(WriteSession::open(&discover, &SysProbe)?)
+        Some(WriteSession::open_allocating(&discover, &SysProbe)?)
     } else {
         None
     };

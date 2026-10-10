@@ -53,6 +53,12 @@ fn cannot_determine(what: &str, e: &git2::Error) -> Error {
 }
 
 impl GitRepo {
+    /// The common git directory, shared by every worktree (R-GIT-052).
+    pub fn common_dir(&self) -> camino::Utf8PathBuf {
+        camino::Utf8PathBuf::from_path_buf(self.repo.commondir().to_path_buf())
+            .unwrap_or_else(|p| camino::Utf8PathBuf::from(p.to_string_lossy().into_owned()))
+    }
+
     /// Opened from the root directory, never from the working directory (R-GIT-071).
     pub fn open(root: &Root) -> Option<GitRepo> {
         let repo = git2::Repository::open_ext(

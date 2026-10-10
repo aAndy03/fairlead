@@ -617,3 +617,68 @@ fn r_edn_006__lowered_pin_is_relaxation_without_approval() {
         check.stderr
     );
 }
+
+#[test]
+fn r_git_052__second_worktree_seal_refused() {
+    let repo = ready_repo();
+    let wt = repo.path().with_extension("wt");
+    let wt_s = wt.to_string_lossy().into_owned();
+    repo.git(&["worktree", "add", "-q", &wt_s, "-b", "second"]);
+    // A live writer in the main worktree holds the repository-wide allocation lock.
+    let common = repo.path().join(".git");
+    std::fs::write(
+        common.join("fairlead-alloc.lock"),
+        format!("pid={}\nhost=elsewhere\nstart=-\n", std::process::id()),
+    )
+    .unwrap();
+    let run = testkit::run_fairlead(&wt, &["seal", "--yes", "--anywhere", "--as-of", AS_OF], &[]);
+    assert_eq!(run.code, 4, "{}{}", run.stdout, run.stderr);
+    assert!(run.stderr.contains("fairlead-alloc.lock"), "{}", run.stderr);
+    std::fs::remove_file(common.join("fairlead-alloc.lock")).unwrap();
+    let ok = testkit::run_fairlead(&wt, &["seal", "--yes", "--anywhere", "--as-of", AS_OF], &[]);
+    assert_eq!(ok.code, 0, "{}{}", ok.stdout, ok.stderr);
+    assert!(
+        !common.join("fairlead-alloc.lock").exists(),
+        "released after the seal"
+    );
+    let _ = std::fs::remove_dir_all(&wt);
+}
+
+#[test]
+fn r_git_052__no_git_uses_worktree_lock_only() {
+    let repo = RepoBuilder::new()
+        .file("src/a.rs", "fn a() {}\n")
+        .git_init(false)
+        .build();
+    assert_eq!(repo.run(&["init", "--yes", "--as-of", AS_OF]).code, 0);
+    assert_eq!(
+        repo.run(&[
+            "new",
+            "change",
+            "Adds a",
+            "--field",
+            "impact=add",
+            "--field",
+            "covers=src/**",
+            "--as-of",
+            AS_OF
+        ])
+        .code,
+        0
+    );
+    let changes = repo.path().join("fairlead/docs/changes");
+    let doc = std::fs::read_dir(&changes)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&doc).unwrap();
+    std::fs::write(
+        &doc,
+        text.replace("status = \"draft\"", "status = \"ready\""),
+    )
+    .unwrap();
+    let run = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+}

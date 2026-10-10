@@ -330,6 +330,8 @@ pub fn explain_target(root: &Root, cwd: &Utf8Path, arg: &str) -> Result<ExplainT
 pub struct WriteSession<'p> {
     pub root: Root,
     pub lock: WriterLock<'p>,
+    /// The repository-wide allocation lock, for `seal`, `move` and `upgrade` (R-GIT-052).
+    pub alloc: Option<WriterLock<'p>>,
     pub recovery: Recovery,
 }
 
@@ -339,6 +341,17 @@ impl<'p> WriteSession<'p> {
         Self::open_at(d.root, probe)
     }
 
+    /// `seal`, `move` and `upgrade`: the worktree lock, then the allocation lock in the git
+    /// common directory, so two worktrees never allocate versions or IDs at once (D-52).
+    pub fn open_allocating(
+        req: &DiscoverRequest,
+        probe: &'p dyn PidLiveness,
+    ) -> Result<Self, Error> {
+        let mut s = Self::open(req, probe)?;
+        s.alloc = WriterLock::acquire_alloc(&s.root, probe)?;
+        Ok(s)
+    }
+
     /// For `init`, whose root does not exist yet (`write::init_root`).
     pub fn open_at(root: Root, probe: &'p dyn PidLiveness) -> Result<Self, Error> {
         let lock = WriterLock::acquire(&root, probe)?;
@@ -346,6 +359,7 @@ impl<'p> WriteSession<'p> {
         Ok(WriteSession {
             root,
             lock,
+            alloc: None,
             recovery,
         })
     }
@@ -358,6 +372,7 @@ impl<'p> WriteSession<'p> {
         Ok(WriteSession {
             root,
             lock,
+            alloc: None,
             recovery,
         })
     }
