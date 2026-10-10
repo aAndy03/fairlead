@@ -369,6 +369,46 @@ pub struct WriteOutcome {
     pub report: CommitReport,
 }
 
+/// R-LC-032: a proposal whose title matches the effective graveyard of its scope is refused, with
+/// the entry printed, unless it names the entry in `revisits` and gives a one-line `revisit-why`.
+fn graveyard_gate(loaded: &Loaded, registry: &Registry, request: &NewRequest) -> Result<(), Error> {
+    let scope = request
+        .scope
+        .clone()
+        .unwrap_or_else(|| registry.root_scope().clone());
+    let (entries, _) = crate::graveyard::collect(&loaded.corpus);
+    let here = crate::check::builtin::grave::effective(registry, &entries, &scope);
+    let named = request.fields.get("revisits").map(String::as_str);
+    let why = request
+        .fields
+        .get("revisit-why")
+        .is_some_and(|w| !w.trim().is_empty());
+    for e in here {
+        let hits = crate::graveyard::text_hits(e, &request.name);
+        if hits.is_empty() || (named == Some(e.id.as_str()) && why) {
+            continue;
+        }
+        let terms: Vec<&str> = hits.iter().map(|t| t.text()).collect();
+        return Err(Error::Refused(crate::error::Refusal {
+            kind: crate::error::RefusalKind::PlanNotConfirmed,
+            message: format!(
+                "the title matches the graveyard entry {} ({}; {} at {}): {} -- {}",
+                e.id,
+                terms.join(", "),
+                e.state.as_str(),
+                e.at.as_deref().unwrap_or("?"),
+                e.what,
+                e.why
+            ),
+            hint: format!(
+                "to revisit it, pass --field revisits={} --field revisit-why=\"<one line>\" (R-LC-032)",
+                e.id
+            ),
+        }));
+    }
+    Ok(())
+}
+
 /// `new` plan (R-CLI-028). Pure: never touches disk.
 pub fn plan_new(
     loaded: &Loaded,
@@ -377,6 +417,7 @@ pub fn plan_new(
     as_of: AsOf,
 ) -> Result<Plan, Error> {
     if request.kind == "change" {
+        graveyard_gate(loaded, registry, request)?;
         let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
         let taken = docs.iter().map(|d| d.id.clone()).collect();
         return crate::write::new_change_plan(

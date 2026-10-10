@@ -269,6 +269,7 @@ fn gather(
     tiers::gather_scope_card(scene, cands);
     tiers::gather_neighbours(scene, cands, pre, shape);
     tiers::gather_ancestors(scene, cands);
+    tiers::gather_graveyard(scene, cands);
     if matches!(scene.input.request.target, ContextTarget::SessionStart) {
         tiers::gather_handoff(scene, cands);
     }

@@ -212,7 +212,11 @@ pub fn new_change_plan(
 ) -> Result<Plan, Error> {
     use crate::docs::{DraftId, slug};
     let cx = ctx(req, reg)?;
-    check_fields(&req.fields, &["impact", "covers", "hotfix"], "change")?;
+    check_fields(
+        &req.fields,
+        &["impact", "covers", "hotfix", "revisits", "revisit-why"],
+        "change",
+    )?;
     let hotfix = req.fields.contains_key("hotfix");
     let hotfix_on = reg
         .scope(reg.root_scope())
@@ -251,6 +255,12 @@ pub fn new_change_plan(
         fm.push_str(&format!("impact = \"{i}\"\n"));
     }
     let covers: Vec<String> = req.fields.get("covers").map(|c| csv(c)).unwrap_or_default();
+    if let Some(r) = req.fields.get("revisits") {
+        fm.push_str(&format!("revisits = {}\n", toml_str(r)));
+    }
+    if let Some(r) = req.fields.get("revisit-why") {
+        fm.push_str(&format!("revisit-why = {}\n", toml_str(r)));
+    }
     if hotfix {
         // R-VER-047: the debt window counts whole UTC days from this date.
         fm.push_str(&format!("hotfix = true\nopened = \"{}\"\n", as_of.0));

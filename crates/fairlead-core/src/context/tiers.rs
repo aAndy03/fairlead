@@ -359,6 +359,57 @@ pub(crate) fn gather_handoff(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
     });
 }
 
+/// R-LC-034, R-LC-036, R-LC-037: the graveyard that applies here, its tripwires (how often a match
+/// was silenced with `revisits`), and abandoned change docs as graveyard candidates.
+pub(crate) fn gather_graveyard(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
+    let reg = scene.input.registry;
+    let (entries, _) = crate::graveyard::collect(scene.input.corpus);
+    let here = crate::check::builtin::grave::effective(reg, &entries, &scene.scope);
+    let (docs, _) = crate::docs::collect_change_docs(scene.input.corpus);
+    let w = &scene.input.config.sev_weight;
+    let mut push = |key: &str, text: String| {
+        out.push(Candidate {
+            priority: Priority::P5Recent,
+            score: Score::new(w.warn, Relevance::ScopeWide, 0),
+            hint: 0,
+            key: key.to_string(),
+            explain: "graveyard".to_string(),
+            block: Block::Items,
+            entry: Entry::Note { text },
+        });
+    };
+    if !here.is_empty() {
+        let trips: Vec<String> = here
+            .iter()
+            .filter_map(|e| {
+                let n = e.tripwire
+                    + n32(docs
+                        .iter()
+                        .filter(|d| crate::check::builtin::grave::revisits(d).contains(&e.id))
+                        .count());
+                (n > 0).then(|| format!("{}={n}", sanitize_data(&e.id, 64)))
+            })
+            .collect();
+        let mut text = format!("graveyard: {} rejected under here", here.len());
+        if !trips.is_empty() {
+            text.push_str(&format!(" (tripwire {})", trips.join(" ")));
+        }
+        push("5graveyard", text);
+    }
+    for d in docs.iter().filter(|d| {
+        d.status == crate::docs::Status::Abandoned && reg.scope_of(&d.path) == Some(&scene.scope)
+    }) {
+        push(
+            &format!("5grave-{}", d.id.as_str()),
+            format!(
+                "graveyard candidate? {} (abandoned): {}",
+                d.id.as_str(),
+                sanitize_data(d.title.as_deref().unwrap_or(""), 80)
+            ),
+        );
+    }
+}
+
 #[cfg(test)]
 #[allow(non_snake_case)] // reason: test names start with the rule id
 mod tests {

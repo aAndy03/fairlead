@@ -468,3 +468,66 @@ fn r_lc_031__seal_fingerprints_an_entry_once_from_its_material() {
     );
     assert!(e.ends_with("+++\n\n# Dark toggle\n"), "body kept: {e}");
 }
+
+#[test]
+fn r_lc_034__context_prints_the_graveyard_and_abandoned_candidates() {
+    let repo = ready_repo();
+    std::fs::create_dir_all(repo.path().join("fairlead/docs/graveyard")).unwrap();
+    std::fs::write(
+        repo.path().join("fairlead/docs/graveyard/dark-toggle.md"),
+        "+++\nid = \"grv.dark-toggle-v1\"\nstate = \"rejected\"\nwhat = \"toggles\"\nwhy = \"drift\"\nmatch = [\"dark mode\"]\n+++\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("fairlead/docs/changes/d-0000000z-old.md"),
+        "+++\nid = \"d-0000000z\"\nkind = \"change\"\nstatus = \"abandoned\"\ntitle = \"Old idea\"\ncovers = []\nrevisits = \"grv.dark-toggle-v1\"\n+++\n",
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    let ctx = repo.run(&["context", "src/a.rs", "--as-of", AS_OF]);
+    assert_eq!(ctx.code, 0, "{}", ctx.stderr);
+    assert!(
+        ctx.stdout
+            .contains("graveyard: 1 rejected under here (tripwire grv.dark-toggle-v1=1)"),
+        "{}",
+        ctx.stdout
+    );
+    assert!(
+        ctx.stdout
+            .contains("graveyard candidate? d-0000000z (abandoned): Old idea"),
+        "{}",
+        ctx.stdout
+    );
+}
+
+#[test]
+fn r_lc_032__new_change_matching_the_graveyard_needs_revisits() {
+    let repo = ready_repo();
+    std::fs::create_dir_all(repo.path().join("fairlead/docs/graveyard")).unwrap();
+    std::fs::write(
+        repo.path().join("fairlead/docs/graveyard/dark-toggle.md"),
+        "+++\nid = \"grv.dark-toggle-v1\"\nstate = \"rejected\"\nat = \"1.4.0\"\nwhat = \"Per-component toggles\"\nwhy = \"Token drift\"\nmatch = [\"dark mode\"]\n+++\n",
+    )
+    .unwrap();
+    let refused = repo.run(&["new", "change", "Add a dark mode switch", "--as-of", AS_OF]);
+    assert_eq!(refused.code, 4, "{}{}", refused.stdout, refused.stderr);
+    assert!(
+        refused
+            .stderr
+            .contains("grv.dark-toggle-v1 (dark mode; rejected at 1.4.0)"),
+        "{}",
+        refused.stderr
+    );
+    let ok = repo.run(&[
+        "new",
+        "change",
+        "Add a dark mode switch",
+        "--field",
+        "revisits=grv.dark-toggle-v1",
+        "--field",
+        "revisit-why=tokens are generated now",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(ok.code, 0, "{}{}", ok.stdout, ok.stderr);
+}
