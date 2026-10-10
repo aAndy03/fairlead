@@ -170,3 +170,103 @@ fn r_git_062__move_refuses_a_dirty_write_set() {
     assert_eq!(run.code, 4, "{}{}", run.stdout, run.stderr);
     assert!(run.stderr.contains("differs from HEAD"), "{}", run.stderr);
 }
+
+fn two_scopes() -> TempRepo {
+    let r = repo(&[
+        ("lib/fairlead/control.toml", "[fairlead]\nscope = \"lib\"\n"),
+        (
+            "lib/fairlead/docs/cmp.md",
+            "+++\ndirectives = ['def cmp.x sum=\"x\"']\n+++\n# Components\n",
+        ),
+        ("lib/src/x.ts", "export const X = 1;\n"),
+        ("app/fairlead/control.toml", "[fairlead]\nscope = \"app\"\n"),
+        (
+            "app/main.ts",
+            "// fairlead: use lib:cmp.x\nexport const M = 1;\n",
+        ),
+    ]);
+    let control = r.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(&control, format!("{text}\n[kinds.cmp]\nimpl = 1\n")).unwrap();
+    assert_eq!(r.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    r.git(&["add", "-A"]);
+    r.git_commit("kinds");
+    r
+}
+
+#[test]
+fn r_port_010__delete_requires_zero_live_references() {
+    let repo = two_scopes();
+    let refused = repo.run(&["move", "lib", "--delete", "--yes", "--as-of", AS_OF]);
+    assert_eq!(refused.code, 4, "{}{}", refused.stdout, refused.stderr);
+    assert!(
+        refused
+            .stderr
+            .contains("live reference app/main.ts:1 -> lib:cmp.x"),
+        "{}",
+        refused.stderr
+    );
+    let forced = repo.run(&[
+        "move", "lib", "--delete", "--force", "--yes", "--as-of", AS_OF,
+    ]);
+    assert_eq!(
+        forced.code, 4,
+        "--force still needs an approval: {}",
+        forced.stderr
+    );
+    let fp = forced
+        .stderr
+        .split("approve move-")
+        .nth(1)
+        .unwrap()
+        .chars()
+        .take(12)
+        .collect::<String>();
+    std::fs::write(
+        repo.path().join("fairlead/approvals.toml"),
+        format!("[[approval]]\nfp = \"{fp}\"\ntarget = \"move.reparent\"\nscope = \"root\"\napprover = \"@owner\"\ndate = \"2026-10-10\"\n"),
+    )
+    .unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("approve the delete");
+    let done = repo.run(&[
+        "move", "lib", "--delete", "--force", "--yes", "--as-of", AS_OF,
+    ]);
+    assert_eq!(done.code, 0, "{}{}", done.stdout, done.stderr);
+    assert!(!repo.path().join("lib/fairlead/control.toml").exists());
+    assert!(
+        repo.path().join("lib/src/x.ts").exists(),
+        "code is never deleted"
+    );
+    let tombs = read(&repo, "fairlead/tombstones/2026.toml");
+    assert!(
+        tombs.contains("id = \"cmp.x\"") && tombs.contains("deleted-by = \"delete\""),
+        "{tombs}"
+    );
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        check.stdout.contains("HN-M007"),
+        "dangling: {}",
+        check.stdout
+    );
+}
+
+#[test]
+fn r_lc_023__demote_leaves_a_scope_tombstone_and_applies() {
+    let repo = two_scopes();
+    let run = repo.run(&["move", "app", "--demote", "--yes", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(!repo.path().join("app/fairlead/control.toml").exists());
+    let tombs = read(&repo, "fairlead/tombstones/2026.toml");
+    assert!(
+        tombs.contains("id = \"app\"") && tombs.contains("by = \"demote\""),
+        "{tombs}"
+    );
+    let lib = repo.run(&["move", "lib", "--demote", "--dry-run", "--as-of", AS_OF]);
+    assert!(
+        lib.stdout
+            .contains("fairlead/docs/lib/cmp.md (applies=lib/**)"),
+        "{}",
+        lib.stdout
+    );
+}

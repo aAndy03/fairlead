@@ -67,7 +67,12 @@ impl Registry {
             t.is_item()
                 && t.id == name
                 && t.scope.as_ref().is_some_and(|s| match &id.qualifier {
-                    fairlead_syntax::ids::IdQualifier::Scope(q) => s.0 == *q,
+                    // A deleted scope's items are tombstoned in its parent (R-PORT-010).
+                    fairlead_syntax::ids::IdQualifier::Scope(q) => {
+                        s.0 == *q
+                            || (t.deleted_by.as_deref() == Some("delete")
+                                && t.why.contains(&format!("scope {} deleted", q.as_str())))
+                    }
                     fairlead_syntax::ids::IdQualifier::Root => s == self.root_scope(),
                     _ => chain.contains(&s),
                 })

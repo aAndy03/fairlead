@@ -19,7 +19,7 @@ use fairlead_syntax::{
 use std::collections::BTreeSet;
 
 pub struct RefsCheck;
-const CODES: [DiagCode; 5] = [HN_R001, HN_R002, HN_D002, HN_R004, HN_D003];
+const CODES: [DiagCode; 6] = [HN_R001, HN_R002, HN_D002, HN_R004, HN_D003, HN_M007];
 /// Kinds that need no declaration in a doc (control tables, foreign regions, built-ins).
 const RESERVED: [&str; 5] = ["rule", "file", "exc", "foreign", "ext"];
 
@@ -85,6 +85,20 @@ fn retired(path: &RepoPath, d: &Directive, id: &Id, t: &crate::lifecycle::Tomb) 
     };
     if d.verb == Verb::Def {
         return reserved(path, d.span.line, d.span.col, id, t);
+    }
+    if t.deleted_by.as_deref() == Some("delete") {
+        // R-PORT-010: a live reference to an item of a deleted scope is DANGLING.
+        return DiagB::new(
+            HN_M007,
+            path,
+            d.span.line,
+            d.span.col,
+            format!("{id} belonged to a deleted scope{why}"),
+        )
+        .hint("remove the reference; the item is tombstoned")
+        .related(id.to_string())
+        .text(id.to_string())
+        .build();
     }
     let b = DiagB::new(
         HN_R004,

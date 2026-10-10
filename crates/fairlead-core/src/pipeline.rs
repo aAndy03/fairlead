@@ -1154,6 +1154,313 @@ pub fn plan_move(loaded: &Loaded, reg: &Registry, req: &MoveRequest) -> Result<M
     })
 }
 
+/// Scope operations of `move` without a destination (R-PORT-010, R-PORT-012, R-LC-023).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ScopeOp {
+    /// Delete: items tombstoned into the parent, the managerial folder removed.
+    Delete { force: bool },
+    /// Demote: docs move into the parent with `applies`, a scope tombstone is left.
+    Demote,
+}
+
+/// Adds ` applies=<glob>` to every frontmatter `def` that has none, so a demoted scope's items
+/// keep applying to its former directory only.
+fn with_applies(text: &str, glob: &str) -> String {
+    let mut out = String::with_capacity(text.len() + 64);
+    let (mut in_fm, mut fences) = (false, 0);
+    for line in text.split_inclusive('\n') {
+        if line.trim_end() == "+++" && fences < 2 {
+            fences += 1;
+            in_fm = fences == 1;
+            out.push_str(line);
+            continue;
+        }
+        let t = line.trim_start();
+        let quoted = t.starts_with("'def ") || t.starts_with("\"def ");
+        if in_fm && quoted && !line.contains("applies=") {
+            let q = if t.starts_with('\'') { '\'' } else { '"' };
+            if let Some(end) = line.rfind(q) {
+                let (head, tail) = line.split_at(end);
+                out.push_str(head);
+                out.push_str(&format!(" applies={glob}"));
+                out.push_str(tail);
+                continue;
+            }
+        }
+        out.push_str(line);
+    }
+    out
+}
+
+/// `move --delete SRC` and `move --demote SRC` (R-PORT-010, R-LC-023).
+pub fn plan_scope_op(
+    loaded: &Loaded,
+    reg: &Registry,
+    src: &RepoPath,
+    op: ScopeOp,
+) -> Result<MoveOut, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let sc = reg
+        .scopes()
+        .find(|s| s.dir.as_str() == src.as_str() && !s.dir.as_str().is_empty())
+        .ok_or_else(|| {
+            Error::Usage(format!(
+                "{} is not a scope directory (other than the root)",
+                src.as_str()
+            ))
+        })?;
+    let parent_id = sc
+        .parent
+        .clone()
+        .ok_or_else(|| Error::Usage("the scope has no ancestor".into()))?;
+    if reg.scopes().any(|s| s.parent.as_ref() == Some(&sc.id)) {
+        return Err(refusal(
+            crate::error::RefusalKind::PlanNotConfirmed,
+            format!("{} has child scopes", sc.id.0.as_str()),
+            "delete, demote or move the child scopes first",
+        ));
+    }
+    let folder = &loaded.root.folder;
+    let mgr = if sc.dir.as_str().is_empty() {
+        folder.clone()
+    } else {
+        format!("{}/{folder}", sc.dir.as_str())
+    };
+    let parent = reg
+        .scope(&parent_id)
+        .ok_or_else(|| Error::Internal("parent scope vanished".into()))?;
+    let parent_mgr = if parent.dir.as_str().is_empty() {
+        folder.clone()
+    } else {
+        format!("{}/{folder}", parent.dir.as_str())
+    };
+    let read = |p: &RepoPath| -> Result<Vec<u8>, Error> {
+        let b = std::fs::read(loaded.root.dir.join(p.as_str()).as_std_path())
+            .map_err(|e| Error::io(p.as_str(), "read", &e, false))?;
+        Ok(match String::from_utf8(b) {
+            Ok(t) => t.replace("\r\n", "\n").into_bytes(),
+            Err(e) => e.into_bytes(),
+        })
+    };
+    let date = reg.as_of().0;
+    let mut set = WriteSet::new(WriteSetKind::Move);
+    let mut lines = Vec::new();
+    let mut obligations = Vec::new();
+    let mut loosening = false;
+    let own: Vec<&RepoPath> = loaded
+        .walk
+        .files
+        .iter()
+        .map(|e| &e.path)
+        .filter(|p| p.as_str().starts_with(&format!("{mgr}/")))
+        .collect();
+    let delete_file =
+        |p: &RepoPath, set: &mut WriteSet, lines: &mut Vec<PlanLine>| -> Result<(), Error> {
+            let old = read(p)?;
+            set.add(PlannedWrite {
+                path: p.clone(),
+                kind: WriteKind::Delete,
+                bytes: Vec::new(),
+                class: loaded
+                    .corpus
+                    .records
+                    .get(p)
+                    .map_or(crate::classify::FileClass::Authored, |r| r.class),
+                expect_prior: Some(crate::hash::hash_normalised(&old)),
+            })?;
+            lines.push(PlanLine {
+                action: PlanAction::Edit,
+                path: p.clone(),
+                detail: "removed".into(),
+                diff: None,
+            });
+            Ok(())
+        };
+    match op {
+        ScopeOp::Delete { force } => {
+            // R-PORT-010: zero live references into the scope, or `--force` with an approval.
+            let live: Vec<String> = reg
+                .edges()
+                .iter()
+                .filter(|e| {
+                    e.from.scope != sc.id && e.resolved.as_ref().is_some_and(|r| r.scope == sc.id)
+                })
+                .map(|e| {
+                    format!(
+                        "live reference {}:{} -> {}",
+                        e.from.path.as_str(),
+                        e.from.span.line,
+                        e.to
+                    )
+                })
+                .collect();
+            if !live.is_empty() {
+                obligations.extend(live.iter().cloned());
+                loosening = true;
+                if !force {
+                    return Err(refusal(
+                        crate::error::RefusalKind::PlanNotConfirmed,
+                        format!(
+                            "{} live references into {}: {}",
+                            live.len(),
+                            sc.id.0.as_str(),
+                            live.join("; ")
+                        ),
+                        "remove them first, or pass --force with an approval of the plan (R-PORT-010)",
+                    ));
+                }
+            }
+            let mut tombs = String::new();
+            let mut ids: Vec<String> = reg
+                .items()
+                .filter(|i| i.id.scope == sc.id)
+                .map(|i| format!("{}.{}", i.id.kind.as_str(), i.id.name.as_str()))
+                .collect();
+            ids.sort();
+            for id in &ids {
+                tombs.push_str(&crate::lifecycle::tomb_text(
+                    &crate::lifecycle::Tomb {
+                        file: RepoPath::root(),
+                        scope: None,
+                        id: id.clone(),
+                        removed: date.to_string(),
+                        by: None,
+                        why: format!("scope {} deleted", sc.id.0.as_str()),
+                        paths: Vec::new(),
+                        deleted_by: Some("delete".into()),
+                    },
+                    Some(&date.to_string()),
+                ));
+                obligations.push(format!("tombstone {id}"));
+            }
+            tombs.push_str(&crate::lifecycle::tomb_text(
+                &crate::lifecycle::Tomb {
+                    file: RepoPath::root(),
+                    scope: None,
+                    id: sc.id.0.as_str().to_owned(),
+                    removed: date.to_string(),
+                    by: Some("delete".into()),
+                    why: format!(
+                        "scope deleted; its items are tombstoned in {}",
+                        parent_id.0.as_str()
+                    ),
+                    paths: vec![sc.dir.as_str().to_owned()],
+                    deleted_by: None,
+                },
+                None,
+            ));
+            let tomb_path = RepoPath::new(&format!("{parent_mgr}/tombstones/{}.toml", date.year()))
+                .map_err(|e| Error::Internal(format!("{e:?}")))?;
+            set.add(PlannedWrite {
+                path: tomb_path.clone(),
+                kind: WriteKind::AppendBlock {
+                    marker: String::new(),
+                },
+                bytes: tombs.into_bytes(),
+                class: crate::classify::FileClass::Authored,
+                expect_prior: None,
+            })?;
+            lines.push(PlanLine {
+                action: PlanAction::Edit,
+                path: tomb_path,
+                detail: format!("{} item tombstones and the scope tombstone", ids.len()),
+                diff: None,
+            });
+            for p in &own {
+                delete_file(p, &mut set, &mut lines)?;
+            }
+        }
+        ScopeOp::Demote => {
+            let ctl = sc
+                .control
+                .as_ref()
+                .ok_or_else(|| Error::Usage("the scope's control file did not parse".into()))?;
+            let busy: Vec<&str> = [
+                ("rules", !ctl.rules.is_empty()),
+                ("kinds", !ctl.kinds.is_empty()),
+                ("[[ovr]]", !ctl.ovrs.is_empty()),
+                ("[[allow]]", !ctl.allows.is_empty()),
+                ("[[file]]", !ctl.files.is_empty()),
+                ("[[vendor]]", !ctl.vendors.is_empty()),
+                ("[[convention]]", !ctl.conventions.is_empty()),
+            ]
+            .into_iter()
+            .filter_map(|(n, b)| b.then_some(n))
+            .collect();
+            if !busy.is_empty() {
+                return Err(refusal(
+                    crate::error::RefusalKind::PlanNotConfirmed,
+                    format!(
+                        "{} declares {} in its control file",
+                        sc.id.0.as_str(),
+                        busy.join(", ")
+                    ),
+                    "move those tables into the parent's control file first; demote moves docs, not control tables",
+                ));
+            }
+            if own.iter().any(|p| p.as_str().contains("/ledger/")) {
+                return Err(refusal(
+                    crate::error::RefusalKind::PlanNotConfirmed,
+                    format!("{} has sealed ledger history", sc.id.0.as_str()),
+                    "a scope with sealed history is kept; detach or delete it instead",
+                ));
+            }
+            // The 0.1 demote model: duplicate-ID refusal and the scope tombstone.
+            let tomb = crate::write::plan_demote(reg, &sc.id)?;
+            for (_, w) in tomb.set.writes {
+                lines.push(PlanLine {
+                    action: PlanAction::Edit,
+                    path: w.path.clone(),
+                    detail: format!("tombstone for {}", sc.id.0.as_str()),
+                    diff: None,
+                });
+                set.add(w)?;
+            }
+            let rel_dir = crate::restructure::rel_to(parent.dir.as_str(), sc.dir.as_str())
+                .unwrap_or_else(|| sc.dir.as_str().to_owned());
+            let glob = format!("{rel_dir}/**");
+            for p in &own {
+                let rest = p.as_str().strip_prefix(&format!("{mgr}/")).unwrap_or("");
+                if let Some(doc) = rest.strip_prefix("docs/") {
+                    let to =
+                        RepoPath::new(&format!("{parent_mgr}/docs/{}/{doc}", sc.id.0.as_str()))
+                            .map_err(|e| Error::Internal(format!("{e:?}")))?;
+                    let old = read(p)?;
+                    let new = with_applies(&String::from_utf8_lossy(&old), &glob);
+                    set.add(PlannedWrite {
+                        path: to.clone(),
+                        kind: WriteKind::Create,
+                        bytes: new.into_bytes(),
+                        class: crate::classify::FileClass::Authored,
+                        expect_prior: None,
+                    })?;
+                    obligations.push(format!(
+                        "~ {} -> {} (applies={glob})",
+                        p.as_str(),
+                        to.as_str()
+                    ));
+                    lines.push(PlanLine {
+                        action: PlanAction::Create,
+                        path: to,
+                        detail: format!("moved from {}", p.as_str()),
+                        diff: None,
+                    });
+                }
+                delete_file(p, &mut set, &mut lines)?;
+            }
+        }
+    }
+    let plan = Plan::new(set, lines, Vec::new());
+    Ok(MoveOut {
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        fp: crate::hash::Fingerprint::from_hash(&plan.plan_hash),
+        plan,
+        obligations,
+        code_sites: Vec::new(),
+        loosening,
+    })
+}
+
 /// R-PORT-004, R-GIT-062: a loosening move needs `fairlead approve move-<fp>`; the write-set must
 /// equal HEAD unless `--allow-dirty`.
 pub fn move_gate(loaded: &Loaded, out: &MoveOut, allow_dirty: bool) -> Result<(), Error> {
