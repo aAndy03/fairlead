@@ -170,8 +170,11 @@ pub fn new_plan(
         "approval" => Err(Error::Usage(
             "approvals are recorded with `fairlead approve`, not `fairlead new`".into(),
         )),
-        "change" | "revive" => Err(Error::Reserved {
-            verb: "new change",
+        "change" => Err(Error::Internal(
+            "change docs need the version line; plan them through pipeline::plan_new".into(),
+        )),
+        "revive" => Err(Error::Reserved {
+            verb: "new revive",
             milestone: "0.2",
         }),
         "ladder" | "request" => Err(Error::Reserved {
@@ -194,6 +197,77 @@ pub fn new_plan(
             plan_doc(req, reg, as_of, &cx, &decl)
         }
     }
+}
+
+/// `new change "<title>"` (R-VER-012, R-VER-040): a draft change doc in the scope's
+/// `<folder>/docs/changes/`, named `d-<draft>-<slug>.md`, with `created` set to the open version.
+/// `bits` are 40 random bits drawn by the caller; a draft ID already in the tree is refused.
+pub fn new_change_plan(
+    req: &NewRequest,
+    reg: &Registry,
+    open: crate::version::Version,
+    bits: [u8; 5],
+    taken: &BTreeSet<crate::docs::DraftId>,
+) -> Result<Plan, Error> {
+    use crate::docs::{DraftId, slug};
+    let cx = ctx(req, reg)?;
+    check_fields(&req.fields, &["impact", "covers"], "change")?;
+    if let Some(i) = req.fields.get("impact")
+        && crate::version::Impact::parse(i).is_none()
+    {
+        return Err(Error::Usage(format!(
+            "impact must be break, add or fix, not {i:?}"
+        )));
+    }
+    let id = DraftId::from_bits(bits);
+    if taken.contains(&id) {
+        return Err(refuse(
+            RefusalKind::NoClobber,
+            format!("draft ID {id} is already in the tree"),
+            "run the command again; a new ID is drawn each time",
+        ));
+    }
+    let title = req.name.trim();
+    if title.is_empty() {
+        return Err(Error::Usage("new change needs a title".into()));
+    }
+    let target = repo_path(&under(
+        &cx.dir,
+        &format!("{}/docs/changes/{id}-{}.md", cx.folder, slug(title)),
+    ))?;
+    let mut fm = format!("+++\nid = \"{id}\"\nkind = \"change\"\nstatus = \"draft\"\n");
+    if let Some(i) = req.fields.get("impact") {
+        fm.push_str(&format!("impact = \"{i}\"\n"));
+    }
+    let covers: Vec<String> = req.fields.get("covers").map(|c| csv(c)).unwrap_or_default();
+    fm.push_str(&format!(
+        "scope = {}\ntitle = {}\ncovers = {}\ncreated = \"{open}\"\n+++\n",
+        toml_str(cx.scope.0.as_str()),
+        toml_str(title),
+        toml_list(&covers)
+    ));
+    let text = format!(
+        "{fm}\n# {title}\n\n{PLACEHOLDER}: what changes and why. Fill `covers` (globs or IDs under this scope) and `impact` (break, add or fix) before setting `status = \"ready\"`.\n"
+    );
+    let mut set = WriteSet::new(WriteSetKind::New);
+    set.add(PlannedWrite {
+        path: target.clone(),
+        kind: WriteKind::Create,
+        bytes: text.clone().into_bytes(),
+        class: FileClass::Authored,
+        expect_prior: None,
+    })?;
+    let lines = vec![PlanLine {
+        action: PlanAction::Create,
+        path: target,
+        detail: format!("change {id}"),
+        diff: Some(plain_diff("", &text, 60)),
+    }];
+    let mut notes = Vec::new();
+    if covers.is_empty() || !req.fields.contains_key("impact") {
+        notes.push("fill before ready: covers, impact".to_owned());
+    }
+    Ok(finish(req, set, lines, notes, &text))
 }
 
 pub(crate) fn finish(
@@ -846,6 +920,65 @@ mod tests {
         String::from_utf8(p.set.writes[&rp(path)].bytes.clone()).unwrap()
     }
 
+    fn change(r: &NewRequest, taken: &[&str]) -> Result<Plan, Error> {
+        let (_root, reg) = env("");
+        let taken = taken
+            .iter()
+            .map(|t| crate::docs::DraftId::parse(t).unwrap())
+            .collect();
+        new_change_plan(
+            r,
+            &reg,
+            crate::version::Version::new(1, 2, 0),
+            [0, 0, 0, 0, 1],
+            &taken,
+        )
+    }
+
+    #[test]
+    fn r_ver_012__new_change_is_a_draft_created_at_the_open_version() {
+        let mut r = nr("change", "Adds diff v2");
+        r.fields.insert("impact".into(), "add".into());
+        let p = change(&r, &[]).unwrap();
+        let path = "fairlead/docs/changes/d-00000001-adds-diff-v2.md";
+        let t = text(&p, path);
+        assert!(
+            t.starts_with("+++\nid = \"d-00000001\"\nkind = \"change\"\nstatus = \"draft\"\nimpact = \"add\"\nscope = \"root\"\ntitle = \"Adds diff v2\"\ncovers = []\ncreated = \"1.2.0\"\n+++\n"),
+            "{t}"
+        );
+        let toml_part = t
+            .strip_prefix("+++\n")
+            .and_then(|r| r.split_once("+++\n"))
+            .map(|(fm, _)| fm)
+            .unwrap();
+        let table: toml::Table = toml_part.parse().unwrap();
+        let d = crate::docs::parse_change_doc(&rp(path), &table)
+            .unwrap()
+            .unwrap();
+        assert_eq!(d.created.as_deref(), Some("1.2.0"));
+        assert_eq!(
+            t.matches("created").count(),
+            1,
+            "the only stamp (R-VER-013)"
+        );
+    }
+
+    #[test]
+    fn r_ver_040__a_draft_id_already_in_the_tree_is_refused() {
+        let e = change(&nr("change", "x"), &["d-00000001"]).unwrap_err();
+        assert!(
+            matches!(&e, Error::Refused(r) if r.kind == RefusalKind::NoClobber),
+            "{e}"
+        );
+    }
+
+    #[test]
+    fn r_ver_031__impact_must_be_a_known_word() {
+        let mut r = nr("change", "x");
+        r.fields.insert("impact".into(), "huge".into());
+        assert!(matches!(change(&r, &[]), Err(Error::Usage(_))));
+    }
+
     #[test]
     fn r_cli_030__doc_kind_scaffold_has_frontmatter_def_line_and_created_stamp() {
         let p = plan("", &nr("adr", "use-css-vars")).unwrap();
@@ -927,12 +1060,16 @@ mod tests {
             matches!(plan("", &nr("approval", "x")), Err(Error::Usage(m)) if m.contains("fairlead approve"))
         );
         assert!(matches!(
-            plan("", &nr("change", "x")),
+            plan("", &nr("revive", "x")),
             Err(Error::Reserved {
                 milestone: "0.2",
                 ..
             })
         ));
+        assert!(
+            matches!(plan("", &nr("change", "x")), Err(Error::Internal(m)) if m.contains("plan_new")),
+            "change docs go through pipeline::plan_new"
+        );
         assert!(matches!(
             plan("", &nr("ladder", "x")),
             Err(Error::Reserved {

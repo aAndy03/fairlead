@@ -309,7 +309,47 @@ pub fn plan_new(
     request: &NewRequest,
     as_of: AsOf,
 ) -> Result<Plan, Error> {
+    if request.kind == "change" {
+        let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+        let taken = docs.iter().map(|d| d.id.clone()).collect();
+        return crate::write::new_change_plan(
+            request,
+            registry,
+            version_line(loaded).open,
+            random_bits(),
+            &taken,
+        );
+    }
     new_plan(request, registry, &loaded.facts, as_of)
+}
+
+/// The version line of the loaded tree (R-VER-001 to R-VER-003): version files under the root's
+/// `<folder>/versions/`, pending change docs from the corpus. `version.start` is `0.1.0` until the
+/// `[version]` table is parsed (0.2 errata E2-5).
+pub fn version_line(loaded: &Loaded) -> crate::version::VersionLine {
+    let prefix = format!("{}/versions/", loaded.root.folder);
+    let files = loaded.corpus.records.keys().filter_map(|p| {
+        p.as_str()
+            .strip_prefix(&prefix)
+            .filter(|rest| !rest.contains('/'))
+            .and_then(crate::version::version_of_file_name)
+    });
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    let pending = docs
+        .iter()
+        .filter(|d| d.status.is_pending())
+        .map(|d| d.impact.unwrap_or(crate::version::Impact::Fix));
+    crate::version::derive_line(files, pending, crate::version::Version::new(0, 1, 0))
+}
+
+/// 40 random bits for a draft ID (R-VER-040), from the standard library's randomly keyed hasher
+/// (seeded by the OS); no clock, no extra crate.
+fn random_bits() -> [u8; 5] {
+    use std::hash::{BuildHasher, Hasher};
+    let mut h = std::collections::hash_map::RandomState::new().build_hasher();
+    h.write_u32(std::process::id());
+    let b = h.finish().to_le_bytes();
+    [b[0], b[1], b[2], b[3], b[4]]
 }
 
 /// `sync` plan (R-CLI-025). The check runs first, so `sync_plan` sees the findings `check` reports.
