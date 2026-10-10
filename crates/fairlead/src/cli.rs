@@ -86,8 +86,8 @@ pub enum Command {
     Approve(ApproveArgs),
     /// Arrives in 0.2 (R-CLI-040).
     Move(ReservedArgs),
-    /// Arrives in 0.2 (R-CLI-041).
-    Seal(ReservedArgs),
+    /// Close the open version: seal ready change docs, write the version file last (R-CLI-041).
+    Seal(SealArgs),
     /// Arrives in 0.2 (R-CLI-042).
     Upgrade(ReservedArgs),
 }
@@ -266,6 +266,23 @@ pub struct ApproveArgs {
     pub revoke: Option<String>,
 }
 
+/// `seal` (R-CLI-041). Without `--yes` the plan is printed and nothing is written (R-CLI-002).
+#[derive(Args, Debug, Clone, Default)]
+pub struct SealArgs {
+    /// Print the plan and write nothing.
+    #[arg(long)]
+    pub dry_run: bool,
+    /// Apply the plan.
+    #[arg(long)]
+    pub yes: bool,
+    /// Seal although files outside the seal write-set changed; recorded as `dirty = true`.
+    #[arg(long)]
+    pub allow_dirty: bool,
+    /// Seal on any branch (`version.seal-where = "any"`), for solo work (R-VER-055).
+    #[arg(long)]
+    pub anywhere: bool,
+}
+
 /// Arguments of a verb that arrives later. They are accepted so the refusal is exact (R-CLI-001).
 #[derive(Args, Debug, Clone, Default)]
 pub struct ReservedArgs {
@@ -322,7 +339,7 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Explain(args)) => commands::explain::run(&global, &args),
         Some(Command::Approve(args)) => commands::approve::run(&global, &args),
         Some(Command::Move(_)) => commands::reserved::run(&global, ReservedVerb::Move),
-        Some(Command::Seal(_)) => commands::reserved::run(&global, ReservedVerb::Seal),
+        Some(Command::Seal(args)) => commands::seal::run(&global, &args),
         Some(Command::Upgrade(_)) => commands::reserved::run(&global, ReservedVerb::Upgrade),
     };
     emit(&result)
@@ -370,10 +387,6 @@ mod tests {
         assert!(matches!(
             parse(&["move", "a", "b"]).unwrap().command,
             Some(Command::Move(_))
-        ));
-        assert!(matches!(
-            parse(&["seal", "--commit"]).unwrap().command,
-            Some(Command::Seal(_))
         ));
         assert!(matches!(
             parse(&["upgrade"]).unwrap().command,
@@ -489,7 +502,7 @@ mod tests {
     fn r_cli_001__a_reserved_verb_dispatches_to_exit_2() {
         let cli = Cli {
             global: GlobalArgs::default(),
-            command: Some(Command::Seal(ReservedArgs::default())),
+            command: Some(Command::Upgrade(ReservedArgs::default())),
         };
         assert_eq!(dispatch(cli), ExitCode::Usage);
     }

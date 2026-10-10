@@ -877,6 +877,7 @@ Do not edit fairlead/control.toml or fairlead/approvals.toml; ask a human.\n\
             let text = String::from_utf8_lossy(&w.bytes).into_owned();
             let fin = match &w.kind {
                 WriteKind::Create | WriteKind::Replace => w.bytes.clone(),
+                WriteKind::Delete => Vec::new(),
                 WriteKind::AppendBlock { marker } if marker.is_empty() => {
                     crate::write::append_plain(&cur, &text)
                 }

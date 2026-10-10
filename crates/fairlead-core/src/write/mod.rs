@@ -108,6 +108,7 @@ fn kind_tag(k: &WriteKind) -> String {
         WriteKind::Create => "create".into(),
         WriteKind::Replace => "replace".into(),
         WriteKind::AppendBlock { marker } => format!("append:{marker}"),
+        WriteKind::Delete => "delete".into(),
     }
 }
 

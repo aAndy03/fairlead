@@ -57,6 +57,47 @@ impl GitRepo {
         }
     }
 
+    /// `(detached, branch name)` of HEAD (R-GIT-065, R-VER-055). An unborn HEAD is a branch.
+    pub fn head_state(&self) -> (bool, Option<String>) {
+        let detached = self.repo.head_detached().unwrap_or(false);
+        let branch = self
+            .repo
+            .head()
+            .ok()
+            .and_then(|h| h.shorthand().ok().map(str::to_owned))
+            .or_else(|| {
+                // Unborn HEAD: the symbolic target names the branch to be.
+                self.repo
+                    .find_reference("HEAD")
+                    .ok()
+                    .and_then(|r| r.symbolic_target().ok().flatten().map(str::to_owned))
+                    .map(|t| t.trim_start_matches("refs/heads/").to_owned())
+            });
+        (detached, branch.filter(|_| !detached))
+    }
+
+    /// Paths with merge conflicts in the index (R-GIT-064).
+    pub fn unmerged_paths(&self) -> Result<Vec<RepoPath>, Error> {
+        let index = self
+            .repo
+            .index()
+            .map_err(|e| cannot_determine("cannot read the git index", &e))?;
+        let mut set = BTreeSet::new();
+        if index.has_conflicts() {
+            let conflicts = index
+                .conflicts()
+                .map_err(|e| cannot_determine("cannot read index conflicts", &e))?;
+            for c in conflicts.flatten() {
+                for entry in [c.ancestor, c.our, c.their].into_iter().flatten() {
+                    if let Ok(p) = std::str::from_utf8(&entry.path) {
+                        self.add(&mut set, p);
+                    }
+                }
+            }
+        }
+        Ok(set.into_iter().collect())
+    }
+
     /// Working tree plus index against HEAD, untracked non-ignored files included (C-36).
     pub fn changed_files(&self) -> Result<ChangedSet, Error> {
         let mut opts = git2::StatusOptions::new();

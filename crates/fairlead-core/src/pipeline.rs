@@ -387,6 +387,133 @@ pub fn plan_approve_loaded(
 
 /// Begin and commit under the session's lock (R-CLI-007, R-CLI-008). The only function that
 /// reaches `Transaction::begin`.
+/// What `seal` is asked for (R-CLI-041).
+#[derive(Clone, Debug)]
+pub struct SealRequest {
+    pub allow_dirty: bool,
+    /// `version.seal-where = "any"`; `false` keeps sealing to the integration branch.
+    pub seal_anywhere: bool,
+    pub integration_branch: String,
+}
+
+/// `seal` steps 1 to 4 (R-VER-050): run the check, read git state, plan, build the write-set.
+/// `sealed-at` is the `--as-of` date at 00:00 UTC: retention needs days (R-RET-011), and the
+/// planner stays deterministic with no clock read of its own.
+pub fn plan_seal(
+    loaded: &Loaded,
+    registry: &Registry,
+    options: &CheckOptions,
+    request: &SealRequest,
+) -> Result<(crate::seal::SealPlan, Plan), Error> {
+    use crate::check::FindingState;
+    use crate::config::Stage;
+    use crate::diag::Severity;
+    use crate::diag::codes::HN_F001;
+    let context = check_context(loaded, registry, options);
+    let input = CheckInput {
+        registry,
+        corpus: &loaded.corpus,
+        facts: &loaded.facts,
+        load_diags: &context.diags,
+        baseline: context.baseline.as_ref(),
+        options,
+    };
+    let report = check_run(&input);
+    let blocking = |f: &&crate::check::Finding| {
+        f.severity == Severity::Error
+            && f.stage == Stage::Enforce
+            && matches!(f.state, FindingState::New | FindingState::WaiverIneffective)
+    };
+    let gate_errors = report.findings.iter().filter(blocking).count();
+    let secrets = report.findings.iter().filter(|f| f.code == HN_F001).count();
+    let git = match crate::git::GitRepo::open(&loaded.root) {
+        None => crate::seal::SealGit::default(),
+        Some(repo) => {
+            let (detached, branch) = repo.head_state();
+            crate::seal::SealGit {
+                available: true,
+                detached,
+                branch,
+                unmerged: repo.unmerged_paths()?,
+                changed: repo.changed_files()?.0.into_iter().collect(),
+            }
+        }
+    };
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    let paths: BTreeSet<RepoPath> = loaded.corpus.records.keys().cloned().collect();
+    let versions = crate::docs::version_files(&loaded.corpus, &loaded.root.folder);
+    let seal_plan = crate::seal::plan(&crate::seal::SealInput {
+        line: version_line(loaded),
+        docs: &docs,
+        gate_errors,
+        secrets,
+        git,
+        allow_dirty: request.allow_dirty,
+        seal_anywhere: request.seal_anywhere,
+        integration_branch: request.integration_branch.clone(),
+        folder: loaded.root.folder.clone(),
+        paths: &paths,
+        sweep_after: 3,
+        sealed_versions: &versions,
+    })
+    .map_err(|r| {
+        Error::Refused(crate::error::Refusal {
+            kind: crate::error::RefusalKind::PlanNotConfirmed,
+            message: r.message,
+            hint: r.hint,
+        })
+    })?;
+    let mut texts = std::collections::BTreeMap::new();
+    for d in &seal_plan.sealing {
+        let abs = loaded.root.dir.join(d.path.as_str());
+        let text = std::fs::read_to_string(abs.as_std_path())
+            .map_err(|e| Error::io(d.path.as_str(), "read", &e, false))?;
+        texts.insert(d.path.clone(), text);
+    }
+    let gen_dir = loaded.root_control.layout.r#gen.clone();
+    let gen_dir = if gen_dir.is_empty() {
+        "gen".to_owned()
+    } else {
+        gen_dir
+    };
+    let sealed_at = format!("{}T00:00:00Z", options.as_of);
+    let set = crate::seal::write_set(
+        &seal_plan,
+        &crate::seal::SealWriteCx {
+            reg: registry,
+            all_docs: &docs,
+            texts: &texts,
+            ledgers: &loaded.facts.ledgers,
+            sealed_at: &sealed_at,
+            edition: loaded.root.edition.0,
+            folder: &loaded.root.folder,
+            gen_dir: &gen_dir,
+        },
+    )
+    .map_err(Error::Internal)?;
+    let lines = set
+        .writes
+        .values()
+        .map(|w| crate::write::PlanLine {
+            action: match w.kind {
+                crate::write::WriteKind::Create => crate::write::PlanAction::Create,
+                _ => crate::write::PlanAction::Edit,
+            },
+            path: w.path.clone(),
+            detail: match w.kind {
+                crate::write::WriteKind::Delete => "renamed to its ordinal".into(),
+                _ if Some(&w.path) == set.commit_point.as_ref() => {
+                    "version file (commit point)".into()
+                }
+                _ => String::new(),
+            },
+            diff: None,
+        })
+        .collect();
+    let notes = seal_plan.sweep.clone();
+    Ok((seal_plan, Plan::new(set, lines, notes)))
+}
+
 pub fn commit_plan(session: &WriteSession<'_>, plan: Plan) -> Result<WriteOutcome, Error> {
     let transaction = Transaction::begin(&session.root, &session.lock, plan.set)?;
     let report = transaction.commit()?;

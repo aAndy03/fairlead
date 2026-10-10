@@ -8,6 +8,7 @@ pub mod explain;
 pub mod init;
 pub mod new;
 pub mod reserved;
+pub mod seal;
 pub mod sync;
 
 use std::collections::BTreeSet;

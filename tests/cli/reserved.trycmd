@@ -3,10 +3,6 @@ $ fairlead move a b
 ? 2
 move arrives in 0.2
 
-$ fairlead seal --commit
-? 2
-seal arrives in 0.2
-
 $ fairlead upgrade --yes
 ? 2
 upgrade arrives in 0.2

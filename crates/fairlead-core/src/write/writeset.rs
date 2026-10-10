@@ -12,7 +12,11 @@ use std::collections::BTreeMap;
 pub enum WriteKind {
     Create,
     Replace,
-    AppendBlock { marker: String },
+    AppendBlock {
+        marker: String,
+    },
+    /// Remove the file (seal's ordinal rename: the draft-named doc goes, R-VER-041). `bytes` is empty.
+    Delete,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -30,12 +34,15 @@ pub enum WriteSetKind {
     Sync,
     New,
     Approve,
+    Seal,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct WriteSet {
     pub kind: WriteSetKind,
     pub writes: BTreeMap<RepoPath, PlannedWrite>,
+    /// Applied after every other write: seal's version file (R-VER-050 step 6, D-14).
+    pub commit_point: Option<RepoPath>,
 }
 
 impl WriteSet {
@@ -43,6 +50,7 @@ impl WriteSet {
         WriteSet {
             kind,
             writes: BTreeMap::new(),
+            commit_point: None,
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -110,6 +118,15 @@ fn allowed(kind: WriteSetKind, w: &PlannedWrite, folder: &str) -> bool {
                 )
         }
         WriteSetKind::Approve => fpos == Some(0) && after.as_slice() == ["approvals.toml"],
+        // R-VER-059: ledger shards, generated files, sealed docs (rewritten or renamed in
+        // place) and the root's version file; nothing else.
+        WriteSetKind::Seal => match (fpos, after.as_slice()) {
+            (Some(_), ["gen", ..]) => w.class == FileClass::Generated,
+            (Some(_), ["ledger", "hist", _]) => w.class == FileClass::Ledger,
+            (Some(_), ["docs", ..]) => w.class == FileClass::Authored && ext == "md",
+            (Some(0), ["versions", _]) => w.class == FileClass::Authored && ext == "md",
+            _ => false,
+        },
         WriteSetKind::Init => {
             matches!(
                 (fpos, after.as_slice()),
@@ -143,6 +160,9 @@ fn check_bytes(w: &PlannedWrite, folder: &str) -> Result<(), Error> {
         )));
     }
     match &w.kind {
+        WriteKind::Delete if !w.bytes.is_empty() => {
+            return Err(Error::Internal(format!("{p}: a delete carries no bytes")));
+        }
         WriteKind::Create if w.expect_prior.is_some() => {
             return Err(Error::Internal(format!(
                 "{p}: Create cannot carry expect_prior"

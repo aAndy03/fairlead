@@ -71,3 +71,7 @@ path = "../../tests/codes.rs"
 [[test]]
 name = "editions"
 path = "../../tests/editions.rs"
+
+[[test]]
+name = "seal"
+path = "../../tests/seal.rs"

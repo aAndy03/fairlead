@@ -31,6 +31,7 @@ struct Item {
     fin: Vec<u8>,
     prior: Option<Vec<u8>>,
     unchanged: bool,
+    delete: bool,
 }
 
 pub struct Transaction<'l> {
@@ -62,10 +63,11 @@ impl<'l> Transaction<'l> {
         };
         let mut resumable = true;
         for e in &doc.entries {
-            let temp_here = fs
-                .read(&root.dir.join(&e.temp))
-                .map_err(|x| io_err("read", &e.temp, &x))?
-                .is_some();
+            let temp_here = e.temp.is_empty()
+                || fs
+                    .read(&root.dir.join(&e.temp))
+                    .map_err(|x| io_err("read", &e.temp, &x))?
+                    .is_some();
             if !(applied(fs, &root.dir, e)? || temp_here) {
                 resumable = false;
                 break;
@@ -96,7 +98,10 @@ impl<'l> Transaction<'l> {
     ) -> Result<Self, Error> {
         set.validate(root)?;
         let mut items = Vec::new();
-        for (path, w) in &set.writes {
+        for path in apply_order(&set) {
+            let Some(w) = set.writes.get(&path) else {
+                continue;
+            };
             let abs = root.dir.join(path.as_str());
             let cur = fs
                 .read(&abs)
@@ -130,7 +135,7 @@ impl<'l> Transaction<'l> {
                     }
                     _ => w.bytes.clone(),
                 },
-                WriteKind::Replace => w.bytes.clone(),
+                WriteKind::Replace | WriteKind::Delete => w.bytes.clone(),
                 WriteKind::AppendBlock { marker } => {
                     let existing = cur.clone().unwrap_or_default();
                     if marker.is_empty() {
@@ -140,13 +145,19 @@ impl<'l> Transaction<'l> {
                     }
                 }
             };
-            let unchanged = cur.as_deref() == Some(fin.as_slice());
+            let delete = w.kind == WriteKind::Delete;
+            let unchanged = if delete {
+                cur.is_none()
+            } else {
+                cur.as_deref() == Some(fin.as_slice())
+            };
             items.push(Item {
                 path: path.clone(),
                 abs,
                 fin,
                 prior: cur,
                 unchanged,
+                delete,
             });
         }
         Ok(Transaction {
@@ -213,11 +224,13 @@ impl<'l> Transaction<'l> {
                 self.fs.create_dir_all(dir).map_err(|e| io("mkdir", e))?;
             }
             let temp = temp_name(&it.abs, txid);
-            self.fs.remove_file(&temp).map_err(|e| io("clean", e))?;
-            self.fs
-                .write_new(&temp, &it.fin)
-                .map_err(|e| io("stage", e))?;
-            created.push(temp.clone());
+            if !it.delete {
+                self.fs.remove_file(&temp).map_err(|e| io("clean", e))?;
+                self.fs
+                    .write_new(&temp, &it.fin)
+                    .map_err(|e| io("stage", e))?;
+                created.push(temp.clone());
+            }
             let backup = match &it.prior {
                 Some(prior) => {
                     let b = self.dir.join(format!(".fairlead/tx/{txid}/{n}.prior"));
@@ -233,10 +246,18 @@ impl<'l> Transaction<'l> {
             };
             entries.push(JournalEntry {
                 path: it.path.as_str().to_owned(),
-                temp: rel(&self.dir, &temp),
+                temp: if it.delete {
+                    String::new()
+                } else {
+                    rel(&self.dir, &temp)
+                },
                 backup,
                 prior: it.prior.as_ref().map(|p| hex(&hash_raw(p).0)),
-                new_hash: hex(&hash_raw(&it.fin).0),
+                new_hash: if it.delete {
+                    DELETED.to_owned()
+                } else {
+                    hex(&hash_raw(&it.fin).0)
+                },
                 exec: it.fin.starts_with(b"#!"),
             });
         }
@@ -253,10 +274,27 @@ impl<'l> Transaction<'l> {
     }
 }
 
+/// Path order, except that the commit point goes last (R-VER-050 step 6, D-14).
+pub(crate) fn apply_order(set: &WriteSet) -> Vec<RepoPath> {
+    let last = set.commit_point.as_ref();
+    set.writes
+        .keys()
+        .filter(|p| Some(*p) != last)
+        .chain(set.writes.keys().filter(|p| Some(*p) == last))
+        .cloned()
+        .collect()
+}
+
+/// `new_hash` of a delete entry: applied once the file is gone.
+const DELETED: &str = "-";
+
 pub(crate) fn applied(fs: &dyn Fs, dir: &Utf8Path, e: &JournalEntry) -> Result<bool, Error> {
     let cur = fs
         .read(&dir.join(&e.path))
         .map_err(|x| io_err("read", &e.path, &x))?;
+    if e.new_hash == DELETED {
+        return Ok(cur.is_none());
+    }
     Ok(cur.is_some_and(|b| hex(&hash_raw(&b).0) == e.new_hash))
 }
 
@@ -267,6 +305,11 @@ pub(crate) fn apply(fs: &dyn Fs, dir: &Utf8Path, doc: &JournalDoc) -> Result<(),
             continue;
         }
         let target = dir.join(&e.path);
+        if e.new_hash == DELETED {
+            fs.remove_file(&target)
+                .map_err(|x| io_err("remove", &e.path, &x))?;
+            continue;
+        }
         rename_with_retry(fs, &dir.join(&e.temp), &target)
             .map_err(|x| io_err("rename", &e.path, &x))?;
         if e.exec {
@@ -304,7 +347,9 @@ pub(crate) fn rollback(fs: &dyn Fs, dir: &Utf8Path, doc: &JournalDoc) -> Result<
 
 pub(crate) fn cleanup(fs: &dyn Fs, dir: &Utf8Path, doc: &JournalDoc) {
     for e in &doc.entries {
-        let _ = fs.remove_file(&dir.join(&e.temp));
+        if !e.temp.is_empty() {
+            let _ = fs.remove_file(&dir.join(&e.temp));
+        }
         if let Some(b) = &e.backup {
             let _ = fs.remove_file(&dir.join(b));
         }
@@ -355,6 +400,63 @@ mod tests {
             .collect()
     }
     const C: WriteKind = WriteKind::Create;
+
+    #[test]
+    fn r_ver_050__the_commit_point_is_applied_last() {
+        let mut s = set(&[
+            ("fairlead/versions/0.2.0.md", C, "v\n"),
+            ("zz/fairlead/docs/a.md", C, "a\n"),
+            ("apps/fairlead/docs/b.md", C, "b\n"),
+        ]);
+        s.commit_point = Some(RepoPath::new("fairlead/versions/0.2.0.md").unwrap());
+        let order: Vec<String> = apply_order(&s)
+            .iter()
+            .map(|p| p.as_str().to_owned())
+            .collect();
+        assert_eq!(
+            order,
+            [
+                "apps/fairlead/docs/b.md",
+                "zz/fairlead/docs/a.md",
+                "fairlead/versions/0.2.0.md"
+            ]
+        );
+    }
+
+    #[test]
+    fn r_ver_041__delete_and_create_rename_a_doc_and_roll_back_together() {
+        let draft = "fairlead/docs/changes/d-00000001-x.md";
+        let sealed = "fairlead/docs/changes/0001-x.md";
+        let e = env();
+        put(&e, draft, "draft\n");
+        let lock = WriterLock::acquire(&e.root, &e.probe).unwrap();
+        let s = set(&[
+            (sealed, C, "sealed\n"),
+            (draft, WriteKind::Delete, ""),
+            ("fairlead/docs/changes/z.md", C, "z\n"),
+        ]);
+        // renames: 1 journal, 2 the create, then the delete (no rename), 3 the last create fails
+        let fs = FailingFs::new().renames_fail(3, 8); // all six attempts of rename 3
+        let failed = Transaction::begin_with(&e.root, &lock, s.clone(), &fs)
+            .unwrap()
+            .commit();
+        assert!(failed.is_err());
+        assert_eq!(read(&e, draft), "draft\n", "the deleted file is restored");
+        assert!(!e.d.path().join(sealed).exists());
+        let r = Transaction::begin(&e.root, &lock, s.clone())
+            .unwrap()
+            .commit()
+            .unwrap();
+        assert_eq!(r.written.len(), 3);
+        assert!(!e.d.path().join(draft).exists());
+        assert_eq!(read(&e, sealed), "sealed\n");
+        assert!(leftovers(&e).is_empty(), "{:?}", leftovers(&e));
+        let again = Transaction::begin(&e.root, &lock, s)
+            .unwrap()
+            .commit()
+            .unwrap();
+        assert!(again.written.is_empty(), "a rerun is a no-op");
+    }
 
     #[test]
     fn r_arch_143__commit_writes_files_and_a_rerun_reports_everything_unchanged() {

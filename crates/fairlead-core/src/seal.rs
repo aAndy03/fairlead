@@ -240,6 +240,305 @@ pub fn plan(input: &SealInput<'_>) -> Result<SealPlan, SealRefusal> {
     })
 }
 
+/// What the write-set builder reads besides the plan.
+pub struct SealWriteCx<'a> {
+    pub reg: &'a crate::registry::Registry,
+    /// Every change doc of the tree (the sealed ones feed the alias maps).
+    pub all_docs: &'a [ChangeDoc],
+    /// The current text of each doc being sealed.
+    pub texts: &'a BTreeMap<RepoPath, String>,
+    /// Ledger year files on disk (`Facts::ledgers`).
+    pub ledgers: &'a BTreeMap<RepoPath, std::sync::Arc<str>>,
+    /// UTC timestamp recorded as `sealed-at` (`YYYY-MM-DDTHH:MM:SSZ`), the seal's one clock read.
+    pub sealed_at: &'a str,
+    pub edition: u32,
+    pub folder: &'a str,
+    pub gen_dir: &'a str,
+}
+
+fn body_hash(text: &str) -> String {
+    let body = text
+        .strip_prefix("+++")
+        .and_then(|r| r.split_once("\n+++"))
+        .map_or(text, |(_, b)| b);
+    format!(
+        "b3:{}",
+        crate::hash::base32(&crate::hash::hash_normalised(body.as_bytes()).0, 20)
+    )
+}
+
+/// The sealed text of a doc: `status`, `sealed`, `body-hash` and `ordinal` set in its
+/// frontmatter, every other key and the body kept byte for byte (R-VER-012, R-VER-041).
+fn sealed_text(text: &str, open: Version, ordinal: u32) -> Result<String, String> {
+    let rest = text
+        .strip_prefix("+++\n")
+        .ok_or("doc does not start with +++ frontmatter")?;
+    let (fm, body) = rest
+        .split_once("\n+++")
+        .ok_or("frontmatter has no closing +++")?;
+    let mut doc: toml_edit::DocumentMut = fm.parse().map_err(|e| format!("{e}"))?;
+    doc["status"] = toml_edit::value("sealed");
+    doc["sealed"] = toml_edit::value(open.to_string());
+    doc["body-hash"] = toml_edit::value(body_hash(text));
+    doc["ordinal"] = toml_edit::value(i64::from(ordinal));
+    let mut fm = doc.to_string();
+    if !fm.ends_with('\n') {
+        fm.push('\n');
+    }
+    Ok(format!("+++\n{fm}+++{body}"))
+}
+
+/// `<ordinal>-<slug>.md` beside the draft-named file (R-VER-041).
+fn ordinal_path(p: &RepoPath, ordinal: u32) -> Result<RepoPath, String> {
+    let name = p.file_name();
+    let slug = name
+        .strip_suffix(".md")
+        .unwrap_or(name)
+        .strip_prefix("d-")
+        .and_then(|r| r.split_once('-'))
+        .map_or_else(
+            || name.trim_end_matches(".md").to_owned(),
+            |(_, s)| s.to_owned(),
+        );
+    let dir = p
+        .parent()
+        .map(|d| d.as_str().to_owned())
+        .unwrap_or_default();
+    let rel = format!("{ordinal:04}-{slug}.md");
+    let full = if dir.is_empty() {
+        rel
+    } else {
+        format!("{dir}/{rel}")
+    };
+    RepoPath::new(&full).map_err(|e| format!("{e:?}"))
+}
+
+fn toml_list(v: &[String]) -> String {
+    let items: Vec<String> = v.iter().map(|s| format!("{s:?}")).collect();
+    format!("[{}]", items.join(", "))
+}
+
+/// Steps 4 to 6 of R-VER-050 as one write-set (R-VER-059), committed by the 0.1 transaction with
+/// `versions/<O>.md` as the commit point.
+pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::WriteSet, String> {
+    use crate::classify::FileClass;
+    use crate::generate::{GenKind, GeneratedFile};
+    use crate::hist::YearFile;
+    use crate::render::line::TerseLine;
+    use crate::write::{PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+
+    let mut set = WriteSet::new(WriteSetKind::Seal);
+    let mut add = |w: PlannedWrite| set.add(w).map_err(|e| e.to_string());
+    let year: u32 = cx
+        .sealed_at
+        .get(..4)
+        .and_then(|y| y.parse().ok())
+        .ok_or("sealed-at has no year")?;
+    let mut sealed_now: Vec<ChangeDoc> = Vec::new();
+    let mut records: BTreeMap<ScopeKey, Vec<String>> = BTreeMap::new();
+    for d in &plan.sealing {
+        let ord = *plan.ordinals.get(&d.id).ok_or("doc without an ordinal")?;
+        let text = cx
+            .texts
+            .get(&d.path)
+            .ok_or_else(|| format!("{} was not read", d.path.as_str()))?;
+        let new_text = sealed_text(text, plan.open, ord)?;
+        let target = ordinal_path(&d.path, ord)?;
+        add(PlannedWrite {
+            path: target.clone(),
+            kind: WriteKind::Create,
+            bytes: new_text.into_bytes(),
+            class: FileClass::Authored,
+            expect_prior: None,
+        })?;
+        if target != d.path {
+            add(PlannedWrite {
+                path: d.path.clone(),
+                kind: WriteKind::Delete,
+                bytes: Vec::new(),
+                class: FileClass::Authored,
+                expect_prior: Some(crate::hash::hash_normalised(text.as_bytes())),
+            })?;
+        }
+        let scope = cx
+            .reg
+            .scope_of(&d.path)
+            .cloned()
+            .unwrap_or_else(|| cx.reg.root_scope().clone());
+        let line = TerseLine::new(d.id.as_str())
+            .with("kind", &d.kind)
+            .with("ord", &format!("{ord:04}"))
+            .with(
+                "impact",
+                match d.impact {
+                    Some(crate::version::Impact::Break) => "break",
+                    Some(crate::version::Impact::Add) => "add",
+                    _ => "fix",
+                },
+            )
+            .with("title", d.title.as_deref().unwrap_or(""))
+            .render();
+        records.entry(ScopeKey(scope)).or_default().push(line);
+        let mut sealed = d.clone();
+        sealed.status = Status::Sealed;
+        sealed.ordinal = Some(ord);
+        sealed.path = target;
+        sealed_now.push(sealed);
+    }
+
+    // Ledger year files of the touched scopes (R-VER-059, R-RET-031).
+    for (ScopeKey(scope), recs) in &records {
+        let dir = cx
+            .reg
+            .scope(scope)
+            .map(|s| s.dir.as_str().to_owned())
+            .unwrap_or_default();
+        let base = crate::generate::join_dir(&dir, &format!("{}/ledger/hist", cx.folder))
+            .ok_or("bad ledger folder")?;
+        let path =
+            RepoPath::new(&format!("{}/{year}.hl", base.as_str())).map_err(|e| format!("{e:?}"))?;
+        let mut years: Vec<(u32, &RepoPath, YearFile)> = cx
+            .ledgers
+            .iter()
+            .filter_map(|(p, t)| YearFile::parse(t).ok().map(|f| (f.year, p, f)))
+            .filter(|(_, p, _)| p.parent().as_ref() == Some(&base))
+            .collect();
+        years.sort_by_key(|(y, _, _)| *y);
+        let mut file = match years.iter().find(|(y, _, _)| *y == year) {
+            Some((_, _, f)) => f.clone(),
+            None => {
+                let prev = match years.iter().rev().find(|(y, _, _)| *y < year) {
+                    Some((_, p, f)) if !f.is_final() => {
+                        let mut closed = f.clone();
+                        closed.finalise();
+                        add(PlannedWrite {
+                            path: (*p).clone(),
+                            kind: WriteKind::Replace,
+                            bytes: closed.render().into_bytes(),
+                            class: FileClass::Ledger,
+                            expect_prior: None,
+                        })?;
+                        Some(closed.last_digest())
+                    }
+                    Some((_, _, f)) => Some(f.last_digest()),
+                    None => None,
+                };
+                YearFile::new(scope.0.as_str(), year, prev, cx.edition)
+            }
+        };
+        file.append_version(plan.open, recs)?;
+        add(PlannedWrite {
+            path,
+            kind: WriteKind::Replace,
+            bytes: file.render().into_bytes(),
+            class: FileClass::Ledger,
+            expect_prior: None,
+        })?;
+    }
+
+    // Generated files the seal changes: alias maps and scope locks (R-VER-046, R-VER-015).
+    let mut docs_after: Vec<ChangeDoc> = cx
+        .all_docs
+        .iter()
+        .filter(|d| {
+            !plan
+                .sealing
+                .iter()
+                .any(|s| s.id == d.id && s.path == d.path)
+        })
+        .cloned()
+        .collect();
+    docs_after.extend(sealed_now);
+    for scope in cx.reg.scopes() {
+        if !matches!(scope.state, crate::registry::ScopeState::Resolved) {
+            continue;
+        }
+        let dir = scope.dir.as_str();
+        let here: Vec<&ChangeDoc> = docs_after
+            .iter()
+            .filter(|d| cx.reg.scope_of(&d.path) == Some(&scope.id))
+            .collect();
+        let mut files = vec![(
+            "scope.lock",
+            GenKind::ScopeLock,
+            crate::merkle::scope_lock_body(
+                plan.open,
+                &crate::merkle::ancestor_digest(cx.reg, &scope.id),
+            ),
+        )];
+        let alias = crate::docs::alias_body(&here);
+        if !alias.is_empty() {
+            files.push(("alias", GenKind::Alias, alias));
+        }
+        for (name, kind, body) in files {
+            let path =
+                crate::generate::join_dir(dir, &format!("{}/{}/{name}", cx.folder, cx.gen_dir))
+                    .ok_or("bad generated path")?;
+            let g = GeneratedFile {
+                path: path.clone(),
+                scope: scope.id.clone(),
+                kind,
+                body,
+            };
+            add(PlannedWrite {
+                path,
+                kind: WriteKind::Replace,
+                bytes: g.render(crate::discover::Edition(cx.edition)),
+                class: FileClass::Generated,
+                expect_prior: None,
+            })?;
+        }
+    }
+
+    // The version file, written last: the commit point (R-VER-050 step 6, R-VER-053).
+    let version_path = RepoPath::new(&format!("{}/versions/{}.md", cx.folder, plan.open))
+        .map_err(|e| format!("{e:?}"))?;
+    let mut scopes: Vec<String> = records.keys().map(|k| k.0.0.as_str().to_owned()).collect();
+    scopes.dedup();
+    let ids = |v: &[ChangeDoc]| v.iter().map(|d| d.id.to_string()).collect::<Vec<_>>();
+    let mut text = format!("+++\nversion = \"{}\"\n", plan.open);
+    if let Some(p) = plan.prev {
+        text.push_str(&format!("prev = \"{p}\"\n"));
+    }
+    text.push_str(&format!(
+        "bump = \"{}\"\nsealed-at = \"{}\"\nscopes = {}\ndocs = {}\ncarried = {}\ndirty = {}\n+++\n\n# {}\n\n",
+        plan.bump,
+        cx.sealed_at,
+        toml_list(&scopes),
+        toml_list(&ids(&plan.sealing)),
+        toml_list(&ids(&plan.carried)),
+        plan.dirty,
+        plan.open
+    ));
+    for d in &plan.sealing {
+        let ord = plan.ordinals.get(&d.id).copied().unwrap_or_default();
+        let impact = match d.impact {
+            Some(crate::version::Impact::Break) => "break",
+            Some(crate::version::Impact::Add) => "add",
+            _ => "fix",
+        };
+        text.push_str(&format!(
+            "- {impact}: {} ({}, {} {ord:04})\n",
+            d.title.as_deref().unwrap_or("untitled"),
+            d.scope.as_deref().unwrap_or("root"),
+            d.id
+        ));
+    }
+    add(PlannedWrite {
+        path: version_path.clone(),
+        kind: WriteKind::Create,
+        bytes: text.into_bytes(),
+        class: FileClass::Authored,
+        expect_prior: None,
+    })?;
+    set.commit_point = Some(version_path);
+    Ok(set)
+}
+
+/// Ordering wrapper so scopes can key a `BTreeMap`.
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
+struct ScopeKey(crate::registry::ScopeId);
+
 #[cfg(test)]
 #[allow(non_snake_case)] // reason: test names start with the rule id
 mod tests {
@@ -254,6 +553,7 @@ mod tests {
             status,
             impact,
             scope: Some("root".into()),
+            title: None,
             covers: vec!["src/**".into()],
             created: Some(created.into()),
             sealed: None,
