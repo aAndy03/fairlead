@@ -169,7 +169,15 @@ impl Check for ExceptionsCheck {
                     })
                     .count(),
             );
-            if live > root.exceptions.max_live_per_rule {
+            // R-SCOPE-057: a delegated, tighter limit of the rule's home scope wins.
+            let limit = reg
+                .scope(scope)
+                .and_then(|s| s.control.as_ref())
+                .and_then(|c| crate::config::delegated(root, c, "exceptions.max-live-per-rule"))
+                .and_then(|v| v.as_integer())
+                .and_then(|n| u32::try_from(n).ok())
+                .unwrap_or(root.exceptions.max_live_per_rule);
+            if live > limit {
                 out.push(
                     DiagB::new(
                         HN_X011,

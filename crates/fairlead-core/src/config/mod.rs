@@ -74,6 +74,10 @@ pub struct ControlFile {
     pub graveyard: GraveyardConfig,
     pub defaults: AxisDefaults,
     pub scope_cfg: ScopeConfig,
+    /// Root `[delegate]`: G2 key patterns a child may tighten (R-SCOPE-057).
+    pub delegate: BTreeMap<String, String>,
+    /// A child's non-delegable keys as written, by dotted key, for the delegation judgement.
+    pub stripped: BTreeMap<String, Kept>,
     /// `HN-C002` (R-SYN-039): unknown keys and tables, kept for tools that rewrite the file.
     pub unknown: Vec<UnknownKey>,
     /// `HN-C003` (R-SYN-041, R-SCOPE-051/052/056): non-delegable keys in a child file; the keys are inert.
@@ -108,8 +112,9 @@ impl ControlFile {
 }
 
 /// Top-level tables a child may not hold (known 0.1 root-only tables).
-const ROOT_ONLY_TABLES: [&str; 17] = [
+const ROOT_ONLY_TABLES: [&str; 18] = [
     "version",
+    "delegate",
     "env",
     "maturity",
     "lifecycle",
@@ -156,16 +161,32 @@ fn violation(cx: &Ctx<'_>, dotted: &str) -> Diagnostic {
     d
 }
 
-fn strip_non_delegable(cx: &Ctx<'_>, table: &mut toml::Table, out: &mut Vec<Diagnostic>) {
+fn strip_non_delegable(
+    cx: &Ctx<'_>,
+    table: &mut toml::Table,
+    out: &mut Vec<Diagnostic>,
+    kept: &mut BTreeMap<String, Kept>,
+) {
     for name in ROOT_ONLY_TABLES {
-        if table.remove(name).is_some() {
+        if let Some(v) = table.remove(name) {
+            match &v {
+                toml::Value::Table(t) => {
+                    for (k, x) in t {
+                        kept.insert(join_key(name, k), Kept::of(x));
+                    }
+                }
+                other => {
+                    kept.insert(name.to_owned(), Kept::of(other));
+                }
+            }
             out.push(violation(cx, name));
         }
     }
     for (name, keys) in ROOT_ONLY_KEYS {
         if let Some(toml::Value::Table(t)) = table.get_mut(name) {
             for k in keys {
-                if t.remove(*k).is_some() {
+                if let Some(v) = t.remove(*k) {
+                    kept.insert(join_key(name, k), Kept::of(&v));
                     out.push(violation(cx, &join_key(name, k)));
                 }
             }
@@ -188,8 +209,9 @@ pub fn parse_control(
     let (text, mut table) = header::parse_table(bytes).map_err(|f| f.with_path(path))?;
     let mut cx = Ctx::new(path, &text);
     let mut violations = Vec::new();
+    let mut stripped = BTreeMap::new();
     if !is_root_dir {
-        strip_non_delegable(&cx, &mut table, &mut violations);
+        strip_non_delegable(&cx, &mut table, &mut violations, &mut stripped);
     }
     let fairlead_tbl = match table.remove("fairlead") {
         Some(toml::Value::Table(h)) => h,
@@ -252,6 +274,7 @@ pub fn parse_control(
     let graveyard = vocab::parse_graveyard(&mut cx, &mut table);
     let defaults = vocab::parse_defaults(&mut cx, &mut table);
     let scope_cfg = vocab::parse_scope_cfg(&mut cx, &mut table);
+    let delegate = vocab::parse_delegate(&mut cx, &mut table);
     cx.unknown_in("", &table);
 
     if baseline.file.is_empty() {
@@ -306,6 +329,8 @@ pub fn parse_control(
         graveyard,
         defaults,
         scope_cfg,
+        delegate,
+        stripped,
         unknown,
         violations: sorted(violations),
     })
@@ -361,16 +386,79 @@ pub fn load_controls(root: &Root, walk: &WalkResult) -> Result<ControlSet, Error
     Ok(ControlSet { files })
 }
 
+/// The table and key of a dotted path in the root control file, as written.
+fn root_value(rc: &ControlFile, key: &str) -> Option<Kept> {
+    match key {
+        "exceptions.max-live-per-rule" => {
+            Some(Kept::Int(i64::from(rc.exceptions.max_live_per_rule)))
+        }
+        "exceptions.max-days" => rc.exceptions.max_days.map(|v| Kept::Int(i64::from(v))),
+        "exceptions.max-minors" => rc.exceptions.max_minors.map(|v| Kept::Int(i64::from(v))),
+        "eligibility.min-lines" => Some(Kept::Int(i64::from(rc.eligibility.min_lines))),
+        "eligibility.min-files" => Some(Kept::Int(i64::from(rc.eligibility.min_files))),
+        _ => None,
+    }
+}
+
+/// R-SCOPE-057: a child's non-delegable key that the root's `[delegate]` covers is accepted when it
+/// tightens (no diagnostic) and is an `HN-C003` loosening otherwise; uncovered keys keep the 0.1
+/// `HN-C003`.
+fn delegation_verdict(rc: &ControlFile, c: &ControlFile, d: Diagnostic) -> Option<Diagnostic> {
+    let key = d.related.clone().unwrap_or_default();
+    let covered = rc.delegate.keys().any(|p| delegate_matches(p, &key));
+    let table_keys: Vec<(&String, &Kept)> = c
+        .stripped
+        .iter()
+        .filter(|(k, _)| **k == key || k.starts_with(&format!("{key}.")))
+        .collect();
+    if table_keys.is_empty() {
+        return Some(d);
+    }
+    let all_covered = covered
+        || table_keys
+            .iter()
+            .all(|(k, _)| rc.delegate.keys().any(|p| delegate_matches(p, k)));
+    if !all_covered {
+        return Some(d);
+    }
+    let loose: Vec<&str> = table_keys
+        .iter()
+        .filter(|(k, v)| !tightens(k, v, root_value(rc, k).as_ref()))
+        .map(|(k, _)| k.as_str())
+        .collect();
+    if loose.is_empty() {
+        return None;
+    }
+    let mut d = d;
+    d.message = format!(
+        "`{}` is delegated for tightening only; this value loosens it (inert here)",
+        loose.join("`, `")
+    );
+    Some(d)
+}
+
+/// A delegated child value that tightens (R-SCOPE-057), else `None`.
+pub fn delegated(rc: &ControlFile, c: &ControlFile, key: &str) -> Option<Kept> {
+    let v = c.stripped.get(key)?;
+    (rc.delegate.keys().any(|p| delegate_matches(p, key))
+        && tightens(key, v, root_value(rc, key).as_ref()))
+    .then(|| v.clone())
+}
+
 /// All load-time diagnostics of the set, sorted: failures (`HN-C001`/`HN-P001`), unknown keys
 /// (`HN-C002`), non-delegable keys (`HN-C003`) and a second `root = true` below the root
 /// (`HN-C004`, ROOT-DUP).
 pub fn control_diagnostics(set: &ControlSet) -> Vec<Diagnostic> {
     let mut out = Vec::new();
+    let root = set.root_control();
     for r in set.files.values() {
         match r {
             Err(f) => out.extend(f.diags.iter().cloned()),
             Ok(c) => {
-                out.extend(c.diagnostics());
+                out.extend(c.diagnostics().into_iter().filter_map(|d| match root {
+                    Some(rc) if d.code == codes::HN_C003 => delegation_verdict(rc, c, d),
+                    _ => Some(d),
+                }));
                 if !c.dir.is_root() && c.fairlead.root {
                     out.push(
                         Diagnostic::new(
@@ -545,11 +633,11 @@ exp = "2027-03-31"
     #[test]
     fn r_syn_039__unknown_tables_and_keys_warn_but_parse() {
         let text = format!(
-            "{ROOT}\n[future]\nx = 1\n\n[tok.color]\nrole = \"brand\"\n\n[delegate]\n\"rules.*\" = \"tighten\"\n"
+            "{ROOT}\n[future]\nx = 1\n\n[tok.color]\nrole = \"brand\"\n\n[retain]\nmin-age = 3\n"
         );
         let c = parse_control(&p("fairlead/control.toml"), text.as_bytes(), true).unwrap();
         let paths: Vec<&str> = c.unknown.iter().map(|u| u.path.as_str()).collect();
-        assert_eq!(paths, ["delegate", "future", "tok"]);
+        assert_eq!(paths, ["future", "retain", "tok"]);
         let d = c.diagnostics();
         assert_eq!(d.len(), 3);
         assert!(
@@ -766,6 +854,73 @@ msg = "no TODO"
             assert_eq!(c.violations.len(), 1, "{table}");
             assert_eq!(c.violations[0].related.as_deref(), Some(table));
         }
+    }
+
+    fn pair(root_extra: &str, child: &str) -> ControlSet {
+        let mut files = BTreeMap::new();
+        let rp = p("fairlead/control.toml");
+        let root = format!("{ROOT}\n{root_extra}");
+        files.insert(rp.clone(), parse_control(&rp, root.as_bytes(), true));
+        let cp = p("web/fairlead/control.toml");
+        files.insert(cp.clone(), parse_control(&cp, child.as_bytes(), false));
+        ControlSet { files }
+    }
+
+    const DELEGATING: &str = "[delegate]\n\"exceptions.max-live-per-rule\" = \"tighten\"\n[exceptions]\nmax-live-per-rule = 5\n";
+
+    #[test]
+    fn r_scope_057__delegated_key_tightens_only() {
+        let child = |n: u32| {
+            format!("[fairlead]\nscope = \"web\"\n[exceptions]\nmax-live-per-rule = {n}\n")
+        };
+        let tight = pair(DELEGATING, &child(3));
+        assert!(
+            control_diagnostics(&tight)
+                .iter()
+                .all(|d| d.code != codes::HN_C003),
+            "{:?}",
+            control_diagnostics(&tight)
+        );
+        let (rc, cc) = (
+            tight.root_control().unwrap(),
+            tight.files[&p("web/fairlead/control.toml")]
+                .as_ref()
+                .unwrap(),
+        );
+        assert_eq!(
+            delegated(rc, cc, "exceptions.max-live-per-rule"),
+            Some(Kept::Int(3))
+        );
+        let loose = pair(DELEGATING, &child(8));
+        let d = control_diagnostics(&loose);
+        let c3: Vec<_> = d.iter().filter(|d| d.code == codes::HN_C003).collect();
+        assert_eq!(c3.len(), 1);
+        assert!(
+            c3[0].message.contains("delegated for tightening only"),
+            "{}",
+            c3[0].message
+        );
+    }
+
+    #[test]
+    fn r_scope_057__vocab_key_cannot_be_delegated() {
+        let text = format!("{ROOT}\n[delegate]\n\"settings.folder\" = \"tighten\"\n");
+        let f = parse_control(&p("fairlead/control.toml"), text.as_bytes(), true).unwrap_err();
+        assert!(
+            f.diags[0].message.contains("cannot be delegated"),
+            "{:?}",
+            f.diags
+        );
+    }
+
+    #[test]
+    fn r_scope_057__unlisted_key_stays_c003() {
+        let set = pair(
+            DELEGATING,
+            "[fairlead]\nscope = \"web\"\n[eligibility]\nmin-lines = 9\n",
+        );
+        let d = control_diagnostics(&set);
+        assert_eq!(d.iter().filter(|d| d.code == codes::HN_C003).count(), 1);
     }
 
     #[test]

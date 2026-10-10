@@ -73,6 +73,125 @@ impl Default for GraveyardConfig {
     }
 }
 
+/// Tables whose keys are G1 vocabulary: never delegable (R-SCOPE-051, R-SCOPE-057).
+pub const G1_TABLES: [&str; 18] = [
+    "fairlead",
+    "settings",
+    "scan",
+    "comments",
+    "agents",
+    "layout",
+    "env",
+    "maturity",
+    "lifecycle",
+    "bind",
+    "flagwords",
+    "layers",
+    "policies",
+    "version",
+    "lc",
+    "authority",
+    "graveyard",
+    "secrets",
+];
+
+/// `[delegate]` (R-SCOPE-057): `"<key pattern>" = "tighten"`; a pattern is a dotted key, or a
+/// prefix ending in `.*`.
+pub(crate) fn parse_delegate(cx: &mut Ctx<'_>, root: &mut toml::Table) -> BTreeMap<String, String> {
+    let mut out = BTreeMap::new();
+    if let Some(t) = take_table(cx, root, "", "delegate") {
+        for (pat, v) in t {
+            let k = join_key("delegate", &pat);
+            let first = pat.split('.').next().unwrap_or("");
+            if G1_TABLES.contains(&first) {
+                cx.error(
+                    &k,
+                    format!("`{pat}` is a vocabulary (G1) key: it cannot be delegated"),
+                );
+            } else if v.as_str() != Some("tighten") {
+                cx.error(&k, format!("`{k}` must be \"tighten\""));
+            } else {
+                out.insert(pat, "tighten".to_owned());
+            }
+        }
+    }
+    out
+}
+
+/// A stripped child value, kept for the delegation judgement (comparable, unlike `toml::Value`).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Kept {
+    Int(i64),
+    Str(String),
+    /// Any other value, as TOML text.
+    Other(String),
+}
+
+impl Kept {
+    pub fn of(v: &toml::Value) -> Kept {
+        match v {
+            toml::Value::Integer(i) => Kept::Int(*i),
+            toml::Value::String(s) => Kept::Str(s.clone()),
+            other => Kept::Other(other.to_string()),
+        }
+    }
+    pub fn as_integer(&self) -> Option<i64> {
+        match self {
+            Kept::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+}
+
+/// Does a `[delegate]` pattern cover the dotted key?
+pub fn delegate_matches(pattern: &str, key: &str) -> bool {
+    pattern == key
+        || pattern
+            .strip_suffix(".*")
+            .is_some_and(|pre| key.starts_with(&format!("{pre}.")))
+}
+
+/// The 0.1 defaults of the numeric G2 keys a delegation compares against.
+fn g2_default(key: &str) -> Option<i64> {
+    match key {
+        "exceptions.max-live-per-rule" => Some(10),
+        _ => None,
+    }
+}
+
+fn level_rank(s: &str) -> Option<u8> {
+    Some(match s {
+        "observe" | "info" => 0,
+        "warn" => 1,
+        "enforce" | "error" => 2,
+        _ => return None,
+    })
+}
+
+/// R-SCOPE-034, R-SCOPE-057: a delegated child value is accepted only when it is at least as
+/// strict as the root's: a lower limit (`max-*`), a higher minimum (`min-*`), a higher
+/// severity or stage word; anything else only when equal.
+pub fn tightens(key: &str, child: &Kept, root: Option<&Kept>) -> bool {
+    let last = key.rsplit('.').next().unwrap_or(key);
+    match (child, root) {
+        (Kept::Int(c), r) => {
+            let base = r.and_then(Kept::as_integer).or_else(|| g2_default(key));
+            match base {
+                None => true,
+                Some(b) if last.starts_with("min-") => *c >= b,
+                Some(b) => *c <= b,
+            }
+        }
+        (Kept::Str(c), Some(Kept::Str(r))) => match (level_rank(c), level_rank(r)) {
+            (Some(a), Some(b)) => a >= b,
+            _ => c == r,
+        },
+        (Kept::Str(c), None) => level_rank(c).is_some(),
+        (c, Some(r)) => c == r,
+        (_, None) => false,
+    }
+}
+
 /// `[scope]` (0.2 part): `portable` and `detached` (R-PORT-013). `provides` and `requires`
 /// arrive with 0.3 portability and stay unknown keys here.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
