@@ -103,6 +103,15 @@ impl World {
             baseline: None,
         }
     }
+    /// Replace text in the root control file (for keys the base already sets, like `owners`).
+    pub(crate) fn edit_root(mut self, from: &str, to: &str) -> World {
+        assert!(
+            self.root_toml.contains(from),
+            "{from} is not in the root control"
+        );
+        self.root_toml = self.root_toml.replace(from, to);
+        self
+    }
     /// Append TOML to the root control file.
     pub(crate) fn root(mut self, extra: &str) -> World {
         self.root_toml.push('\n');

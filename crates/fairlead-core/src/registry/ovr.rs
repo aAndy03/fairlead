@@ -641,11 +641,27 @@ fn judge(
             return Verdict::plain(OvrState::Stale); // HN-X010 is derived by P5
         }
     }
+    // R-CHK-054: an agent's approval of a rule waiver (a floor-adjacent key) counts for nothing.
+    let agents: Vec<&str> = ev
+        .idx
+        .table
+        .root_control()
+        .map(|c| {
+            c.settings
+                .owners
+                .iter()
+                .filter(|o| o.kind == crate::config::OwnerKind::Agent)
+                .map(|o| o.handle.as_str())
+                .collect()
+        })
+        .unwrap_or_default();
+    let floor_adjacent = p.target.kind.as_str() == "rule";
     let approval = if need_complete && ev.waiver.approval_required {
         match ev
             .approvals
             .iter()
             .filter(|a| a.fp == p.id.0)
+            .filter(|a| !(floor_adjacent && agents.contains(&a.approver.as_str())))
             .map(|a| a.renewal)
             .max()
         {

@@ -9,10 +9,66 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 12] = [
+const CODES: [DiagCode; 13] = [
     HN_G003, HN_M008, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V008, HN_V009,
-    HN_V011, HN_V015,
+    HN_V011, HN_V015, HN_V016,
 ];
+
+/// R-AGT-030: an escalation is resolved by an `[[allow]]` of the nearest ancestor that governs
+/// the key, the scope the `[[req]]` names; a key that is not an item (vocabulary) only the root
+/// resolves, and not by a grant.
+pub(crate) fn escalation_resolved(
+    reg: &crate::registry::Registry,
+    r: &crate::registry::Req,
+) -> bool {
+    let Some((target, _)) = reg.resolve_target(&r.from, &r.target) else {
+        return false;
+    };
+    reg.grants().iter().any(|a| {
+        a.valid && a.granting == r.to && a.target == target && a.for_scopes.contains(&r.from)
+    })
+}
+
+/// R-VER-058: once versions are sealed, an open escalation warns (an error when `blocking`).
+fn stale_escalations(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    use crate::diag::Severity;
+    let folder = crate::check::builtin::root_control(cx.registry)
+        .and_then(|c| c.settings.folder.clone())
+        .unwrap_or_else(|| "fairlead".into());
+    if crate::docs::version_files(cx.corpus, &folder).is_empty() {
+        return;
+    }
+    for r in cx.registry.requests().iter().filter(|r| r.from == *scope) {
+        if escalation_resolved(cx.registry, r) {
+            continue;
+        }
+        let mut b = DiagB::new(
+            HN_V016,
+            &r.at.path,
+            r.at.line,
+            r.at.col,
+            format!(
+                "escalation to {} for {} is unresolved{}",
+                r.to.0.as_str(),
+                r.target,
+                if r.blocking {
+                    " and blocks the next seal"
+                } else {
+                    ""
+                }
+            ),
+        )
+        .hint(format!(
+            "an owner of {} answers with an [[allow]] for this scope, or the [[req]] is withdrawn",
+            r.to.0.as_str()
+        ))
+        .text(r.target.clone());
+        if r.blocking {
+            b = b.severity(Severity::Error);
+        }
+        out.push(b.build());
+    }
+}
 
 /// R-EDN-032: a generated file whose header names another edition than the codebase's is the
 /// trace of an interrupted `upgrade` (`H-UPG-PARTIAL`).
@@ -477,6 +533,7 @@ impl Check for VersionsCheck {
         version_line_integrity(cx, scope, out);
         incomplete_writes(cx, scope, out);
         upgrade_partial(cx, scope, out);
+        stale_escalations(cx, scope, out);
         ancestor_drift(cx, scope, out);
         let hash_of = |d: &ChangeDoc| cx.corpus.records.get(&d.path).map(|r| r.hash);
         for group in id_collisions(&docs, hash_of) {
@@ -545,6 +602,44 @@ mod tests {
         format!(
             "+++\nid = \"{id}\"\nkind = \"change\"\nstatus = \"{status}\"\nscope = \"root\"\ncreated = \"0.1.0\"\n{extra}+++\n\n# x\n"
         )
+    }
+
+    #[test]
+    fn r_agt_030__nearest_governing_owner_resolves() {
+        let w = |grant_in_a: bool, grant_in_root: bool| {
+            let grant = "\n[[allow]]\ntarget = \"rule.r\"\nfor = [\"sub\"]\nwhy = \"ok\"\nexp = \"2027-01-01\"\n";
+            let a = format!(
+                "[fairlead]\nscope = \"a\"\n[rules.r]\ncheck = \"pattern\"\nforbid = \"ZZZ\"\nmsg = \"no\"\n{}",
+                if grant_in_a { grant } else { "" }
+            );
+            World::new()
+                .root(if grant_in_root { grant } else { "" })
+                .scope("a", &a)
+                .scope(
+                    "a/sub",
+                    "[fairlead]\nscope = \"sub\"\n[[req]]\nto = \"a\"\ntarget = \"rule.r\"\nset = \"warn\"\nwhy = \"migrating\"\nblocking = true\n",
+                )
+                .file("fairlead/versions/0.1.0.md", "+++\nversion = \"0.1.0\"\n+++\n")
+                .build()
+                .run_check(&VersionsCheck)
+        };
+        let open = w(false, false);
+        let v = of(&open, c::HN_V016);
+        assert_eq!(v.len(), 1, "{open:?}");
+        assert_eq!(
+            v[0].severity,
+            fairlead_syntax::diag::Severity::Error,
+            "blocking"
+        );
+        assert_eq!(
+            of(&w(false, true), c::HN_V016).len(),
+            1,
+            "the root does not govern rule.r of a"
+        );
+        assert!(
+            of(&w(true, false), c::HN_V016).is_empty(),
+            "a, the governing scope, resolved it"
+        );
     }
 
     #[test]
