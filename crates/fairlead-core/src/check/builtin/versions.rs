@@ -453,7 +453,7 @@ mod tests {
         let sealed = |body: &str| {
             format!(
                 "+++\nid = \"d-00000001\"\nkind = \"change\"\nstatus = \"sealed\"\nscope = \"root\"\nimpact = \"add\"\ncovers = [\"src/**\"]\nbody-hash = \"{}\"\nordinal = 1\n+++\n{body}",
-                crate::docs::body_hash(&format!("+++\nx = 1\n+++\n\n# x\n"))
+                crate::docs::body_hash("+++\nx = 1\n+++\n\n# x\n")
             )
         };
         let run = |text: String| {
