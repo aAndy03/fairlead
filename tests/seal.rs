@@ -584,3 +584,36 @@ fn r_lc_040__no_subprocess_without_setting() {
     let ci = repo.run(&["check", "--ci", "--as-of", AS_OF, "--format", "terse"]);
     assert!(!ci.stdout.contains("HN-X015"), "{}", ci.stdout);
 }
+
+#[test]
+fn r_edn_006__lowered_pin_is_relaxation_without_approval() {
+    let repo = ready_repo();
+    assert_eq!(
+        repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF])
+            .code,
+        0
+    );
+    let version = std::fs::read_to_string(repo.path().join("fairlead/versions/0.1.0.md")).unwrap();
+    assert!(
+        version.contains("edition = 1\nfairlead-version = \"0.1\"\n"),
+        "{version}"
+    );
+    repo.git(&["add", "-A"]);
+    repo.git_commit("seal");
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        text.replace("fairlead-version = \"0.1\"", "fairlead-version = \"0.0\""),
+    )
+    .unwrap();
+    let check = repo.run(&["check", "--as-of", AS_OF]);
+    assert!(
+        check
+            .stdout
+            .contains("pin fairlead-version=0.0 (sealed 0.1)"),
+        "{}{}",
+        check.stdout,
+        check.stderr
+    );
+}

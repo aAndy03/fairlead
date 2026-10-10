@@ -160,6 +160,24 @@ pub(crate) fn summarize(
             a.exp
         ));
     }
+    // R-EDN-006: a pin lower than at the latest seal, without an approval of these exact pins.
+    if let Some(c) = root_control(reg) {
+        let latest = facts
+            .version_texts
+            .iter()
+            .filter_map(|(p, t)| Some((crate::version::version_of_file_name(p.file_name())?, t)))
+            .max_by_key(|(v, _)| *v);
+        if let Some((_, text)) = latest {
+            let now = crate::edition::Pins::of(c);
+            let fp = now.fingerprint();
+            if !facts.approvals.approvals.iter().any(|a| a.fp == fp) {
+                rel.extend(crate::edition::lowered(
+                    &now,
+                    &crate::edition::Pins::from_version_text(text),
+                ));
+            }
+        }
+    }
     s.relaxations = rel.into_iter().collect();
     // R-SCOPE-048: the same rows `sync` writes to each scope's `exc.reg` (its ledger), so a
     // freshly synced tree has a delta of 0.

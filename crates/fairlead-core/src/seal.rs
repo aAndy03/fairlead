@@ -731,6 +731,14 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
     if let Some(p) = plan.prev {
         text.push_str(&format!("prev = \"{p}\"\n"));
     }
+    // R-EDN-006: the pins in force at this seal, the floor a later lowering is measured against.
+    if let Some(c) = cx
+        .reg
+        .scope(cx.reg.root_scope())
+        .and_then(|s| s.control.as_ref())
+    {
+        text.push_str(&crate::edition::Pins::of(c).version_lines());
+    }
     text.push_str(&format!(
         "bump = \"{}\"\nsealed-at = \"{}\"\nscopes = {}\ndocs = {}\ncarried = {}\ndirty = {}\n+++\n\n# {}\n\n",
         plan.bump,

@@ -533,6 +533,9 @@ pub fn approve_preview_loaded(
     if let Some(p) = crate::write::revive_preview(request, registry, &docs, &loaded.facts)? {
         return Ok(p);
     }
+    if let Some(p) = crate::write::pin_preview(request, registry, &loaded.facts)? {
+        return Ok(p);
+    }
     approve_preview(request, registry, &loaded.facts)
 }
 

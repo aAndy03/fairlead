@@ -120,6 +120,43 @@ pub fn approve_preview(
     ))
 }
 
+/// `approve pin` (R-EDN-006): approves the root's current pins, so a lowered pin stops being a
+/// relaxation. Any later change to a pin needs a new approval.
+pub fn pin_preview(
+    req: &ApproveRequest,
+    reg: &Registry,
+    facts: &Facts,
+) -> Result<Option<ApprovePreview>, Error> {
+    if req.target != "pin" {
+        return Ok(None);
+    }
+    let c = reg
+        .scope(reg.root_scope())
+        .and_then(|s| s.control.as_ref())
+        .ok_or_else(|| Error::Usage("the root control file is unresolved".into()))?;
+    let pins = crate::edition::Pins::of(c);
+    let fp = pins.fingerprint();
+    let already = facts.approvals.approvals.iter().any(|a| a.fp == fp);
+    let mut line = format!(
+        "pins edition={} fairlead-version={} fairlead-range={}",
+        pins.edition
+            .map_or_else(|| "-".to_owned(), |e| e.to_string()),
+        pins.version.as_deref().unwrap_or("-"),
+        pins.range.as_deref().unwrap_or("-")
+    );
+    if already {
+        line.push_str(" (already approved)");
+    }
+    Ok(Some(ApprovePreview {
+        confirm_prefix: fp.as_str().chars().take(4).collect(),
+        fp,
+        target: Id::parse("pin.root").map_err(|_| Error::Internal("pin id".into()))?,
+        ovr_line: sanitize_data(&line, 240),
+        scope: reg.root_scope().clone(),
+        exp: None,
+    }))
+}
+
 /// `approve <draft>` of a revive doc (R-LC-024): the preview of its approval record.
 pub fn revive_preview(
     req: &ApproveRequest,
