@@ -1,7 +1,15 @@
 //! Environments, maturity and lifecycle (chapter 21): the root vocabulary, item axes and due dates.
 use std::collections::{BTreeMap, BTreeSet};
 
+use fairlead_syntax::directive::{ArgValue, Directive, Verb};
+use fairlead_syntax::ids::Id;
+
 use crate::config::VocabConfig;
+use crate::docs::{ChangeDoc, Status};
+use crate::extract::Corpus;
+use crate::path::RepoPath;
+use crate::registry::{ItemId, Lookup, Registry};
+use crate::version::Version;
 
 /// Theme variant words: values of a variation axis, never envs (R-ENV-037).
 pub const THEME_WORDS: [&str; 6] = ["light", "dark", "brand", "theme", "high-contrast", "dim"];
@@ -219,6 +227,286 @@ pub fn floor_rank(axes: &Axes) -> Option<i64> {
     axes.mat.values().min().copied()
 }
 
+/// The plan words of `flag` (R-LC-001).
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum PlanWord {
+    Deprecate,
+    Replace,
+    Edit,
+    Remove,
+}
+
+impl PlanWord {
+    pub fn parse(w: &str) -> Option<PlanWord> {
+        Some(match w {
+            "deprecate" => PlanWord::Deprecate,
+            "replace" => PlanWord::Replace,
+            "edit" => PlanWord::Edit,
+            "remove" => PlanWord::Remove,
+            _ => return None,
+        })
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            PlanWord::Deprecate => "deprecate",
+            PlanWord::Replace => "replace",
+            PlanWord::Edit => "edit",
+            PlanWord::Remove => "remove",
+        }
+    }
+    /// References to an item under this plan are deprecated references (R-LC-008).
+    pub fn retires(self) -> bool {
+        !matches!(self, PlanWord::Edit)
+    }
+}
+
+/// A `target=` value: concrete, or symbolic until the seal that first contains it (R-LC-003).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Target {
+    Version(Version),
+    NextMajor,
+    NextMinor,
+}
+
+impl Target {
+    pub fn parse(s: &str) -> Option<Target> {
+        match s {
+            "next-major" => Some(Target::NextMajor),
+            "next-minor" => Some(Target::NextMinor),
+            _ => Version::parse(s).map(Target::Version),
+        }
+    }
+    /// The concrete version against `sealed` (the version sealed before the seal that records it;
+    /// `start` when nothing is sealed yet).
+    pub fn resolve(self, sealed: Option<Version>, start: Version) -> Version {
+        let s = sealed.unwrap_or(start);
+        match self {
+            Target::Version(v) => v,
+            Target::NextMajor => Version::new(s.major + 1, 0, 0),
+            Target::NextMinor => Version::new(s.major, s.minor + 1, 0),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+pub enum DueState {
+    NotDue,
+    Approaching,
+    Due,
+}
+
+/// R-LC-004, R-LC-005: due when `O >= T` (never `==` only) or the `by-date` has passed, whichever
+/// fires first; approaching when `T` is within `warn_window` minors of `O` on the same major.
+pub fn due(
+    target: Option<Version>,
+    by_date: Option<jiff::civil::Date>,
+    open: Version,
+    as_of: jiff::civil::Date,
+    warn_window: u32,
+) -> DueState {
+    if by_date.is_some_and(|d| as_of >= d) || target.is_some_and(|t| open >= t) {
+        return DueState::Due;
+    }
+    match target {
+        Some(t) if t.major == open.major && t.minor - open.minor <= u64::from(warn_window) => {
+            DueState::Approaching
+        }
+        Some(t) if t.major == open.major + 1 && t.minor == 0 && warn_window > 0 => {
+            DueState::Approaching
+        }
+        _ => DueState::NotDue,
+    }
+}
+
+/// R-LC-007: follow `replace ... to=` edges to the final ID. `Err` carries the cycle in order.
+pub fn resolve_chain<T: Ord + Clone>(
+    start: &T,
+    next: &std::collections::BTreeMap<T, T>,
+) -> Result<T, Vec<T>> {
+    let mut seen: Vec<T> = vec![start.clone()];
+    let mut cur = start.clone();
+    while let Some(n) = next.get(&cur) {
+        if let Some(i) = seen.iter().position(|s| s == n) {
+            let mut cycle = seen.split_off(i);
+            cycle.push(n.clone());
+            return Err(cycle);
+        }
+        seen.push(n.clone());
+        cur = n.clone();
+    }
+    Ok(cur)
+}
+
+/// One plan flag on a declared item (R-LC-001).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Plan {
+    pub word: PlanWord,
+    pub item: ItemId,
+    /// The `to=` successor, resolved from the flag's scope.
+    pub to: Option<ItemId>,
+    pub target: Option<Target>,
+    pub by_date: Option<jiff::civil::Date>,
+    pub path: RepoPath,
+    pub line: u32,
+    pub col: u32,
+}
+
+fn arg_text(d: &Directive, k: &str) -> Option<String> {
+    match &d.arg(k)?.value {
+        ArgValue::Word(w) | ArgValue::Quoted(w) => Some(w.clone()),
+        ArgValue::List(l) => Some(l.join(",")),
+    }
+}
+
+/// Every plan flag of the tree whose ID resolves (an unresolved ID is `HN-R001`'s).
+pub fn collect_plans(reg: &Registry, corpus: &Corpus) -> Vec<Plan> {
+    let mut out = Vec::new();
+    for (path, rec) in &corpus.records {
+        let (Some(ex), Some(scope)) = (rec.extraction.as_ref(), reg.scope_of(path)) else {
+            continue;
+        };
+        for d in ex.directives.iter().filter(|d| d.verb == Verb::Flag) {
+            let Some(word) = d.bare.first().and_then(|w| PlanWord::parse(w)) else {
+                continue;
+            };
+            let Some(id) = d.ids.first() else { continue };
+            let Lookup::Found(item) = reg.lookup(scope, id) else {
+                continue;
+            };
+            let to = arg_text(d, "to")
+                .and_then(|t| Id::parse(&t).ok())
+                .and_then(|t| match reg.lookup(scope, &t) {
+                    Lookup::Found(i) => Some(i),
+                    _ => None,
+                });
+            out.push(Plan {
+                word,
+                item,
+                to,
+                target: arg_text(d, "target").and_then(|t| Target::parse(&t)),
+                by_date: arg_text(d, "by-date").and_then(|t| t.parse().ok()),
+                path: path.clone(),
+                line: d.span.line,
+                col: d.span.col,
+            });
+        }
+    }
+    out
+}
+
+/// The `<scope>:<kind>.<name>` key used in ledger records and retarget docs.
+pub fn item_key(i: &ItemId) -> String {
+    format!(
+        "{}:{}.{}",
+        i.scope.0.as_str(),
+        i.kind.as_str(),
+        i.name.as_str()
+    )
+}
+
+/// Ledger record of a plan target resolved at seal: `plan <scope:kind.name> <word> target=<v>`.
+pub fn plan_record(p: &Plan, target: Version) -> String {
+    format!(
+        "plan {} {} target={target}",
+        item_key(&p.item),
+        p.word.as_str()
+    )
+}
+
+/// Targets recorded at earlier seals, by item key (R-LC-003).
+pub fn recorded_targets<'a>(
+    ledgers: impl IntoIterator<Item = &'a str>,
+) -> BTreeMap<String, Version> {
+    let mut out = BTreeMap::new();
+    for text in ledgers {
+        for line in text.lines() {
+            let mut w = line.split_whitespace();
+            if w.next() != Some("plan") {
+                continue;
+            }
+            let Some(key) = w.next() else { continue };
+            if let Some(v) = w
+                .find_map(|x| x.strip_prefix("target="))
+                .and_then(Version::parse)
+            {
+                out.entry(key.to_string()).or_insert(v);
+            }
+        }
+    }
+    out
+}
+
+/// IDs named by a doc key whose value is a word or a TOML list kept as text.
+pub fn doc_ids(value: &str) -> Vec<String> {
+    if value.contains('"') {
+        value
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_string)
+            .collect()
+    } else {
+        vec![value.trim().to_string()]
+    }
+}
+
+/// Sealed `retarget` docs: per item key, the latest new target and how many times it moved
+/// (R-LC-006). A doc names its items in `retargets` and the new version in `target`.
+pub fn retargets(docs: &[ChangeDoc], reg: &Registry) -> BTreeMap<String, (Version, u32)> {
+    let mut sealed: Vec<&ChangeDoc> = docs
+        .iter()
+        .filter(|d| d.kind == "retarget" && d.status == Status::Sealed)
+        .collect();
+    sealed.sort_by_key(|d| (d.sealed, d.ordinal));
+    let mut out: BTreeMap<String, (Version, u32)> = BTreeMap::new();
+    for d in sealed {
+        let Some(t) = d.extra.get("target").and_then(|t| Version::parse(t)) else {
+            continue;
+        };
+        for raw in d
+            .extra
+            .get("retargets")
+            .map(|v| doc_ids(v))
+            .unwrap_or_default()
+        {
+            let key = Id::parse(&raw)
+                .ok()
+                .and_then(|id| match reg.lookup(reg.root_scope(), &id) {
+                    Lookup::Found(i) => Some(item_key(&i)),
+                    _ => None,
+                })
+                .unwrap_or(raw);
+            let e = out.entry(key).or_insert((t, 0));
+            *e = (t, e.1 + 1);
+        }
+    }
+    out
+}
+
+/// The concrete target of a plan: a sealed retarget wins, then the written version, then the
+/// version recorded at seal, then the symbolic target against the current sealed version.
+pub fn effective_target(
+    p: &Plan,
+    recorded: &BTreeMap<String, Version>,
+    moved: &BTreeMap<String, (Version, u32)>,
+    sealed: Option<Version>,
+    start: Version,
+) -> Option<Version> {
+    let key = item_key(&p.item);
+    if let Some((v, _)) = moved.get(&key) {
+        return Some(*v);
+    }
+    match p.target? {
+        Target::Version(v) => Some(v),
+        t => Some(
+            recorded
+                .get(&key)
+                .copied()
+                .unwrap_or_else(|| t.resolve(sealed, start)),
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -287,5 +575,86 @@ mod tests {
         };
         assert!(order_violations(&ok).is_empty());
         assert_eq!(order_violations(&bad), [(0, 2)]);
+    }
+
+    fn v(s: &str) -> Version {
+        Version::parse(s).unwrap()
+    }
+    fn d(s: &str) -> jiff::civil::Date {
+        s.parse().unwrap()
+    }
+
+    #[test]
+    fn r_lc_004__due_when_open_reaches_target_never_equal_only() {
+        let today = d("2026-10-10");
+        let t = Some(v("2.0.0"));
+        assert_eq!(due(t, None, v("2.0.0"), today, 1), DueState::Due);
+        assert_eq!(
+            due(t, None, v("2.1.0"), today, 1),
+            DueState::Due,
+            "a bump jumped over"
+        );
+        assert_eq!(due(t, None, v("1.9.0"), today, 1), DueState::Approaching);
+        assert_eq!(
+            due(Some(v("1.6.0")), None, v("1.4.0"), today, 1),
+            DueState::NotDue
+        );
+        assert_eq!(
+            due(Some(v("1.5.0")), None, v("1.4.0"), today, 1),
+            DueState::Approaching
+        );
+    }
+
+    #[test]
+    fn r_lc_005__first_of_date_and_version_wins() {
+        let t = Some(v("3.0.0"));
+        assert_eq!(
+            due(t, Some(d("2027-03-01")), v("1.0.0"), d("2027-03-01"), 1),
+            DueState::Due
+        );
+        assert_eq!(
+            due(t, Some(d("2027-03-01")), v("1.0.0"), d("2027-02-28"), 1),
+            DueState::NotDue
+        );
+        assert_eq!(
+            due(
+                Some(v("1.0.0")),
+                Some(d("2099-01-01")),
+                v("1.0.0"),
+                d("2026-01-01"),
+                1
+            ),
+            DueState::Due
+        );
+    }
+
+    #[test]
+    fn r_lc_003__symbolic_target_resolves_against_the_sealed_version() {
+        let start = v("0.1.0");
+        assert_eq!(
+            Target::parse("next-major")
+                .unwrap()
+                .resolve(Some(v("1.4.2")), start),
+            v("2.0.0")
+        );
+        assert_eq!(
+            Target::parse("next-minor")
+                .unwrap()
+                .resolve(Some(v("1.4.2")), start),
+            v("1.5.0")
+        );
+        assert_eq!(
+            Target::parse("next-minor").unwrap().resolve(None, start),
+            v("0.2.0")
+        );
+        assert_eq!(Target::parse("1.6"), None, "two parts is not a version");
+    }
+
+    #[test]
+    fn r_lc_007__chain_resolves_cycle_errors() {
+        let next: BTreeMap<&str, &str> = BTreeMap::from([("a", "b"), ("b", "c")]);
+        assert_eq!(resolve_chain(&"a", &next), Ok("c"));
+        let cyc: BTreeMap<&str, &str> = BTreeMap::from([("a", "b"), ("b", "a")]);
+        assert_eq!(resolve_chain(&"a", &cyc), Err(vec!["a", "b", "a"]));
     }
 }

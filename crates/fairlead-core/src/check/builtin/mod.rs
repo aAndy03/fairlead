@@ -8,6 +8,7 @@ pub mod generated;
 pub mod leak;
 pub mod notices;
 pub mod paths;
+pub mod plans;
 pub mod refs;
 pub mod scopes;
 pub mod syntax;
