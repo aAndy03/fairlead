@@ -404,19 +404,31 @@ pub fn item_key(i: &ItemId) -> String {
     )
 }
 
-/// Ledger record of a plan target resolved at seal: `plan <scope:kind.name> <word> target=<v>`.
-pub fn plan_record(p: &Plan, target: Version) -> String {
-    format!(
-        "plan {} {} target={target}",
-        item_key(&p.item),
-        p.word.as_str()
-    )
+/// Ledger record of a plan, written by the seal that first contains it (R-LC-002, R-LC-003):
+/// `plan <scope:kind.name> <word> [target=<v>] [to=<scope:kind.name>]`.
+pub fn plan_record(p: &Plan, target: Option<Version>) -> String {
+    let mut out = format!("plan {} {}", item_key(&p.item), p.word.as_str());
+    if let Some(t) = target {
+        out.push_str(&format!(" target={t}"));
+    }
+    if let Some(to) = &p.to {
+        out.push_str(&format!(" to={}", item_key(to)));
+    }
+    out
 }
 
-/// Targets recorded at earlier seals, by item key (R-LC-003).
-pub fn recorded_targets<'a>(
+/// A plan as an earlier seal recorded it.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RecordedPlan {
+    pub word: String,
+    pub target: Option<Version>,
+    pub to: Option<String>,
+}
+
+/// Plans recorded at earlier seals, by item key; the first record of a key wins.
+pub fn recorded_plans<'a>(
     ledgers: impl IntoIterator<Item = &'a str>,
-) -> BTreeMap<String, Version> {
+) -> BTreeMap<String, RecordedPlan> {
     let mut out = BTreeMap::new();
     for text in ledgers {
         for line in text.lines() {
@@ -424,15 +436,120 @@ pub fn recorded_targets<'a>(
             if w.next() != Some("plan") {
                 continue;
             }
-            let Some(key) = w.next() else { continue };
-            if let Some(v) = w
-                .find_map(|x| x.strip_prefix("target="))
-                .and_then(Version::parse)
-            {
-                out.entry(key.to_string()).or_insert(v);
-            }
+            let (Some(key), Some(word)) = (w.next(), w.next()) else {
+                continue;
+            };
+            let rest: Vec<&str> = w.collect();
+            let kv = |k: &str| rest.iter().find_map(|x| x.strip_prefix(k));
+            out.entry(key.to_string()).or_insert(RecordedPlan {
+                word: word.to_string(),
+                target: kv("target=").and_then(Version::parse),
+                to: kv("to=").map(str::to_string),
+            });
         }
     }
+    out
+}
+
+/// Targets recorded at earlier seals, by item key (R-LC-003).
+pub fn recorded_targets<'a>(
+    ledgers: impl IntoIterator<Item = &'a str>,
+) -> BTreeMap<String, Version> {
+    recorded_plans(ledgers)
+        .into_iter()
+        .filter_map(|(k, r)| Some((k, r.target?)))
+        .collect()
+}
+
+/// `<scope dir>/<folder>/tombstones/<year>.toml` (R-LC-020).
+pub fn tomb_file(
+    reg: &Registry,
+    scope: &crate::registry::ScopeId,
+    folder: &str,
+    year: i16,
+) -> Option<RepoPath> {
+    let dir = reg.scope(scope)?.dir.as_str().to_owned();
+    let rel = crate::generate::join_dir(&dir, &format!("{folder}/tombstones/{year}.toml"))?;
+    Some(rel)
+}
+
+/// Recorded remove or replace plans whose item is declared nowhere any more and has no
+/// tombstone: the removals the next seal records (R-LC-020). `removed` is left empty for the seal.
+pub fn completed_removals(reg: &Registry, recorded: &BTreeMap<String, RecordedPlan>) -> Vec<Tomb> {
+    let declared: std::collections::BTreeSet<String> = reg
+        .items()
+        .map(|i| format!("{}.{}", i.id.kind.as_str(), i.id.name.as_str()))
+        .collect();
+    let mut out = Vec::new();
+    for (key, r) in recorded {
+        if !matches!(r.word.as_str(), "remove" | "replace") {
+            continue;
+        }
+        let bare = bare_of(key);
+        let Some((scope, _)) = key.split_once(':') else {
+            continue;
+        };
+        let Ok(scope) = fairlead_syntax::ids::ScopeSlug::parse(scope) else {
+            continue;
+        };
+        let scope = crate::registry::ScopeId(scope);
+        let Ok(id) = Id::parse(bare) else { continue };
+        if declared.contains(bare)
+            || reg.tomb_for(&scope, &id).is_some()
+            || reg.scope(&scope).is_none()
+        {
+            continue;
+        }
+        out.push(Tomb {
+            file: RepoPath::root(),
+            scope: Some(scope),
+            id: bare.to_string(),
+            removed: String::new(),
+            by: r.to.as_deref().map(|t| bare_of(t).to_string()),
+            why: format!("{} plan completed", r.word),
+            paths: Vec::new(),
+            deleted_by: None,
+        });
+    }
+    out
+}
+
+/// `kind.name` of a `scope:kind.name` key.
+pub fn bare_of(key: &str) -> &str {
+    key.split_once(':').map_or(key, |(_, b)| b)
+}
+
+/// IDs in the committed registry shards (`gen/reg/*.reg`) with no declaration left in any scope
+/// and no tombstone: deleted since the last `sync` (R-CLI-046). `(scope, kind.name)`.
+pub fn vanished(
+    reg: &Registry,
+    on_disk: &BTreeMap<RepoPath, std::sync::Arc<[u8]>>,
+) -> Vec<(crate::registry::ScopeId, String)> {
+    let declared: std::collections::BTreeSet<String> = reg
+        .items()
+        .map(|i| format!("{}.{}", i.id.kind.as_str(), i.id.name.as_str()))
+        .collect();
+    let mut out = Vec::new();
+    for (p, bytes) in on_disk {
+        if !p.as_str().ends_with(".reg") || !p.as_str().contains("/gen/reg/") {
+            continue;
+        }
+        let Some(scope) = reg.scope_of(p) else {
+            continue;
+        };
+        for line in String::from_utf8_lossy(bytes).lines() {
+            let Ok(t) = crate::render::line::TerseLine::parse(line) else {
+                continue;
+            };
+            let Ok(id) = Id::parse(&t.id) else { continue };
+            if declared.contains(&t.id) || reg.tomb_for(scope, &id).is_some() {
+                continue;
+            }
+            out.push((scope.clone(), t.id.clone()));
+        }
+    }
+    out.sort();
+    out.dedup();
     out
 }
 

@@ -46,6 +46,8 @@ pub struct SealInput<'a> {
     pub due: &'a [DueItem],
     /// Ledger records of symbolic targets this seal resolves (R-LC-003), by the flag's path.
     pub plan_records: &'a [(RepoPath, String)],
+    /// Completed lifecycle removals; the seal writes their tombstones (R-LC-020).
+    pub tombs: &'a [crate::lifecycle::Tomb],
 }
 
 /// A lifecycle plan as the due gate sees it (R-LC-006).
@@ -79,6 +81,8 @@ pub struct SealPlan {
     pub approaching: Vec<String>,
     /// Ledger records of symbolic targets resolved by this seal (R-LC-003).
     pub plan_records: Vec<(RepoPath, String)>,
+    /// Tombstones this seal writes, `removed` set to the sealed version (R-LC-020).
+    pub tombs: Vec<crate::lifecycle::Tomb>,
 }
 
 /// Why the seal refused, before anything was written (exit 4).
@@ -305,13 +309,30 @@ pub fn plan(input: &SealInput<'_>) -> Result<SealPlan, SealRefusal> {
         prev: input.line.sealed,
         open,
         bump: bump_word(input.line.sealed, open),
-        sealing: ready.into_iter().cloned().collect(),
+        sealing: ready.iter().map(|d| (*d).clone()).collect(),
         carried,
         ordinals,
         sweep,
         dirty: !dirty.is_empty(),
         approaching,
         plan_records: input.plan_records.to_vec(),
+        tombs: input
+            .tombs
+            .iter()
+            .map(|t| {
+                let mut t = t.clone();
+                t.removed = open.to_string();
+                if let Some(d) = ready.iter().find(|d| {
+                    d.covers
+                        .iter()
+                        .any(|c| *c == t.id || c.ends_with(&format!(":{}", t.id)))
+                }) && let Some(title) = &d.title
+                {
+                    t.why = title.clone();
+                }
+                t
+            })
+            .collect(),
     })
 }
 
@@ -487,6 +508,37 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
         sealed.ordinal = Some(ord);
         sealed.path = target;
         sealed_now.push(sealed);
+    }
+
+    // Tombstones of completed removals (R-LC-020), one append per year file.
+    let mut tomb_files: BTreeMap<RepoPath, String> = BTreeMap::new();
+    for t in &plan.tombs {
+        let Some(scope) = t.scope.as_ref() else {
+            continue;
+        };
+        let year = i16::try_from(year).map_err(|_| "year out of range")?;
+        let file = crate::lifecycle::tomb_file(cx.reg, scope, cx.folder, year)
+            .ok_or("bad tombstone folder")?;
+        tomb_files
+            .entry(file)
+            .or_default()
+            .push_str(&crate::lifecycle::tomb_text(t, None));
+        let line = format!("tomb {}:{} removed={}", scope.0.as_str(), t.id, t.removed);
+        records
+            .entry(ScopeKey(scope.clone()))
+            .or_default()
+            .push(line);
+    }
+    for (path, text) in tomb_files {
+        add(PlannedWrite {
+            path,
+            kind: WriteKind::AppendBlock {
+                marker: String::new(),
+            },
+            bytes: text.into_bytes(),
+            class: FileClass::Authored,
+            expect_prior: None,
+        })?;
     }
 
     // Symbolic plan targets resolved by this seal (R-LC-003).
@@ -767,6 +819,7 @@ mod tests {
                 doc_dirs: &BTreeMap::new(),
                 due: &self.due,
                 plan_records: &[],
+                tombs: &[],
             })
         }
     }

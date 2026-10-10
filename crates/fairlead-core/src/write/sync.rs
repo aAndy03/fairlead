@@ -204,6 +204,62 @@ pub fn sync_plan_from(
     if unchanged > 0 {
         notes.push(format!("{unchanged} generated file(s) unchanged"));
     }
+    if req.scope.is_none() && apply_regular {
+        // R-CLI-046: an ID deleted outside the lifecycle flow (gone from every declaration, still in
+        // the committed shard) gets a tombstone for its author to complete; a recorded remove or
+        // replace plan is the seal's to tombstone instead.
+        let recorded = crate::lifecycle::recorded_plans(facts.ledgers.values().map(|t| &**t));
+        let date = reg.as_of().0;
+        let mut files: std::collections::BTreeMap<crate::path::RepoPath, String> =
+            Default::default();
+        for (scope, id) in crate::lifecycle::vanished(reg, &facts.generated_on_disk) {
+            let key = format!("{}:{id}", scope.0.as_str());
+            if recorded
+                .get(&key)
+                .is_some_and(|r| matches!(r.word.as_str(), "remove" | "replace"))
+            {
+                continue;
+            }
+            let Some(file) = crate::lifecycle::tomb_file(reg, &scope, &folder, date.year()) else {
+                continue;
+            };
+            let t = crate::lifecycle::Tomb {
+                file: file.clone(),
+                scope: Some(scope),
+                id: id.clone(),
+                removed: date.to_string(),
+                by: None,
+                why: format!("TODO(fairlead): why was {id} deleted?"),
+                paths: Vec::new(),
+                deleted_by: Some("sync".into()),
+            };
+            files
+                .entry(file.clone())
+                .or_default()
+                .push_str(&crate::lifecycle::tomb_text(&t, Some(&date.to_string())));
+            notes.push(format!(
+                "tombstoned {id}: deleted outside the lifecycle flow; complete its `why` in {}",
+                file.as_str()
+            ));
+        }
+        for (path, text) in files {
+            set.add(PlannedWrite {
+                path: path.clone(),
+                kind: WriteKind::AppendBlock {
+                    marker: String::new(),
+                },
+                bytes: text.clone().into_bytes(),
+                class: FileClass::Authored,
+                expect_prior: None,
+            })?;
+            lines.push(PlanLine {
+                action: PlanAction::Edit,
+                path,
+                detail: "tombstones for deleted IDs (R-CLI-046)".into(),
+                diff: Some(plain_diff("", &text, 20)),
+            });
+        }
+    }
     if req.scope.is_none() {
         let (reg_dir, members) = (
             format!("{folder}/gen/reg/"),

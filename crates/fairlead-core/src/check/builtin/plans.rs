@@ -64,11 +64,13 @@ pub(crate) fn seal_lifecycle(
 ) -> (
     Vec<crate::seal::DueItem>,
     Vec<(crate::path::RepoPath, String)>,
+    Vec<crate::lifecycle::Tomb>,
 ) {
     let Some(dc) = due_cx_of(reg, corpus, ledgers) else {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), Vec::new(), Vec::new());
     };
     let window = root_control(reg).map_or(1, |r| r.lc.warn_window);
+    let recorded = crate::lifecycle::recorded_plans(ledgers.values().map(|t| &**t));
     let mut items = Vec::new();
     let mut records = Vec::new();
     for p in &dc.plans {
@@ -86,15 +88,13 @@ pub(crate) fn seal_lifecycle(
             state: dc.state(p, as_of, window),
             refs,
         });
-        if let Some(t) = p.target
-            && !matches!(t, crate::lifecycle::Target::Version(_))
-            && !dc.recorded.contains_key(&item_key(&p.item))
-        {
-            let v = t.resolve(dc.line.sealed, dc.start);
+        if !recorded.contains_key(&item_key(&p.item)) {
+            let v = p.target.map(|t| t.resolve(dc.line.sealed, dc.start));
             records.push((p.path.clone(), crate::lifecycle::plan_record(p, v)));
         }
     }
-    (items, records)
+    let tombs = crate::lifecycle::completed_removals(reg, &recorded);
+    (items, records, tombs)
 }
 
 impl DueCx {

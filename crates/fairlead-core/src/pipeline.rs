@@ -512,7 +512,7 @@ pub fn plan_seal(
     let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
     let paths: BTreeSet<RepoPath> = loaded.corpus.records.keys().cloned().collect();
     let versions = crate::docs::version_files(&loaded.corpus, &loaded.root.folder);
-    let (due, plan_records) = crate::check::builtin::plans::seal_lifecycle(
+    let (due, plan_records, tombs) = crate::check::builtin::plans::seal_lifecycle(
         registry,
         &loaded.corpus,
         &loaded.facts.ledgers,
@@ -537,6 +537,7 @@ pub fn plan_seal(
             .collect(),
         due: &due,
         plan_records: &plan_records,
+        tombs: &tombs,
     })
     .map_err(|r| {
         Error::Refused(crate::error::Refusal {

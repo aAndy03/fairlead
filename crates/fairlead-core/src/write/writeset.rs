@@ -123,6 +123,7 @@ fn allowed(kind: WriteSetKind, w: &PlannedWrite, folder: &str) -> bool {
         WriteSetKind::Seal => match (fpos, after.as_slice()) {
             (Some(_), ["gen", ..]) => w.class == FileClass::Generated,
             (Some(_), ["ledger", "hist", _]) => w.class == FileClass::Ledger,
+            (Some(_), ["tombstones", _]) => w.class == FileClass::Authored && ext == "toml",
             (Some(_), ["docs", ..]) => w.class == FileClass::Authored && ext == "md",
             (Some(0), ["versions", _]) => w.class == FileClass::Authored && ext == "md",
             _ => false,

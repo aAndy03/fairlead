@@ -320,3 +320,122 @@ fn r_lc_003__symbolic_target_recorded_at_seal() {
         "resolved against start 0.1.0 (nothing sealed before): {ledger}"
     );
 }
+
+fn ready_doc(repo: &TempRepo, title: &str, impact: &str, covers: &str) {
+    let new = repo.run(&[
+        "new",
+        "change",
+        title,
+        "--field",
+        &format!("impact={impact}"),
+        "--field",
+        &format!("covers={covers}"),
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(new.code, 0, "{}", new.stderr);
+    let changes = repo.path().join("fairlead/docs/changes");
+    for e in std::fs::read_dir(&changes).unwrap() {
+        let p = e.unwrap().path();
+        let text = std::fs::read_to_string(&p).unwrap();
+        if text.contains("status = \"draft\"") {
+            std::fs::write(&p, text.replace("status = \"draft\"", "status = \"ready\"")).unwrap();
+        }
+    }
+}
+
+fn with_engines(repo: &TempRepo, defs: &str) {
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    if !text.contains("[kinds.engine]") {
+        std::fs::write(&control, format!("{text}\n[kinds.engine]\nimpl = 1\n")).unwrap();
+    }
+    std::fs::write(
+        repo.path().join("fairlead/docs/engine.md"),
+        format!("+++\ndirectives = [\n{defs}]\n+++\n# Engines\n"),
+    )
+    .unwrap();
+    let sync = repo.run(&["sync", "--yes", "--as-of", AS_OF]);
+    assert_eq!(sync.code, 0, "{}{}", sync.stdout, sync.stderr);
+}
+
+#[test]
+fn r_lc_020__seal_writes_tombstone_with_by_alias() {
+    let repo = ready_repo();
+    with_engines(
+        &repo,
+        "  'def engine.old',\n  'def engine.new',\n  'flag replace engine.old to=engine.new target=0.2.0',\n",
+    );
+    repo.git(&["add", "-A"]);
+    repo.git_commit("plan");
+    let first = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(first.code, 0, "{}{}", first.stdout, first.stderr);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("seal 0.1.0");
+    with_engines(&repo, "  'def engine.new',\n");
+    ready_doc(&repo, "Removes old", "break", "engine.old");
+    repo.git(&["add", "-A"]);
+    repo.git_commit("remove old");
+    let tombs = repo.path().join("fairlead/tombstones/2026.toml");
+    assert!(!tombs.exists(), "sync leaves a planned removal to the seal");
+    let second = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(second.code, 0, "{}{}", second.stdout, second.stderr);
+    let t = std::fs::read_to_string(&tombs).unwrap();
+    assert!(
+        t.contains(
+            "id = \"engine.old\"\nremoved = \"0.2.0\"\nby = \"engine.new\"\nwhy = \"Removes old\""
+        ),
+        "{t}"
+    );
+    let ledger = std::fs::read_to_string(repo.path().join("fairlead/ledger/hist/2026.hl")).unwrap();
+    assert!(
+        ledger.contains("tomb root:engine.old removed=0.2.0"),
+        "{ledger}"
+    );
+}
+
+#[test]
+fn r_cli_046__sync_tombstones_user_deletion() {
+    let repo = ready_repo();
+    with_engines(&repo, "  'def engine.keep',\n  'def engine.gone',\n");
+    repo.git(&["add", "-A"]);
+    repo.git_commit("engines");
+    std::fs::write(
+        repo.path().join("fairlead/docs/engine.md"),
+        "+++\ndirectives = [\n  'def engine.keep',\n]\n+++\n# Engines\n",
+    )
+    .unwrap();
+    let sync = repo.run(&["sync", "--yes", "--as-of", AS_OF]);
+    assert_eq!(sync.code, 0, "{}{}", sync.stdout, sync.stderr);
+    assert!(
+        sync.stdout.contains("wrote fairlead/tombstones/2026.toml"),
+        "{}",
+        sync.stdout
+    );
+    let t = std::fs::read_to_string(repo.path().join("fairlead/tombstones/2026.toml")).unwrap();
+    assert!(
+        t.contains("id = \"engine.gone\"") && t.contains("deleted-by = \"sync\""),
+        "{t}"
+    );
+    let again = repo.run(&["sync", "--yes", "--as-of", AS_OF]);
+    assert!(
+        !again.stdout.contains("tombstones"),
+        "once only: {}",
+        again.stdout
+    );
+}
+
+#[test]
+fn r_ret_041__tombstones_not_in_default_context() {
+    let repo = ready_repo();
+    with_engines(&repo, "  'def engine.keep',\n  'def engine.gone',\n");
+    std::fs::write(
+        repo.path().join("fairlead/docs/engine.md"),
+        "+++\ndirectives = [\n  'def engine.keep',\n]\n+++\n# Engines\n",
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    let ctx = repo.run(&["context", "--as-of", AS_OF]);
+    assert_eq!(ctx.code, 0, "{}", ctx.stderr);
+    assert!(!ctx.stdout.contains("engine.gone"), "{}", ctx.stdout);
+}
