@@ -210,6 +210,23 @@ fn r_ver_014__without_git_history_is_unavailable() {
 }
 
 #[test]
+fn r_ver_032__after_a_seal_changed_files_need_an_open_doc() {
+    let repo = ready_repo();
+    repo.git(&["config", "user.name", "t"]);
+    repo.git(&["config", "user.email", "t@t.invalid"]);
+    let sealed = repo.run(&["seal", "--yes", "--anywhere", "--commit", "--as-of", AS_OF]);
+    assert_eq!(sealed.code, 0, "{}", sealed.stderr);
+    std::fs::write(repo.path().join("src/b.rs"), "fn b() {}\n").unwrap();
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(check.stdout.contains("HN-D006"), "{}", check.stdout);
+    assert!(check.stdout.contains("src/b.rs"), "{}", check.stdout);
+    let new = repo.run(&["new", "change", "Adds b", "--field", "covers=src/**"]);
+    assert_eq!(new.code, 0, "{}", new.stderr);
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(!check.stdout.contains("HN-D006"), "{}", check.stdout);
+}
+
+#[test]
 fn r_ver_055__seal_refuses_off_the_integration_branch() {
     let repo = ready_repo();
     repo.git(&["checkout", "-q", "-b", "feature/x"]);
