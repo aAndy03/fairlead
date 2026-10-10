@@ -36,5 +36,6 @@ pub mod registry;
 pub mod render;
 pub mod secrets;
 pub mod time;
+pub mod version;
 pub mod walk;
 pub mod write;
