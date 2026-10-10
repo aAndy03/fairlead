@@ -96,7 +96,7 @@ pub struct CheckCx<'a> {
     pub options: &'a CheckOptions,
 }
 
-static CHECKS: [&dyn Check; 14] = [
+static CHECKS: [&dyn Check; 15] = [
     &builtin::syntax::SyntaxCheck,
     &builtin::refs::RefsCheck,
     &builtin::tokens::TokensCheck,
@@ -111,6 +111,7 @@ static CHECKS: [&dyn Check; 14] = [
     &builtin::paths::PathsCheck,
     &builtin::notices::NoticesCheck,
     &builtin::versions::VersionsCheck,
+    &builtin::coverage::CoverageCheck,
 ];
 
 /// Every built-in check, in a fixed order (the report order comes from sorting, not from this).
@@ -422,7 +423,7 @@ mod tests {
     }
 
     macro_rules! sources { ($($p:literal),* $(,)?) => { [$(($p, include_str!($p))),*] }; }
-    const FILES: [(&str, &str); 24] = sources!(
+    const FILES: [(&str, &str); 25] = sources!(
         "mod.rs",
         "codes.rs",
         "options.rs",
@@ -436,6 +437,7 @@ mod tests {
         "builtin/mod.rs",
         "builtin/agents.rs",
         "builtin/controls.rs",
+        "builtin/coverage.rs",
         "builtin/exceptions.rs",
         "builtin/generated.rs",
         "builtin/leak.rs",

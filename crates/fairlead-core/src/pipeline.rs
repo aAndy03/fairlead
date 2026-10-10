@@ -265,9 +265,8 @@ pub fn file_version_section(loaded: &Loaded, path: &RepoPath) -> crate::explain:
         .iter()
         .filter(|d| d.status == crate::docs::Status::Sealed)
         .filter(|d| {
-            d.covers.iter().any(|c| {
-                globset::Glob::new(c).is_ok_and(|g| g.compile_matcher().is_match(path.as_str()))
-            })
+            let dir = loaded_scope_dir(loaded, &d.path);
+            crate::docs::covers_path(d, &dir, path)
         })
         .max_by_key(|d| (d.sealed, d.ordinal));
     let mut line = TerseLine::new("file");
@@ -292,6 +291,24 @@ pub fn file_version_section(loaded: &Loaded, path: &RepoPath) -> crate::explain:
         ],
         lines: vec![line],
     }
+}
+
+/// The directory of the scope that holds `path`, from the membership the corpus walk saw: the
+/// deepest managerial folder above it (empty for the root).
+fn loaded_scope_dir(loaded: &Loaded, path: &RepoPath) -> String {
+    let folder = &loaded.root.folder;
+    let mut best = String::new();
+    for c in loaded.controls.files.keys() {
+        if let Some(dir) = c.as_str().strip_suffix(&format!("{folder}/control.toml")) {
+            let dir = dir.trim_end_matches('/');
+            if (dir.is_empty() || path.as_str().starts_with(&format!("{dir}/")))
+                && dir.len() >= best.len()
+            {
+                best = dir.to_owned();
+            }
+        }
+    }
+    best
 }
 
 pub fn explain_target(root: &Root, cwd: &Utf8Path, arg: &str) -> Result<ExplainTarget, Error> {
@@ -506,6 +523,10 @@ pub fn plan_seal(
         paths: &paths,
         sweep_after: 3,
         sealed_versions: &versions,
+        doc_dirs: &docs
+            .iter()
+            .map(|d| (d.path.clone(), loaded_scope_dir(loaded, &d.path)))
+            .collect(),
     })
     .map_err(|r| {
         Error::Refused(crate::error::Refusal {

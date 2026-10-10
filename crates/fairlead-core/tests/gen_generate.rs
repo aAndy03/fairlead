@@ -57,6 +57,7 @@ fn empty_facts() -> Facts {
             changed: None,
             sparse_absent: Vec::new(),
             unreadable: None,
+            coverage: None,
         },
         ledgers: Default::default(),
         doc_body_hashes: Default::default(),

@@ -269,6 +269,7 @@ impl Kit {
                 changed: None,
                 sparse_absent: self.sparse_absent.iter().map(|d| path(d)).collect(),
                 unreadable: None,
+                coverage: None,
             },
             ledgers: Default::default(),
             doc_body_hashes: Default::default(),

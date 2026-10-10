@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod controls;
+pub mod coverage;
 pub mod exceptions;
 pub mod generated;
 pub mod leak;

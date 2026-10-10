@@ -138,6 +138,63 @@ impl GitRepo {
         None
     }
 
+    /// R-VER-033: the newest first-parent commit that added `path` (the default coverage base is
+    /// the commit that introduced `versions/<S>.md`). `Ok(None)` when history does not reach it,
+    /// which in a shallow clone means coverage is unavailable (R-GIT-040).
+    pub fn commit_adding(&self, path: &str) -> Result<Option<String>, Error> {
+        let rel = format!("{}{path}", self.prefix);
+        let has = |c: &git2::Commit<'_>| {
+            c.tree()
+                .ok()
+                .is_some_and(|t| t.get_path(std::path::Path::new(&rel)).is_ok())
+        };
+        let Ok(head) = self.repo.head().and_then(|h| h.peel_to_commit()) else {
+            return Ok(None);
+        };
+        if !has(&head) {
+            // Sealed but not committed yet: everything since HEAD is the change set.
+            return Ok(Some(head.id().to_string()));
+        }
+        let mut commit = head;
+        loop {
+            match commit.parent(0) {
+                Ok(p) if has(&p) => commit = p,
+                Ok(_) => return Ok(Some(commit.id().to_string())),
+                // Root commit, or the parent is missing from a shallow clone.
+                Err(_) if self.repo.is_shallow() => return Ok(None),
+                Err(_) => return Ok(Some(commit.id().to_string())),
+            }
+        }
+    }
+
+    /// R-VER-033, R-GIT-075: files that differ between the tree of `base` and the working
+    /// directory including the index, untracked files included, ignored files excluded.
+    pub fn changed_since(&self, base: &str) -> Result<BTreeSet<RepoPath>, Error> {
+        let oid = git2::Oid::from_str(base).map_err(|e| cannot_determine("bad base commit", &e))?;
+        let tree = self
+            .repo
+            .find_commit(oid)
+            .and_then(|c| c.tree())
+            .map_err(|e| cannot_determine("cannot read the base tree", &e))?;
+        let mut opts = git2::DiffOptions::new();
+        opts.include_untracked(true)
+            .recurse_untracked_dirs(true)
+            .include_ignored(false);
+        let diff = self
+            .repo
+            .diff_tree_to_workdir_with_index(Some(&tree), Some(&mut opts))
+            .map_err(|e| cannot_determine("cannot diff against the base", &e))?;
+        let mut set = BTreeSet::new();
+        for delta in diff.deltas() {
+            for f in [delta.old_file(), delta.new_file()] {
+                if let Some(p) = f.path().and_then(|p| p.to_str()) {
+                    self.add(&mut set, &p.replace('\\', "/"));
+                }
+            }
+        }
+        Ok(set)
+    }
+
     /// `(detached, branch name)` of HEAD (R-GIT-065, R-VER-055). An unborn HEAD is a branch.
     pub fn head_state(&self) -> (bool, Option<String>) {
         let detached = self.repo.head_detached().unwrap_or(false);

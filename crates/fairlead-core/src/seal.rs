@@ -40,6 +40,8 @@ pub struct SealInput<'a> {
     pub sweep_after: usize,
     /// Every sealed version, for the carried counts of the sweep report.
     pub sealed_versions: &'a [Version],
+    /// The home scope directory of each doc (its `covers` globs are relative to it).
+    pub doc_dirs: &'a BTreeMap<RepoPath, String>,
 }
 
 /// The result of steps 1 to 3: what the transaction (P1-T9) writes.
@@ -89,15 +91,12 @@ fn is_seal_output(p: &RepoPath, folder: &str) -> bool {
 }
 
 /// A `covers` entry that is an ID counts as existing (IDs are validated by check); a glob must
-/// match a path of the tree.
-fn covers_anything(d: &ChangeDoc, paths: &BTreeSet<RepoPath>) -> bool {
-    d.covers.iter().any(|c| {
-        fairlead_syntax::ids::Id::parse(c).is_ok()
-            || globset::Glob::new(c).is_ok_and(|g| {
-                let m = g.compile_matcher();
-                paths.iter().any(|p| m.is_match(p.as_str()))
-            })
-    })
+/// match a path of the tree under the doc's home scope.
+fn covers_anything(d: &ChangeDoc, dir: &str, paths: &BTreeSet<RepoPath>) -> bool {
+    d.covers
+        .iter()
+        .any(|c| fairlead_syntax::ids::Id::parse(c).is_ok())
+        || paths.iter().any(|p| crate::docs::covers_path(d, dir, p))
 }
 
 /// Steps 1 to 3 of R-VER-050. Any refusal leaves the tree unchanged.
@@ -207,7 +206,8 @@ pub fn plan(input: &SealInput<'_>) -> Result<SealPlan, SealRefusal> {
         .collect();
     let mut sweep = Vec::new();
     for d in &carried {
-        if !d.covers.is_empty() && !covers_anything(d, input.paths) {
+        let dir = input.doc_dirs.get(&d.path).map_or("", String::as_str);
+        if !d.covers.is_empty() && !covers_anything(d, dir, input.paths) {
             sweep.push(format!(
                 "{} covers nothing that exists ({})",
                 d.id,
@@ -637,6 +637,7 @@ mod tests {
                 paths: &self.paths,
                 sweep_after: 3,
                 sealed_versions: &self.versions,
+                doc_dirs: &BTreeMap::new(),
             })
         }
     }

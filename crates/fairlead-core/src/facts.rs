@@ -14,6 +14,31 @@ pub struct GitFacts {
     pub sparse_absent: Vec<RepoPath>,
     /// Set when git state could not be read; under `--changed` this means exit 5 (R-ARCH-075).
     pub unreadable: Option<String>,
+    /// Docs-first changed set against the coverage base; `None` before the first seal.
+    pub coverage: Option<Coverage>,
+}
+
+/// R-VER-033: the files changed since the commit that introduced `versions/<S>.md`, or why that
+/// set cannot be computed (no git, shallow history: never a silent pass, R-GIT-040).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Coverage {
+    Changed {
+        base: String,
+        files: BTreeSet<RepoPath>,
+    },
+    Unavailable(String),
+}
+
+/// The highest `versions/<v>.md` on disk, as a root-relative path.
+fn latest_version_file(root: &Root) -> Option<String> {
+    let dir = root.dir.join(&root.folder).join("versions");
+    let entries = std::fs::read_dir(dir.as_std_path()).ok()?;
+    entries
+        .filter_map(Result::ok)
+        .filter_map(|e| e.file_name().to_str().map(str::to_owned))
+        .filter_map(|n| crate::version::version_of_file_name(&n).map(|v| (v, n)))
+        .max()
+        .map(|(_, n)| format!("{}/versions/{n}", root.folder))
 }
 
 use crate::classify::{ClassifyRules, FileClass, classify};
@@ -123,10 +148,13 @@ pub fn parse_vendor_lock(scope_dir: &str, text: &str) -> BTreeMap<RepoPath, Cont
 }
 
 pub fn git_facts(root: &Root, want_changed: bool) -> GitFacts {
+    let latest = latest_version_file(root);
     let Some(repo) = GitRepo::open(root) else {
         return GitFacts {
             unreadable: want_changed
                 .then(|| "not inside a git repository: git state is unavailable".to_string()),
+            coverage: latest
+                .map(|_| Coverage::Unavailable("not inside a git repository".to_string())),
             ..GitFacts::default()
         };
     };
@@ -138,6 +166,16 @@ pub fn git_facts(root: &Root, want_changed: bool) -> GitFacts {
         Ok(v) => git.sparse_absent = v,
         Err(e) => git.unreadable = Some(e.to_string()),
     }
+    git.coverage = latest.map(|path| match repo.commit_adding(&path) {
+        Ok(Some(base)) => match repo.changed_since(&base) {
+            Ok(files) => Coverage::Changed { base, files },
+            Err(e) => Coverage::Unavailable(e.to_string()),
+        },
+        Ok(None) => Coverage::Unavailable(format!(
+            "history does not reach the commit that added {path} (shallow clone?)"
+        )),
+        Err(e) => Coverage::Unavailable(e.to_string()),
+    });
     if want_changed {
         match repo.changed_files() {
             Ok(c) => git.changed = Some(c),

@@ -267,6 +267,7 @@ pub(crate) mod testutil {
                 changed: None,
                 sparse_absent: vec![],
                 unreadable: None,
+                coverage: None,
             },
             ledgers: Default::default(),
             doc_body_hashes: Default::default(),

@@ -214,6 +214,26 @@ pub fn body_hash(text: &str) -> String {
     )
 }
 
+/// R-VER-030, R-CHK-045: whether a doc's `covers` globs match a file. Globs are relative to the
+/// doc's home scope directory (`scope_dir`, empty for the root) and never reach outside it;
+/// entries that parse as IDs are validated elsewhere and cover no path in 0.2.
+pub fn covers_path(d: &ChangeDoc, scope_dir: &str, path: &RepoPath) -> bool {
+    let rel = if scope_dir.is_empty() || scope_dir == "." {
+        Some(path.as_str())
+    } else {
+        path.as_str()
+            .strip_prefix(scope_dir)
+            .and_then(|r| r.strip_prefix('/'))
+    };
+    let Some(rel) = rel else {
+        return false;
+    };
+    d.covers.iter().any(|c| {
+        fairlead_syntax::ids::Id::parse(c).is_err()
+            && globset::Glob::new(c).is_ok_and(|g| g.compile_matcher().is_match(rel))
+    })
+}
+
 /// Sealed versions: the file names `<folder>/versions/<MAJOR.MINOR.PATCH>.md` at the root, sorted.
 pub fn version_files(corpus: &Corpus, folder: &str) -> Vec<Version> {
     let prefix = format!("{folder}/versions/");
