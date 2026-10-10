@@ -29,6 +29,7 @@ pub mod facts;
 pub mod generate;
 pub mod git;
 pub mod hash;
+pub mod hist;
 pub mod manifest;
 pub mod outcome;
 pub mod path;

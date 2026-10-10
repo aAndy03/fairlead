@@ -58,6 +58,7 @@ fn empty_facts() -> Facts {
             sparse_absent: Vec::new(),
             unreadable: None,
         },
+        ledgers: Default::default(),
         manifest_hints: ManifestHints {
             workspace_members: BTreeSet::new(),
             default_excludes: Vec::new(),

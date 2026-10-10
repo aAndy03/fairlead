@@ -41,6 +41,8 @@ pub struct Facts {
     pub approvals: ApprovalsFile,
     pub git: GitFacts,
     pub manifest_hints: ManifestHints,
+    /// Ledger year files (`ledger/hist/<year>.hl`), raw text, for the continuity check (R-RET-036).
+    pub ledgers: BTreeMap<RepoPath, Arc<str>>,
 }
 
 /// Bytes of a regular file; `None` for a missing file, a symlink or a directory (never followed).
@@ -177,6 +179,14 @@ pub fn collect_facts_with(
                     facts
                         .generated_on_disk
                         .insert(e.path.clone(), Arc::<[u8]>::from(bytes));
+                }
+            }
+            FileClass::Ledger if e.path.as_str().ends_with(".hl") => {
+                if let Some(bytes) = read_regular(root, &e.path)? {
+                    facts.ledgers.insert(
+                        e.path.clone(),
+                        Arc::<str>::from(String::from_utf8_lossy(&bytes).into_owned()),
+                    );
                 }
             }
             FileClass::VendorOwned => {

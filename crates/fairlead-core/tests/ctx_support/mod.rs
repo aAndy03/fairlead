@@ -213,6 +213,7 @@ impl WorldBuilder {
                 sparse_absent: vec![],
                 unreadable: None,
             },
+            ledgers: Default::default(),
             manifest_hints: ManifestHints {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],

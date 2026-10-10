@@ -251,7 +251,7 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
     }
     // fairlead's own generated files (`gen/members`, `*.reg`) have no comment syntax, so they
     // cannot carry a directive; scanning them only raised HN-I002 about fairlead itself (E-45).
-    let own_format = class == FileClass::Generated
+    let own_format = matches!(class, FileClass::Generated | FileClass::Ledger)
         && plan
             .syntax
             .comments

@@ -9,10 +9,64 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 3] = [HN_V006, HN_V007, HN_V009];
+const CODES: [DiagCode; 4] = [HN_G003, HN_V006, HN_V007, HN_V009];
 
 fn in_scope(cx: &CheckCx<'_>, d: &ChangeDoc, scope: &ScopeId) -> bool {
     cx.registry.scope_of(&d.path) == Some(scope)
+}
+
+/// R-RET-036, R-GIT-015: every ledger year file of this scope keeps its checkpoint chain, and the
+/// years of one ledger folder chain through `# end` and `prev=`. A break is never auto-fixed.
+fn ledger_continuity(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    use crate::hist::{YearFile, verify_chain};
+    use std::collections::BTreeMap;
+    let mut by_folder: BTreeMap<String, Vec<(crate::path::RepoPath, YearFile)>> = BTreeMap::new();
+    for (path, text) in &cx.facts.ledgers {
+        if cx.registry.scope_of(path) != Some(scope) {
+            continue;
+        }
+        let mut push = |line: u32, msg: String| {
+            out.push(
+                DiagB::new(HN_G003, path, line, 1, msg.clone())
+                    .hint("a ledger is never edited by hand; reseal the later seal (fairlead seal --reseal) or restore the file from git")
+                    .text(msg)
+                    .build(),
+            );
+        };
+        match YearFile::parse(text) {
+            Err(e) => push(1, format!("ledger file is unreadable: {e}")),
+            Ok(f) => {
+                for m in f.verify() {
+                    push(1, format!("ledger chain broken: {m}"));
+                }
+                let folder = path
+                    .parent()
+                    .map(|p| p.as_str().to_owned())
+                    .unwrap_or_default();
+                by_folder.entry(folder).or_default().push((path.clone(), f));
+            }
+        }
+    }
+    for (_, mut years) in by_folder {
+        years.sort_by_key(|(_, f)| f.year);
+        let refs: Vec<&YearFile> = years.iter().map(|(_, f)| f).collect();
+        if let Some((last, _)) = years.last() {
+            for m in verify_chain(&refs) {
+                out.push(
+                    DiagB::new(
+                        HN_G003,
+                        last,
+                        1,
+                        1,
+                        format!("ledger chain broken across years: {m}"),
+                    )
+                    .hint("restore the year files from git; a finalised year is never rewritten")
+                    .text(m)
+                    .build(),
+                );
+            }
+        }
+    }
 }
 
 impl Check for VersionsCheck {
@@ -59,6 +113,7 @@ impl Check for VersionsCheck {
                 );
             }
         }
+        ledger_continuity(cx, scope, out);
         let hash_of = |d: &ChangeDoc| cx.corpus.records.get(&d.path).map(|r| r.hash);
         for group in id_collisions(&docs, hash_of) {
             // Reported once, on the later path, in the scope that holds it.
@@ -177,6 +232,44 @@ mod tests {
             .run_check(&VersionsCheck);
         assert_eq!(of(&d, c::HN_V006).len(), 1, "{d:?}");
         assert_eq!(of(&d, c::HN_V007).len(), 1, "{d:?}");
+    }
+
+    #[test]
+    fn r_git_015__union_merge_loss_in_a_ledger_is_h_g003() {
+        use crate::hist::YearFile;
+        use crate::version::Version;
+        let mut f = YearFile::new("root", 2026, None, 1);
+        f.append_version(
+            Version::new(0, 2, 0),
+            &[
+                "d-00000001 kind=change".into(),
+                "d-00000002 kind=change".into(),
+            ],
+        )
+        .unwrap();
+        let good = f.render();
+        let broken = good.replace("d-00000002 kind=change", "d-00000003 kind=change");
+        let broken = broken
+            .lines()
+            .filter(|l| !l.starts_with("d-00000001"))
+            .map(|l| format!("{l}\n"))
+            .collect::<String>();
+        let path =
+            |y: &str| crate::path::RepoPath::new(&format!("fairlead/ledger/hist/{y}.hl")).unwrap();
+        let ok = World::new()
+            .facts(|f| {
+                f.ledgers.insert(path("2026"), good.clone().into());
+            })
+            .build()
+            .run_check(&VersionsCheck);
+        assert!(of(&ok, c::HN_G003).is_empty(), "{ok:?}");
+        let bad = World::new()
+            .facts(|f| {
+                f.ledgers.insert(path("2026"), broken.into());
+            })
+            .build()
+            .run_check(&VersionsCheck);
+        assert!(!of(&bad, c::HN_G003).is_empty());
     }
 
     #[test]

@@ -270,6 +270,7 @@ impl Kit {
                 sparse_absent: self.sparse_absent.iter().map(|d| path(d)).collect(),
                 unreadable: None,
             },
+            ledgers: Default::default(),
             manifest_hints: ManifestHints {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],
