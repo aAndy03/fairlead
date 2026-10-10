@@ -43,6 +43,8 @@ pub struct Extras {
     pub literals: Vec<LiteralSite>,
     pub secrets: Vec<SecretHit>,
     pub pattern_hits: Vec<PatternHit>,
+    #[serde(default)]
+    pub env_tokens: Vec<EnvToken>,
 }
 
 use crate::classify::{ClassifyRules, FileClass, classify, scans_directives};
@@ -56,7 +58,10 @@ use fairlead_syntax::delimiters::{CommentTable, Leader};
 use fairlead_syntax::extract::{ExtractConfig, Extraction, ScanStatus, extract as syntax_extract};
 use std::sync::Arc;
 
+pub mod envscan;
 pub mod literals;
+
+pub use envscan::{EnvToken, scan_env_tokens};
 
 pub use literals::{LEAK_PROPERTIES, PatternHit, PatternProbe, scan_literals, scan_patterns};
 
@@ -75,6 +80,8 @@ pub struct FileRecord {
     pub secrets: Vec<SecretHit>,
     /// Matches of `check = "pattern"` rules (amendment A-13).
     pub pattern_hits: Vec<PatternHit>,
+    /// Env gate tokens, only once the root declares an env path (R-ENV-030).
+    pub env_tokens: Vec<EnvToken>,
     pub skip: Option<SkipReason>,
 }
 
@@ -88,6 +95,8 @@ pub struct ExtractPlan {
     pub leak_properties: Vec<String>,
     /// One probe per `check = "pattern"` rule (amendment A-13).
     pub pattern_rules: Vec<PatternProbe>,
+    /// The root declares `[env] order`: scan env gate tokens (R-ENV-030).
+    pub env_scan: bool,
 }
 
 impl ExtractPlan {
@@ -166,6 +175,7 @@ impl ExtractPlan {
             styles,
             leak_properties,
             pattern_rules: Vec::new(),
+            env_scan: !rc.vocab.env_order.is_empty(),
         })
     }
 
@@ -177,6 +187,9 @@ impl ExtractPlan {
         for p in &self.leak_properties {
             h.update(p.as_bytes());
             h.update(&[0]);
+        }
+        if self.env_scan {
+            h.update(b"env\0");
         }
         h.update(b"styles\0");
         for e in &self.styles.extensions {
@@ -197,7 +210,8 @@ pub fn extras_wanted(plan: &ExtractPlan, path: &RepoPath, class: FileClass) -> b
     (scanned_authored
         && (plan.styles.applies(path)
             || !plan.leak_properties.is_empty()
-            || !plan.pattern_rules.is_empty()))
+            || !plan.pattern_rules.is_empty()
+            || plan.env_scan))
         || plan.classify.in_managerial_folder(path)
 }
 
@@ -233,6 +247,9 @@ fn compute_extras(
     }
     if scanned && class == FileClass::Authored && !plan.pattern_rules.is_empty() {
         out.pattern_hits = scan_patterns(text, path, &plan.pattern_rules);
+    }
+    if scanned && class == FileClass::Authored && plan.env_scan {
+        out.env_tokens = scan_env_tokens(text, &ext, path.file_name());
     }
     if plan.classify.in_managerial_folder(path) {
         out.secrets = crate::secrets::scan_secrets(text);
@@ -282,6 +299,7 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
         literals: extras.literals,
         secrets: extras.secrets,
         pattern_hits: extras.pattern_hits,
+        env_tokens: extras.env_tokens,
         skip,
     }
 }
@@ -390,6 +408,7 @@ fn unread_record(e: &WalkEntry, class: FileClass, skip: SkipReason, head: &[u8])
         literals: Vec::new(),
         secrets: Vec::new(),
         pattern_hits: Vec::new(),
+        env_tokens: Vec::new(),
         skip: Some(skip),
     }
 }
@@ -424,6 +443,7 @@ fn from_cache(
         literals: extras.literals,
         secrets: extras.secrets,
         pattern_hits: extras.pattern_hits,
+        env_tokens: extras.env_tokens,
         skip,
     })
 }
@@ -470,6 +490,7 @@ fn process(
                     literals: rec.literals.clone(),
                     secrets: rec.secrets.clone(),
                     pattern_hits: rec.pattern_hits.clone(),
+                    env_tokens: rec.env_tokens.clone(),
                 };
                 cache.put_extras(&rec.hash, &extras_key(fp, plan, &e.path), &extras);
             }

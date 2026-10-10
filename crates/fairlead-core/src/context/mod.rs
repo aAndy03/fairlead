@@ -467,6 +467,7 @@ pub(crate) mod testutil {
             literals: vec![],
             secrets: vec![],
             pattern_hits: vec![],
+            env_tokens: vec![],
             skip: None,
         }
     }

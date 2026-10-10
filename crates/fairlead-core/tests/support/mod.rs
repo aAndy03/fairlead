@@ -238,6 +238,7 @@ impl Kit {
             styles: StyleKinds::default(),
             leak_properties: vec![],
             pattern_rules: vec![],
+            env_scan: false,
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),

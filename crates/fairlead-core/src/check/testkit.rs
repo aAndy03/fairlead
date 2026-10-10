@@ -171,6 +171,9 @@ impl World {
             styles: StyleKinds::default(), // Verify: StyleKinds::default() exists (P3)
             leak_properties: LEAK_PROPS.iter().map(|s| (*s).to_string()).collect(),
             pattern_rules: probes,
+            env_scan: controls
+                .root_control()
+                .is_some_and(|c| !c.vocab.env_order.is_empty()),
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),

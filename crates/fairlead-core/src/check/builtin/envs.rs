@@ -24,7 +24,7 @@ struct Written {
     loc: Option<(RepoPath, u32, u32)>,
     ins: Option<Vec<String>>,
     mats: Option<Vec<String>>,
-    bind: bool,
+    bind: Vec<String>,
 }
 
 fn arg_words(v: &ArgValue) -> Vec<String> {
@@ -50,7 +50,7 @@ fn written(reg: &Registry, corpus: &Corpus) -> BTreeMap<ItemId, Written> {
         w.loc = Some(origin_loc(it));
         w.ins = has("in").then(|| field_list(it, "in"));
         w.mats = has("mat").then(|| field_list(it, "mat"));
-        w.bind = has("bind");
+        w.bind = field_list(it, "bind");
     }
     for (path, rec) in &corpus.records {
         let Some(ex) = rec.extraction.as_ref() else {
@@ -61,8 +61,8 @@ fn written(reg: &Registry, corpus: &Corpus) -> BTreeMap<ItemId, Written> {
         };
         for d in ex.directives.iter().filter(|d| d.verb == Verb::Def) {
             let arg = |k: &str| d.arg(k).map(|a| arg_words(&a.value));
-            let (ins, mats, bind) = (arg("in"), arg("mat"), d.arg("bind").is_some());
-            if ins.is_none() && mats.is_none() && !bind {
+            let (ins, mats, bind) = (arg("in"), arg("mat"), arg("bind").unwrap_or_default());
+            if ins.is_none() && mats.is_none() && bind.is_empty() {
                 continue;
             }
             let Some(id) = d.ids.first() else { continue };
@@ -75,7 +75,9 @@ fn written(reg: &Registry, corpus: &Corpus) -> BTreeMap<ItemId, Written> {
             }
             w.ins = w.ins.take().or(ins);
             w.mats = w.mats.take().or(mats);
-            w.bind |= bind;
+            if w.bind.is_empty() {
+                w.bind = bind;
+            }
         }
     }
     out
@@ -110,7 +112,9 @@ fn defaults(
 /// Resolved axes of every item that writes an axis key, with the words that resolved to nothing.
 pub(crate) struct Resolved {
     pub axes: BTreeMap<ItemId, Axes>,
-    loc: BTreeMap<ItemId, (RepoPath, u32, u32)>,
+    pub loc: BTreeMap<ItemId, (RepoPath, u32, u32)>,
+    /// `bind=` values per item (R-ENV-030).
+    pub binds: BTreeMap<ItemId, Vec<String>>,
     unknown: BTreeMap<ItemId, Vec<UnknownWord>>,
     missing: BTreeSet<ItemId>,
 }
@@ -119,6 +123,7 @@ pub(crate) fn resolve_axes(reg: &Registry, corpus: &Corpus, v: &Vocab<'_>) -> Re
     let mut r = Resolved {
         axes: BTreeMap::new(),
         loc: BTreeMap::new(),
+        binds: BTreeMap::new(),
         unknown: BTreeMap::new(),
         missing: BTreeSet::new(),
     };
@@ -140,13 +145,16 @@ pub(crate) fn resolve_axes(reg: &Registry, corpus: &Corpus, v: &Vocab<'_>) -> Re
         }
         mat.retain(|e, _| envs.contains(e));
         if v.has_maturity()
-            && (w.ins.is_some() || w.bind)
+            && (w.ins.is_some() || !w.bind.is_empty())
             && envs.iter().any(|e| !mat.contains_key(e))
         {
             r.missing.insert(id.clone());
         }
-        if let Some(l) = w.loc {
+        if let Some(l) = w.loc.clone() {
             r.loc.insert(id.clone(), l);
+        }
+        if !w.bind.is_empty() {
+            r.binds.insert(id.clone(), w.bind.clone());
         }
         if !bad.is_empty() {
             r.unknown.insert(id.clone(), bad);
