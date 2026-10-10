@@ -6,6 +6,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme = "../../README.md"
+keywords.workspace = true
+categories.workspace = true
 publish.workspace = true
 
 [lints]
@@ -17,7 +20,7 @@ default = ["vendored-libgit2"]
 vendored-libgit2 = ["git2/vendored-libgit2"]
 
 [dependencies]
-fairlead-syntax = { path = "../fairlead-syntax" }
+fairlead-syntax = { path = "../fairlead-syntax", version = "0.1.0" }
 ignore = "0.4.33"
 globset = "0.4.20"
 regex = "1"                      # UNVERIFIED version: confirm MSRV 1.88 and licence (C-2)
