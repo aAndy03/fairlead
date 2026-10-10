@@ -1,3 +1,5 @@
 * text=auto eol=lf
 fixtures/** -text
 tests/golden/**/crlf/** -text
+**/fairlead/gen/** linguist-generated=true -diff
+**/fairlead/ledger/** merge=union

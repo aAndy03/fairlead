@@ -489,10 +489,13 @@ pub fn init_plan(
         det,
         ".gitattributes",
         &[
-            format!("{folder}/** eol=lf"),
-            format!("{folder}/gen/** linguist-generated"),
+            // R-GIT-012: no custom merge driver; generated files collapse in review, ledgers
+            // union-merge, the managerial folder is LF everywhere.
+            format!("**/{folder}/** text eol=lf"),
+            format!("**/{folder}/gen/** linguist-generated=true -diff"),
+            format!("**/{folder}/ledger/** merge=union"),
         ],
-        "eol and generated",
+        "eol, generated and ledger merge",
         &mut set,
         &mut lines,
     )?;
@@ -1021,7 +1024,7 @@ Do not edit fairlead/control.toml or fairlead/approvals.toml; ask a human.\n\
         let ga = String::from_utf8(plan.set.writes[&rp(".gitattributes")].bytes.clone()).unwrap();
         assert_eq!(
             ga,
-            "fairlead/** eol=lf\nfairlead/gen/** linguist-generated\n"
+            "**/fairlead/** text eol=lf\n**/fairlead/gen/** linguist-generated=true -diff\n**/fairlead/ledger/** merge=union\n"
         );
         assert!(
             !creates(&plan).contains(&"AGENTS.md"),
