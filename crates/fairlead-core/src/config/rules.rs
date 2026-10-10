@@ -384,6 +384,7 @@ pub(crate) fn parse_conventions(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec
             .filter(|g| check_glob(cx, "convention.glob", g));
         let transparent = take_bool(cx, &mut t, "convention", "transparent").unwrap_or(false);
         let class = take_string(cx, &mut t, "convention", "class");
+        let own = take_string(cx, &mut t, "convention", "own");
         cx.unknown_in("convention", &t);
         let class = match class.as_deref() {
             None => None,
@@ -394,16 +395,17 @@ pub(crate) fn parse_conventions(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec
                 None
             }
         };
-        let action = match (transparent, class) {
-            (true, None) => Some(ConventionAction::Transparent),
-            (false, Some(c)) => Some(ConventionAction::Class(c)),
+        let action = match (transparent, class, own) {
+            (true, None, None) => Some(ConventionAction::Transparent),
+            (false, Some(c), None) => Some(ConventionAction::Class(c)),
+            (false, None, Some(o)) => Some(ConventionAction::Own(o)),
             _ => None,
         };
         match (glob, action) {
             (Some(glob), Some(action)) => out.push(ConventionDecl { glob, action }),
             _ => {
                 if cx.diags.len() == before {
-                    cx.error("convention", "a [[convention]] needs `glob` and exactly one of `transparent = true` or `class`");
+                    cx.error("convention", "a [[convention]] needs `glob` and exactly one of `transparent = true`, `class` or `own`");
                 }
             }
         }
@@ -573,7 +575,7 @@ pub(crate) fn parse_eligibility(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Eli
 mod tests {
     use super::*;
     use crate::classify::FileClass;
-    use crate::config::schema::{SevWeight, UnknownKey};
+    use crate::config::schema::SevWeight;
     use crate::diag::codes;
     use crate::path::RepoPath;
 
@@ -719,19 +721,19 @@ mod tests {
     }
 
     #[test]
-    fn r_scope_018__convention_needs_exactly_one_action_and_own_is_unknown_in_0_1() {
-        let text = "[[convention]]\nglob = \"a/**\"\n\n[[convention]]\nglob = \"b/**\"\ntransparent = true\nclass = \"external-generated\"\n\n[[convention]]\nglob = \"c/**\"\nclass = \"authored\"\n\n[[convention]]\nglob = \"d/**\"\ntransparent = true\nown = \"web\"\n";
+    fn r_scope_018__convention_needs_exactly_one_action_and_own_is_one_from_0_2() {
+        let text = "[[convention]]\nglob = \"a/**\"\n\n[[convention]]\nglob = \"b/**\"\ntransparent = true\nclass = \"external-generated\"\n\n[[convention]]\nglob = \"c/**\"\nclass = \"authored\"\n\n[[convention]]\nglob = \"d/**\"\ntransparent = true\nown = \"web\"\n\n[[convention]]\nglob = \"e.rs\"\nown = \"edge\"\n";
         let (mut c, mut t) = cx(text);
         let v = parse_conventions(&mut c, &mut t);
-        assert_eq!(c.diags.len(), 3);
-        assert_eq!(v.len(), 1);
+        assert_eq!(c.diags.len(), 4, "transparent with own is two actions");
         assert_eq!(
-            c.unknown,
-            vec![UnknownKey {
-                path: "convention.own".into(),
-                line: 16
+            v,
+            vec![ConventionDecl {
+                glob: "e.rs".into(),
+                action: ConventionAction::Own("edge".into())
             }]
         );
+        assert!(c.unknown.is_empty());
     }
 
     #[test]

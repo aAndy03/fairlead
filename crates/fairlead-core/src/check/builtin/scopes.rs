@@ -16,7 +16,9 @@ use fairlead_syntax::diag::{DiagCode, Severity};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct ScopesCheck;
-const CODES: [DiagCode; 6] = [HN_N002, HN_C009, HN_M002, HN_M003, HN_V013, HN_M011];
+const CODES: [DiagCode; 7] = [
+    HN_N002, HN_C009, HN_M002, HN_M003, HN_V013, HN_M011, HN_C014,
+];
 
 /// One scope as a membership shard last recorded it.
 struct Member {
@@ -132,6 +134,37 @@ impl Check for ScopesCheck {
         }
         if scope != reg.root_scope() {
             return;
+        }
+        // R-SCOPE-019: `D.<ext>` beside the scope directory `D/` (a Rust `mod` file, a barrel)
+        // belongs to the parent by directory, to `D` by meaning: ambiguous unless `own` decides.
+        for s in reg.scopes().filter(|s| !s.dir.as_str().is_empty()) {
+            let dir = s.dir.as_str();
+            let (parent, name) = dir.rsplit_once('/').unwrap_or(("", dir));
+            for p in cx.corpus.records.keys() {
+                let in_parent = match p.as_str().rsplit_once('/') {
+                    Some((d, _)) => d == parent,
+                    None => parent.is_empty(),
+                };
+                let stem = p.file_name().split('.').next().unwrap_or("");
+                if in_parent
+                    && stem == name
+                    && p.file_name().contains('.')
+                    && reg.scope_of(p) != Some(&s.id)
+                {
+                    out.push(
+                        DiagB::new(
+                            HN_C014,
+                            p,
+                            1,
+                            1,
+                            format!("{} sits beside the scope directory {dir}/: which scope owns it is ambiguous", p.as_str()),
+                        )
+                        .hint(format!("add [[convention]] glob = \"{}\" own = \"{}\" to the parent's control file, or rename it", p.file_name(), s.id.0.as_str()))
+                        .text(p.as_str().to_owned())
+                        .build(),
+                    );
+                }
+            }
         }
         // V013: absent from a sparse checkout is unknown, never green. Paths inside a scope that is
         // absent as a whole are reported once, by the scope line below.
@@ -314,6 +347,45 @@ mod tests {
             .collect();
         move |f| f.generated_on_disk.extend(v)
     }
+    #[test]
+    fn r_scope_019__edge_rs_beside_edge_dir_is_ambiguous() {
+        let w = || {
+            World::new()
+                .scope("src/edge", "[fairlead]\nscope = \"edge\"\n")
+                .file("src/edge.rs", "pub mod a;\n")
+                .file("src/edge/a.rs", "fn a() {}\n")
+        };
+        let ds = w().build().run_check(&ScopesCheck);
+        let amb = of(&ds, c::HN_C014);
+        assert_eq!(amb.len(), 1, "{ds:?}");
+        assert_eq!(amb[0].location.path.as_str(), "src/edge.rs");
+        let owned = w()
+            .root("[[convention]]\nglob = \"src/edge.rs\"\nown = \"edge\"\n")
+            .build();
+        assert!(of(&owned.run_check(&ScopesCheck), c::HN_C014).is_empty());
+    }
+
+    #[test]
+    fn r_scope_019__own_assigns_descendant() {
+        let b = World::new()
+            .scope("src/edge", "[fairlead]\nscope = \"edge\"\n")
+            .root("[[convention]]\nglob = \"src/edge.rs\"\nown = \"edge\"\n")
+            .file("src/edge.rs", "pub mod a;\n")
+            .file("src/other.rs", "fn o() {}\n")
+            .build();
+        let of_path = |p: &str| {
+            b.registry
+                .scope_of(&RepoPath::new(p).unwrap())
+                .map(|s| s.0.as_str().to_owned())
+        };
+        assert_eq!(of_path("src/edge.rs").as_deref(), Some("edge"));
+        assert_eq!(
+            of_path("src/other.rs").as_deref(),
+            Some("root"),
+            "one file, one scope"
+        );
+    }
+
     const ROOT_SHARD: &str = "fairlead/gen/members";
     const STRICT: &str = "[fairlead]\nscope = \"core\"\n[rules.strict]\ncheck = \"pattern\"\nforbid = \"zzz\"\nmsg = \"no zzz\"\nsev = \"error\"\nstage = \"enforce\"\n";
 

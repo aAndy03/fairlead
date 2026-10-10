@@ -97,6 +97,9 @@ pub(crate) struct ScopeTable {
     pub(crate) root: ScopeId,
     pub(crate) scopes: BTreeMap<ScopeId, Scope>,
     pub(crate) by_dir: BTreeMap<String, ScopeId>,
+    /// R-SCOPE-019: `[[convention]] own` entries: declaring directory, glob relative to it, and
+    /// the descendant scope the matching files belong to.
+    pub(crate) owned: Vec<(String, globset::GlobMatcher, ScopeId)>,
 }
 
 impl ScopeTable {
@@ -120,8 +123,21 @@ impl ScopeTable {
         out
     }
 
-    /// Nearest ancestor-or-self scope (R-SCOPE-003). Pure function of the path.
+    /// Nearest ancestor-or-self scope (R-SCOPE-003), unless an `own` convention assigns the file
+    /// to a named descendant (R-SCOPE-019). Pure function of the path.
     pub(crate) fn scope_of(&self, path: &RepoPath) -> Option<&ScopeId> {
+        for (dir, m, target) in &self.owned {
+            let rel = if dir.is_empty() {
+                Some(path.as_str())
+            } else {
+                path.as_str()
+                    .strip_prefix(dir.as_str())
+                    .and_then(|r| r.strip_prefix('/'))
+            };
+            if rel.is_some_and(|r| m.is_match(r)) {
+                return Some(target);
+            }
+        }
         let mut cur: &str = path.as_str();
         loop {
             if let Some(id) = self.by_dir.get(cur) {
@@ -363,11 +379,45 @@ pub(crate) fn build_scope_table(
         Some(id) => id.clone(),
         None => synth_root(&mut scopes, &mut by_dir, folder, diags),
     };
-    ScopeTable {
+    let mut table = ScopeTable {
         root: root_id,
         scopes,
         by_dir,
+        owned: Vec::new(),
+    };
+    let mut owned = Vec::new();
+    for s in table.scopes.values() {
+        let Some(c) = s.control.as_ref() else {
+            continue;
+        };
+        for conv in &c.conventions {
+            let crate::config::ConventionAction::Own(target) = &conv.action else {
+                continue;
+            };
+            let target_id = fairlead_syntax::ids::ScopeSlug::parse(target)
+                .ok()
+                .map(ScopeId);
+            let descendant = target_id
+                .as_ref()
+                .is_some_and(|t| t != &s.id && table.chain_ids(t).contains(&&s.id));
+            match (target_id, globset::Glob::new(&conv.glob)) {
+                (Some(t), Ok(g)) if descendant => {
+                    owned.push((s.dir.as_str().to_owned(), g.compile_matcher(), t));
+                }
+                _ => diags.push(
+                    Dg::new(codes::HN_C002, Severity::Warn, &c.path, 1, 1)
+                        .scope(&s.id)
+                        .msg(format!(
+                            "[[convention]] own = {target:?} names no descendant scope; ignored"
+                        ))
+                        .hint("own assigns files to a scope below the declaring one (R-SCOPE-019)")
+                        .done(),
+                ),
+            }
+        }
     }
+    table.owned = owned;
+    table
 }
 
 /// Only reachable when `discover` was bypassed: no control file at the root directory.
