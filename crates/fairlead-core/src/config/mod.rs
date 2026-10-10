@@ -4,6 +4,8 @@ pub use approvals::{Approval, ApprovalsFile, parse_approvals};
 pub mod header;
 pub mod rules;
 pub mod schema;
+pub mod vocab;
+pub use vocab::*;
 
 pub use header::{FairleadHeader, parse_header_lenient, parse_pin_lenient};
 pub use rules::*;
@@ -66,6 +68,11 @@ pub struct ControlFile {
     pub eligibility: EligibilityConfig,
     pub version: VersionConfig,
     pub docs_first: DocsFirstConfig,
+    pub vocab: VocabConfig,
+    pub lc: LcConfig,
+    pub authority: AuthorityConfig,
+    pub graveyard: GraveyardConfig,
+    pub defaults: AxisDefaults,
     /// `HN-C002` (R-SYN-039): unknown keys and tables, kept for tools that rewrite the file.
     pub unknown: Vec<UnknownKey>,
     /// `HN-C003` (R-SYN-041, R-SCOPE-051/052/056): non-delegable keys in a child file; the keys are inert.
@@ -94,8 +101,15 @@ impl ControlFile {
 }
 
 /// Top-level tables a child may not hold (known 0.1 root-only tables).
-const ROOT_ONLY_TABLES: [&str; 10] = [
+const ROOT_ONLY_TABLES: [&str; 17] = [
     "version",
+    "env",
+    "maturity",
+    "lifecycle",
+    "bind",
+    "lc",
+    "authority",
+    "graveyard",
     "comments",
     "agents",
     "layout",
@@ -225,6 +239,11 @@ pub fn parse_control(
     let eligibility = rules::parse_eligibility(&mut cx, &mut table);
     let version = rules::parse_version(&mut cx, &mut table);
     let docs_first = rules::parse_docs_first(&mut cx, &mut table);
+    let vocab = vocab::parse_vocab(&mut cx, &mut table);
+    let lc = vocab::parse_lc(&mut cx, &mut table);
+    let authority = vocab::parse_authority(&mut cx, &mut table);
+    let graveyard = vocab::parse_graveyard(&mut cx, &mut table);
+    let defaults = vocab::parse_defaults(&mut cx, &mut table);
     cx.unknown_in("", &table);
 
     if baseline.file.is_empty() {
@@ -273,6 +292,11 @@ pub fn parse_control(
         eligibility,
         version,
         docs_first,
+        vocab,
+        lc,
+        authority,
+        graveyard,
+        defaults,
         unknown,
         violations: sorted(violations),
     })
@@ -733,6 +757,25 @@ msg = "no TODO"
             assert_eq!(c.violations.len(), 1, "{table}");
             assert_eq!(c.violations[0].related.as_deref(), Some(table));
         }
+    }
+
+    #[test]
+    fn r_env_001__child_vocab_becomes_escalation() {
+        let text = "[fairlead]\nscope = \"web\"\n\n[env]\norder = [\"dev\", \"canary\"]\n[maturity]\nalpha = 0\n[lifecycle.alias]\nidea = \"proposed\"\n[bind.dev]\nts = [\"import.meta.env.DEV\"]\n[defaults]\nmat = \"alpha\"\n";
+        let c = parse_control(&p("web/fairlead/control.toml"), text.as_bytes(), false).unwrap();
+        let named: Vec<&str> = c
+            .violations
+            .iter()
+            .filter_map(|d| d.related.as_deref())
+            .collect();
+        assert_eq!(named, ["env", "maturity", "lifecycle", "bind"]);
+        assert!(c.violations.iter().all(|d| d.hint.contains("escalation")));
+        assert!(c.vocab.env_order.is_empty(), "never applied");
+        assert_eq!(
+            c.defaults.mat.as_deref(),
+            Some("alpha"),
+            "[defaults] is local"
+        );
     }
 
     #[test]

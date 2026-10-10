@@ -662,6 +662,7 @@ fn check_flag_env_end(verb: Verb, p: &mut ParsedBody) -> Result<(), BodyError> {
 
 const DEF_KEYS: &[&str] = &[
     "st", "sum", "kw", "sym", "of", "policy", "value", "applies", "min-len", "home", "gen", "tool",
+    "in", "mat", "bind",
 ];
 const USE_KEYS: &[&str] = &["sym"];
 const OVR_KEYS: &[&str] = &["why", "owner", "exp", "op", "base"];

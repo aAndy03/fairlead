@@ -53,7 +53,12 @@ pub(crate) struct Tuning {
 pub struct RuleSet {
     by_scope: BTreeMap<ScopeId, Vec<DeclaredRule>>,
     tuning: BTreeMap<DiagCode, Tuning>,
+    named: BTreeMap<String, Tuning>,
 }
+
+/// Built-in rules with a name of their own (chapter 21) and their default waivability.
+pub(crate) const NAMED_BUILTINS: [(&str, bool); 2] =
+    [("maturity-gap", true), ("env-leakage", false)];
 
 fn scalar<'a>(it: &'a EffectiveItem, k: &str) -> Option<&'a str> {
     match &it.fields.get(k)?.value {
@@ -158,6 +163,18 @@ impl RuleSet {
             if iid.kind.as_str() != "rule" || scalar(item, "check") != Some("builtin") {
                 continue;
             }
+            if let Some((name, _)) = NAMED_BUILTINS.iter().find(|(n, _)| *n == iid.name.as_str()) {
+                rs.named.insert(
+                    (*name).to_string(),
+                    Tuning {
+                        sev: scalar(item, "sev").and_then(parse_sev),
+                        stage: scalar(item, "stage").and_then(parse_stage),
+                        waivable: scalar(item, "waivable") == Some("true"),
+                        home: iid.scope.clone(),
+                    },
+                );
+                continue;
+            }
             if let Some(s) = all_specs()
                 .iter()
                 .find(|s| s.code.0.eq_ignore_ascii_case(iid.name.as_str()))
@@ -195,6 +212,17 @@ impl RuleSet {
 
     pub(crate) fn tuning(&self, code: DiagCode) -> Option<&Tuning> {
         self.tuning.get(&code)
+    }
+
+    /// The root tuning of a named built-in rule (`rule.maturity-gap`), if any.
+    pub(crate) fn named(&self, rule: &str) -> Option<&Tuning> {
+        self.named.get(rule)
+    }
+
+    /// A named built-in rule is waivable by its tuning, else by its default (R-ENV-020).
+    pub(crate) fn named_waivable(&self, rule: &str) -> Option<bool> {
+        let default = NAMED_BUILTINS.iter().find(|(n, _)| *n == rule)?.1;
+        Some(self.named(rule).map_or(default, |t| t.waivable || default))
     }
 
     /// R-CHK-007: declared under or inherited by the file's scope, matching `glob`, not `exclude`.

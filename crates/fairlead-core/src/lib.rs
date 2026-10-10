@@ -30,6 +30,7 @@ pub mod generate;
 pub mod git;
 pub mod hash;
 pub mod hist;
+pub mod lifecycle;
 pub mod manifest;
 pub mod merkle;
 pub mod outcome;

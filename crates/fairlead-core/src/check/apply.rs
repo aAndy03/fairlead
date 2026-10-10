@@ -61,7 +61,10 @@ pub(crate) fn lift(diags: Vec<Diagnostic>, reg: &Registry, rules: &RuleSet) -> V
         let declared = rule
             .as_ref()
             .and_then(|r| rules.for_scope(&scope).iter().find(|x| x.id == *r));
-        let tune = rules.tuning(d.code);
+        let tune = rule
+            .as_ref()
+            .and_then(|r| rules.named(r.0.as_str()))
+            .or(rules.tuning(d.code));
         let severity = declared
             .map(|r| r.sev)
             .or(tune.and_then(|t| t.sev))
@@ -152,11 +155,13 @@ fn waivable(f: &Finding, cx: &WaiverCx<'_>) -> bool {
         return false;
     }
     match &f.rule {
-        Some(r) => cx
-            .rules
-            .for_scope(&f.scope)
-            .iter()
-            .any(|x| x.id == *r && x.waivable),
+        Some(r) => {
+            cx.rules
+                .for_scope(&f.scope)
+                .iter()
+                .any(|x| x.id == *r && x.waivable)
+                || cx.rules.named_waivable(r.0.as_str()) == Some(true)
+        }
         None => {
             cx.rules.tuning(f.code).is_some_and(|t| t.waivable)
                 && spec(f.code).is_some_and(|s| s.waivable)
