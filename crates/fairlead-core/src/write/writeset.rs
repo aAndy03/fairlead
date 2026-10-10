@@ -37,6 +37,8 @@ pub enum WriteSetKind {
     Seal,
     /// R-EDN-032: the root control file (renamed last) and generated files.
     Upgrade,
+    /// R-EDN-007: marker and folder rename; directive lines anywhere and managerial files move.
+    Rename,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -130,6 +132,7 @@ fn allowed(kind: WriteSetKind, w: &PlannedWrite, folder: &str) -> bool {
             (Some(0), ["versions", _]) => w.class == FileClass::Authored && ext == "md",
             _ => false,
         },
+        WriteSetKind::Rename => !segs.starts_with(&[".fairlead"]),
         WriteSetKind::Upgrade => match (fpos, after.as_slice()) {
             (Some(_), ["gen", ..]) => w.class == FileClass::Generated,
             (Some(0), ["control.toml"]) => w.class == FileClass::Authored,
@@ -162,7 +165,10 @@ fn check_bytes(w: &PlannedWrite, folder: &str) -> Result<(), Error> {
             "{p}: planned bytes contain CR (LF-only, R-ARCH-112)"
         )));
     }
-    if p.rsplit('/').next() == Some("control.toml") && w.bytes.iter().all(u8::is_ascii_whitespace) {
+    if p.rsplit('/').next() == Some("control.toml")
+        && w.kind != WriteKind::Delete
+        && w.bytes.iter().all(u8::is_ascii_whitespace)
+    {
         return Err(Error::Internal(format!(
             "{p}: tools never create an empty control file (R-SCOPE-050)"
         )));

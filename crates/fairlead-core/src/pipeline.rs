@@ -473,6 +473,223 @@ pub fn plan_upgrade(
     })
 }
 
+/// R-EDN-007, D-30: the rename step of an upgrade plan. Every directive's marker is rewritten in
+/// place (at the extracted marker offsets, so text that only looks like a directive is left
+/// alone), every file under a managerial folder moves to the new folder name, the root control
+/// file gets the new `marker` and `folder` (and is the commit point), and CODEOWNERS,
+/// `.gitattributes` and `.gitignore` follow the folder. The edition is unchanged.
+pub fn plan_rename(
+    loaded: &Loaded,
+    marker: Option<&str>,
+    folder: Option<&str>,
+) -> Result<UpgradeOut, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    for n in marker.into_iter().chain(folder) {
+        if !crate::upgrade::valid_name(n) {
+            return Err(Error::Usage(format!(
+                "{n:?} is not a valid name: lowercase a-z, 0-9, - and _, at most 32 characters"
+            )));
+        }
+    }
+    let old_marker = loaded
+        .root_control
+        .fairlead
+        .marker
+        .clone()
+        .unwrap_or_else(|| "fairlead".to_owned());
+    let old_folder = loaded.root.folder.clone();
+    let marker = marker.filter(|m| *m != old_marker);
+    let folder = folder.filter(|f| *f != old_folder);
+    if marker.is_none() && folder.is_none() {
+        return Err(Error::Usage(
+            "nothing to rename: the names are unchanged".into(),
+        ));
+    }
+    let managerial: Vec<String> = loaded
+        .controls
+        .files
+        .keys()
+        .filter_map(|p| p.parent())
+        .map(|d| d.as_str().to_owned())
+        .collect();
+    let moved = |p: &RepoPath| -> Option<RepoPath> {
+        let new = folder?;
+        let s = p.as_str();
+        managerial.iter().find_map(|m| {
+            let rest = s.strip_prefix(&format!("{m}/"))?;
+            let parent = m.rsplit_once('/').map_or("", |(a, _)| a);
+            let to = if parent.is_empty() {
+                format!("{new}/{rest}")
+            } else {
+                format!("{parent}/{new}/{rest}")
+            };
+            RepoPath::new(&to).ok()
+        })
+    };
+    // Text is moved LF-normalised (writes are LF-only, R-ARCH-112); bytes otherwise.
+    let read = |p: &RepoPath| -> Result<Vec<u8>, Error> {
+        let b = std::fs::read(loaded.root.dir.join(p.as_str()).as_std_path())
+            .map_err(|e| Error::io(p.as_str(), "read", &e, false))?;
+        Ok(match String::from_utf8(b) {
+            Ok(t) => t.replace("\r\n", "\n").into_bytes(),
+            Err(e) => e.into_bytes(),
+        })
+    };
+    // R-EDN-037 for a rename: the hash covers every move and every rewritten content, but not the
+    // content of change docs and approvals that are only moved, so marking the upgrade doc ready
+    // and approving it does not make its own plan stale.
+    let mut items: Vec<String> = Vec::new();
+    let only_moved =
+        |p: &RepoPath| p.as_str().contains("/docs/changes/") || p.file_name() == "approvals.toml";
+    let mut set = WriteSet::new(WriteSetKind::Rename);
+    let mut lines = Vec::new();
+    let mut edits = Vec::new();
+    let root_ctl = loaded.root_control.path.clone();
+    let mut new_root_ctl = root_ctl.clone();
+    for e in &loaded.walk.files {
+        let p = &e.path;
+        let offsets: Vec<usize> = match marker {
+            Some(_) => loaded
+                .corpus
+                .records
+                .get(p)
+                .and_then(|r| r.extraction.as_ref())
+                .map(|x| {
+                    x.directives
+                        .iter()
+                        .filter(|d| d.carrier != fairlead_syntax::directive::Carrier::Frontmatter)
+                        .filter_map(|d| usize::try_from(d.span.start).ok())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            None => Vec::new(),
+        };
+        let target = moved(p);
+        let mention = folder.is_some()
+            && matches!(
+                p.as_str(),
+                "CODEOWNERS"
+                    | ".github/CODEOWNERS"
+                    | "docs/CODEOWNERS"
+                    | ".gitattributes"
+                    | ".gitignore"
+            );
+        if offsets.is_empty() && target.is_none() && !mention && *p != root_ctl {
+            continue;
+        }
+        let old = read(p)?;
+        let mut new = old.clone();
+        if let Some(m) = marker {
+            new = crate::upgrade::rewrite_markers(&new, &offsets, &old_marker, m);
+        }
+        if mention && let Some(f) = folder {
+            new = crate::upgrade::rewrite_folder_mentions(
+                &String::from_utf8_lossy(&new),
+                &old_folder,
+                f,
+            )
+            .into_bytes();
+        }
+        if *p == root_ctl {
+            let text = String::from_utf8_lossy(&new).replace("\r\n", "\n");
+            new = crate::upgrade::rewrite_names(
+                &text,
+                marker,
+                folder.map(|f| (old_folder.as_str(), f)),
+            )
+            .map_err(Error::Internal)?
+            .into_bytes();
+        }
+        let class = loaded
+            .corpus
+            .records
+            .get(p)
+            .map_or(crate::classify::FileClass::Authored, |r| r.class);
+        match target {
+            Some(to) => {
+                if *p == root_ctl {
+                    new_root_ctl = to.clone();
+                }
+                set.add(PlannedWrite {
+                    path: to.clone(),
+                    kind: WriteKind::Create,
+                    bytes: new.clone(),
+                    class,
+                    expect_prior: None,
+                })?;
+                set.add(PlannedWrite {
+                    path: p.clone(),
+                    kind: WriteKind::Delete,
+                    bytes: Vec::new(),
+                    class,
+                    expect_prior: Some(crate::hash::hash_normalised(&old)),
+                })?;
+                edits.push(format!("move {} -> {}", p.as_str(), to.as_str()));
+                if only_moved(p) {
+                    // Change docs and approvals come and go between the draft and the apply.
+                } else if new == old {
+                    items.push(format!("move {} {}", p.as_str(), to.as_str()));
+                } else {
+                    items.push(format!(
+                        "move {} {} {}",
+                        p.as_str(),
+                        to.as_str(),
+                        crate::hash::hash_normalised(&new)
+                            .0
+                            .iter()
+                            .map(|b| format!("{b:02x}"))
+                            .collect::<String>()
+                    ));
+                }
+                lines.push(PlanLine {
+                    action: PlanAction::Create,
+                    path: to,
+                    detail: format!("moved from {}", p.as_str()),
+                    diff: None,
+                });
+            }
+            None if new != old => {
+                set.add(PlannedWrite {
+                    path: p.clone(),
+                    kind: WriteKind::Replace,
+                    bytes: new.clone(),
+                    class,
+                    expect_prior: Some(crate::hash::hash_normalised(&old)),
+                })?;
+                edits.push(format!("rewrite {}", p.as_str()));
+                items.push(format!(
+                    "rewrite {} {}",
+                    p.as_str(),
+                    crate::hash::hash_normalised(&new)
+                        .0
+                        .iter()
+                        .map(|b| format!("{b:02x}"))
+                        .collect::<String>()
+                ));
+                lines.push(PlanLine {
+                    action: PlanAction::Edit,
+                    path: p.clone(),
+                    detail: "marker or folder renamed".into(),
+                    diff: None,
+                });
+            }
+            None => {}
+        }
+    }
+    set.commit_point = Some(new_root_ctl);
+    let plan = Plan::new(set, lines, Vec::new());
+    items.sort();
+    let hash = crate::hash::ContentHash(*blake3::hash(items.join("\n").as_bytes()).as_bytes());
+    Ok(UpgradeOut {
+        from: loaded.root.edition,
+        to: loaded.root.edition,
+        hash: crate::upgrade::hash_text(&hash),
+        plan,
+        edits,
+        needs: Vec::new(),
+    })
+}
+
 /// What `upgrade --yes` may do (R-EDN-031).
 pub enum UpgradeGate {
     /// A ready, approved doc matches the plan hash and the write-set is clean.

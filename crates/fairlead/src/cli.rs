@@ -313,6 +313,12 @@ pub struct UpgradeArgs {
     /// Upgrade one sealed sub-root alone (R-EDN-043).
     #[arg(long, value_name = "SCOPE")]
     pub scope: Option<String>,
+    /// Rename the directive marker (a rename step; the edition is unchanged, R-EDN-007).
+    #[arg(long, value_name = "MARKER")]
+    pub rename_marker: Option<String>,
+    /// Rename the managerial folder (a rename step; the edition is unchanged, R-EDN-007).
+    #[arg(long, value_name = "FOLDER")]
+    pub rename_folder: Option<String>,
 }
 
 /// Arguments of a verb that arrives later. They are accepted so the refusal is exact (R-CLI-001).

@@ -5,8 +5,8 @@
 use fairlead_core::error::Error;
 use fairlead_core::outcome::ExitCode;
 use fairlead_core::pipeline::{
-    UpgradeGate, WriteSession, check_loaded, commit_plan, load, plan_upgrade, resolve_loaded,
-    upgrade_gate,
+    UpgradeGate, WriteSession, check_loaded, commit_plan, load, plan_rename, plan_upgrade,
+    resolve_loaded, upgrade_gate,
 };
 use fairlead_core::write::SysProbe;
 
@@ -46,7 +46,8 @@ fn upgrade(global: &GlobalArgs, args: &UpgradeArgs) -> Result<CommandResult, Err
     request.discover.upgrade = true;
     let loaded = load(&request)?;
     let to = current_edition();
-    if loaded.root.edition == to {
+    let rename = args.rename_marker.is_some() || args.rename_folder.is_some();
+    if loaded.root.edition == to && !rename {
         return Ok(CommandResult::text(format!(
             "already on edition {}; nothing to upgrade\n",
             to.0
@@ -54,14 +55,35 @@ fn upgrade(global: &GlobalArgs, args: &UpgradeArgs) -> Result<CommandResult, Err
     }
     let registry = resolve_loaded(&loaded, as_of(global));
     let options = default_options(as_of(global));
-    let out = plan_upgrade(&loaded, &registry, &options, to)?;
-    let mut head = format!(
-        "upgrade: edition {} -> {}, plan {} ({} edits)\n",
-        out.from.0,
-        out.to.0,
-        out.hash,
-        out.edits.len()
-    );
+    let out = if rename {
+        if loaded.root.edition != to {
+            return Err(Error::Usage(
+                "upgrade the edition first; a rename runs on the current edition".into(),
+            ));
+        }
+        plan_rename(
+            &loaded,
+            args.rename_marker.as_deref(),
+            args.rename_folder.as_deref(),
+        )?
+    } else {
+        plan_upgrade(&loaded, &registry, &options, to)?
+    };
+    let mut head = if rename {
+        format!(
+            "upgrade: rename, plan {} ({} edits)\n",
+            out.hash,
+            out.edits.len()
+        )
+    } else {
+        format!(
+            "upgrade: edition {} -> {}, plan {} ({} edits)\n",
+            out.from.0,
+            out.to.0,
+            out.hash,
+            out.edits.len()
+        )
+    };
     for n in &out.needs {
         head.push_str(&format!(
             "needs-human: {} in {}: {}\n",
@@ -91,12 +113,17 @@ fn upgrade(global: &GlobalArgs, args: &UpgradeArgs) -> Result<CommandResult, Err
         UpgradeGate::Apply => {
             let outcome = commit_plan(&session, out.plan)?;
             drop(session);
-            let after = load(&load_request(global, false, None)?)?;
+            // A renamed folder is no longer the default one the upward search probes: reload
+            // from the known root directory.
+            let mut again = load_request(global, false, None)?;
+            again.discover.root_flag = Some(loaded.root.dir.clone());
+            let after = load(&again)?;
             let reg = resolve_loaded(&after, as_of(global));
             let report = check_loaded(&after, &reg, &default_options(as_of(global)))?;
             let mut result = CommandResult::text(format!(
-                "{head}{}upgraded to edition {}; check: {} errors, {} warnings\n",
+                "{head}{}{} edition {}; check: {} errors, {} warnings\n",
                 changed_list(&outcome.report),
+                if rename { "renamed on" } else { "upgraded to" },
                 out.to.0,
                 report.summary.errors,
                 report.summary.warns

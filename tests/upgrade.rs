@@ -299,3 +299,58 @@ fn r_arch_124__net_module_only_reachable_from_upgrade() {
         "off by default"
     );
 }
+
+#[test]
+fn r_edn_007__rename_rewrites_every_directive_and_folder() {
+    let repo = repo_on(&[]);
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(&control, format!("{text}\n[kinds.cmp]\nimpl = 1\n")).unwrap();
+    std::fs::create_dir_all(repo.path().join("fairlead/docs")).unwrap();
+    std::fs::write(
+        repo.path().join("fairlead/docs/cmp.md"),
+        "+++\ndirectives = ['def cmp.button']\n+++\n# Components\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/a.rs"),
+        "// fairlead: use cmp.button\nfn a() {\n    let s = \"// fairlead: not a directive\";\n}\n",
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("components");
+    let args = ["--rename-marker", "gov", "--rename-folder", "gov"];
+    let mut first_args = args.to_vec();
+    first_args.push("--yes");
+    let first = repo.run(&[&["upgrade", "--as-of", AS_OF][..], &first_args].concat());
+    assert_eq!(first.code, 4, "{}{}", first.stdout, first.stderr);
+    let doc = draft_doc_named(&repo, "fairlead", "upgrade-edition-1-to-1");
+    approve_by_hand(&repo, &doc, &plan_hash(&first.stdout));
+    let apply = repo.run(&[&["upgrade", "--as-of", AS_OF][..], &first_args].concat());
+    assert_eq!(apply.code, 0, "{}{}", apply.stdout, apply.stderr);
+    assert!(!repo.path().join("fairlead/control.toml").exists());
+    let ctl = std::fs::read_to_string(repo.path().join("gov/control.toml")).unwrap();
+    assert!(
+        ctl.contains("marker = \"gov\"") && ctl.contains("folder = \"gov\""),
+        "{ctl}"
+    );
+    let src = std::fs::read_to_string(repo.path().join("src/a.rs")).unwrap();
+    assert!(src.starts_with("// gov: use cmp.button\n"), "{src}");
+    assert!(
+        src.contains("\"// fairlead: not a directive\""),
+        "strings are not directives"
+    );
+    // A folder other than the default one is found with --root (or FAIRLEAD_ROOT), as in 0.1.
+    let root = repo.path().to_string_lossy().into_owned();
+    let check = repo.run(&["--root", &root, "check", "--as-of", AS_OF]);
+    assert_eq!(check.code, 0, "{}{}", check.stdout, check.stderr);
+}
+
+fn draft_doc_named(repo: &TempRepo, folder: &str, part: &str) -> std::path::PathBuf {
+    std::fs::read_dir(repo.path().join(folder).join("docs/changes"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.to_string_lossy().contains(part))
+        .unwrap()
+}
