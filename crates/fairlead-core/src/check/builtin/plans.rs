@@ -28,21 +28,73 @@ pub(crate) struct DueCx {
 }
 
 pub(crate) fn due_cx(cx: &CheckCx<'_>) -> Option<DueCx> {
-    let root = root_control(cx.registry)?;
+    due_cx_of(cx.registry, cx.corpus, &cx.facts.ledgers)
+}
+
+pub(crate) fn due_cx_of(
+    reg: &Registry,
+    corpus: &crate::extract::Corpus,
+    ledgers: &BTreeMap<crate::path::RepoPath, std::sync::Arc<str>>,
+) -> Option<DueCx> {
+    let root = root_control(reg)?;
     let start = Version::parse(&root.version.start).unwrap_or(Version::new(0, 1, 0));
     let folder = root
         .settings
         .folder
         .clone()
         .unwrap_or_else(|| "fairlead".into());
-    let (docs, _) = collect_change_docs(cx.corpus);
+    let (docs, _) = collect_change_docs(corpus);
     Some(DueCx {
-        plans: collect_plans(cx.registry, cx.corpus),
-        line: crate::docs::line_of(cx.corpus, &folder, start),
+        plans: collect_plans(reg, corpus),
+        line: crate::docs::line_of(corpus, &folder, start),
         start,
-        recorded: recorded_targets(cx.facts.ledgers.values().map(|t| &**t)),
-        moved: retargets(&docs, cx.registry),
+        recorded: recorded_targets(ledgers.values().map(|t| &**t)),
+        moved: retargets(&docs, reg),
     })
+}
+
+/// The seal's view of every plan (R-LC-006) and the ledger records of the symbolic targets it
+/// resolves (R-LC-003): a symbolic target not yet recorded resolves against the sealed version
+/// before this seal.
+pub(crate) fn seal_lifecycle(
+    reg: &Registry,
+    corpus: &crate::extract::Corpus,
+    ledgers: &BTreeMap<crate::path::RepoPath, std::sync::Arc<str>>,
+    as_of: jiff::civil::Date,
+) -> (
+    Vec<crate::seal::DueItem>,
+    Vec<(crate::path::RepoPath, String)>,
+) {
+    let Some(dc) = due_cx_of(reg, corpus, ledgers) else {
+        return (Vec::new(), Vec::new());
+    };
+    let window = root_control(reg).map_or(1, |r| r.lc.warn_window);
+    let mut items = Vec::new();
+    let mut records = Vec::new();
+    for p in &dc.plans {
+        let refs: Vec<String> = reg
+            .edges()
+            .iter()
+            .filter(|e| e.resolved.as_ref() == Some(&p.item))
+            .map(|e| format!("{}:{}", e.from.path.as_str(), e.from.span.line))
+            .collect();
+        items.push(crate::seal::DueItem {
+            id: bare_id(&p.item),
+            key: item_key(&p.item),
+            word: p.word.as_str().to_string(),
+            target: dc.target(p),
+            state: dc.state(p, as_of, window),
+            refs,
+        });
+        if let Some(t) = p.target
+            && !matches!(t, crate::lifecycle::Target::Version(_))
+            && !dc.recorded.contains_key(&item_key(&p.item))
+        {
+            let v = t.resolve(dc.line.sealed, dc.start);
+            records.push((p.path.clone(), crate::lifecycle::plan_record(p, v)));
+        }
+    }
+    (items, records)
 }
 
 impl DueCx {

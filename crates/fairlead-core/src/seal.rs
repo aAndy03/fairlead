@@ -42,6 +42,24 @@ pub struct SealInput<'a> {
     pub sealed_versions: &'a [Version],
     /// The home scope directory of each doc (its `covers` globs are relative to it).
     pub doc_dirs: &'a BTreeMap<RepoPath, String>,
+    /// Lifecycle plans with their due state (R-LC-006).
+    pub due: &'a [DueItem],
+    /// Ledger records of symbolic targets this seal resolves (R-LC-003), by the flag's path.
+    pub plan_records: &'a [(RepoPath, String)],
+}
+
+/// A lifecycle plan as the due gate sees it (R-LC-006).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct DueItem {
+    /// `kind.name`.
+    pub id: String,
+    /// `scope:kind.name`.
+    pub key: String,
+    pub word: String,
+    pub target: Option<Version>,
+    pub state: crate::lifecycle::DueState,
+    /// `path:line` of every remaining reference.
+    pub refs: Vec<String>,
 }
 
 /// The result of steps 1 to 3: what the transaction (P1-T9) writes.
@@ -57,6 +75,10 @@ pub struct SealPlan {
     pub sweep: Vec<String>,
     /// `--allow-dirty` sealed a dirty tree (recorded as `dirty = true`).
     pub dirty: bool,
+    /// Plans approaching their target (R-LC-004, info).
+    pub approaching: Vec<String>,
+    /// Ledger records of symbolic targets resolved by this seal (R-LC-003).
+    pub plan_records: Vec<(RepoPath, String)>,
 }
 
 /// Why the seal refused, before anything was written (exit 4).
@@ -196,7 +218,58 @@ pub fn plan(input: &SealInput<'_>) -> Result<SealPlan, SealRefusal> {
         .collect();
     let ordinals = assign_ordinals(&ready, &existing);
 
-    // 3. due gate: lifecycle due items and expiring exceptions arrive with P3-T6.
+    // 3. due gate (R-LC-006): a due plan blocks unless its references are gone and a doc in this
+    // seal covers the item, or a retarget doc in this seal moves it.
+    let names = |d: &ChangeDoc, it: &DueItem, key: &str| {
+        let list: Vec<String> = match key {
+            "covers" => d.covers.clone(),
+            k => d
+                .extra
+                .get(k)
+                .map(|v| crate::lifecycle::doc_ids(v))
+                .unwrap_or_default(),
+        };
+        list.iter().any(|c| *c == it.id || *c == it.key)
+    };
+    let blocked: Vec<String> = input
+        .due
+        .iter()
+        .filter(|it| it.state == crate::lifecycle::DueState::Due)
+        .filter(|it| {
+            let moved = ready
+                .iter()
+                .any(|d| d.kind == "retarget" && names(d, it, "retargets"));
+            let finished = it.refs.is_empty() && ready.iter().any(|d| names(d, it, "covers"));
+            !moved && !finished
+        })
+        .map(|it| {
+            let at = it.target.map_or_else(String::new, |t| format!(" at {t}"));
+            if it.refs.is_empty() {
+                format!("{} ({}{at})", it.id, it.word)
+            } else {
+                format!("{} ({}{at}; refs: {})", it.id, it.word, it.refs.join(", "))
+            }
+        })
+        .collect();
+    if !blocked.is_empty() {
+        return Err(refuse(
+            format!(
+                "{} due lifecycle plans: {}",
+                blocked.len(),
+                blocked.join("; ")
+            ),
+            "finish them (remove the references, seal a doc covering the ID), add an exception with until, or seal a retarget doc (R-LC-006)",
+        ));
+    }
+    let approaching: Vec<String> = input
+        .due
+        .iter()
+        .filter(|it| it.state == crate::lifecycle::DueState::Approaching)
+        .map(|it| {
+            let at = it.target.map_or_else(String::new, |t| format!(" at {t}"));
+            format!("{} ({}{at}) is approaching", it.id, it.word)
+        })
+        .collect();
 
     let carried: Vec<ChangeDoc> = input
         .docs
@@ -237,6 +310,8 @@ pub fn plan(input: &SealInput<'_>) -> Result<SealPlan, SealRefusal> {
         ordinals,
         sweep,
         dirty: !dirty.is_empty(),
+        approaching,
+        plan_records: input.plan_records.to_vec(),
     })
 }
 
@@ -412,6 +487,19 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
         sealed.ordinal = Some(ord);
         sealed.path = target;
         sealed_now.push(sealed);
+    }
+
+    // Symbolic plan targets resolved by this seal (R-LC-003).
+    for (path, rec) in &plan.plan_records {
+        let scope = cx
+            .reg
+            .scope_of(path)
+            .cloned()
+            .unwrap_or_else(|| cx.reg.root_scope().clone());
+        records
+            .entry(ScopeKey(scope))
+            .or_default()
+            .push(rec.clone());
     }
 
     // Rollups (R-VER-052): every touched scope and every ancestor of one gets a rollup record:
@@ -635,6 +723,7 @@ mod tests {
         git: SealGit,
         allow_dirty: bool,
         gate_errors: usize,
+        due: Vec<DueItem>,
     }
 
     impl Fx {
@@ -650,6 +739,7 @@ mod tests {
                 },
                 allow_dirty: false,
                 gate_errors: 0,
+                due: Vec::new(),
             }
         }
         fn run(&self) -> Result<SealPlan, SealRefusal> {
@@ -675,12 +765,68 @@ mod tests {
                 sweep_after: 3,
                 sealed_versions: &self.versions,
                 doc_dirs: &BTreeMap::new(),
+                due: &self.due,
+                plan_records: &[],
             })
         }
     }
 
     fn ready() -> ChangeDoc {
         doc("d-00000001", Status::Ready, Some(Impact::Add), "0.2.1")
+    }
+
+    fn due_item(refs: &[&str]) -> DueItem {
+        DueItem {
+            id: "engine.old".into(),
+            key: "root:engine.old".into(),
+            word: "remove".into(),
+            target: Some(Version::new(0, 2, 1)),
+            state: crate::lifecycle::DueState::Due,
+            refs: refs.iter().map(|r| (*r).to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn r_lc_006__due_item_blocks_seal() {
+        let mut fx = Fx::new(vec![ready()]);
+        fx.due = vec![due_item(&["src/a.ts:3", "src/b.ts:9"])];
+        let r = fx.run().unwrap_err();
+        assert!(
+            r.message
+                .contains("engine.old (remove at 0.2.1; refs: src/a.ts:3, src/b.ts:9)"),
+            "{}",
+            r.message
+        );
+        // References gone, and a doc in this seal covers the ID: the removal completes.
+        let mut removal = ready();
+        removal.covers.push("engine.old".into());
+        let mut fx = Fx::new(vec![removal]);
+        fx.due = vec![due_item(&[])];
+        assert!(fx.run().is_ok());
+    }
+
+    #[test]
+    fn r_lc_006__retarget_doc_unblocks() {
+        let mut rt = ready();
+        rt.kind = "retarget".into();
+        rt.extra.insert("retargets".into(), "engine.old".into());
+        rt.extra.insert("target".into(), "0.4.0".into());
+        let mut fx = Fx::new(vec![rt]);
+        fx.due = vec![due_item(&["src/a.ts:3"])];
+        assert!(fx.run().is_ok());
+    }
+
+    #[test]
+    fn r_lc_004__approaching_plans_are_listed_not_blocking() {
+        let mut fx = Fx::new(vec![ready()]);
+        let mut it = due_item(&["src/a.ts:3"]);
+        it.state = crate::lifecycle::DueState::Approaching;
+        fx.due = vec![it];
+        let p = fx.run().unwrap();
+        assert_eq!(
+            p.approaching,
+            ["engine.old (remove at 0.2.1) is approaching"]
+        );
     }
 
     #[test]

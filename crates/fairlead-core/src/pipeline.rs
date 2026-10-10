@@ -512,6 +512,12 @@ pub fn plan_seal(
     let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
     let paths: BTreeSet<RepoPath> = loaded.corpus.records.keys().cloned().collect();
     let versions = crate::docs::version_files(&loaded.corpus, &loaded.root.folder);
+    let (due, plan_records) = crate::check::builtin::plans::seal_lifecycle(
+        registry,
+        &loaded.corpus,
+        &loaded.facts.ledgers,
+        options.as_of.0,
+    );
     let seal_plan = crate::seal::plan(&crate::seal::SealInput {
         line: version_line(loaded),
         docs: &docs,
@@ -529,6 +535,8 @@ pub fn plan_seal(
             .iter()
             .map(|d| (d.path.clone(), loaded_scope_dir(loaded, &d.path)))
             .collect(),
+        due: &due,
+        plan_records: &plan_records,
     })
     .map_err(|r| {
         Error::Refused(crate::error::Refusal {
@@ -585,7 +593,8 @@ pub fn plan_seal(
             diff: None,
         })
         .collect();
-    let notes = seal_plan.sweep.clone();
+    let mut notes = seal_plan.sweep.clone();
+    notes.extend(seal_plan.approaching.iter().cloned());
     Ok((seal_plan, Plan::new(set, lines, notes)))
 }
 

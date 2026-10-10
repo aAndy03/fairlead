@@ -295,3 +295,28 @@ fn r_git_063__seal_refuses_a_dirty_tree_unless_allowed() {
     let version = std::fs::read_to_string(repo.path().join("fairlead/versions/0.1.0.md")).unwrap();
     assert!(version.contains("dirty = true"));
 }
+
+#[test]
+fn r_lc_003__symbolic_target_recorded_at_seal() {
+    let repo = ready_repo();
+    let control = repo.path().join("fairlead/control.toml");
+    let mut text = std::fs::read_to_string(&control).unwrap();
+    text.push_str("\n[kinds.engine]\nimpl = 1\n");
+    std::fs::write(&control, text).unwrap();
+    std::fs::write(
+        repo.path().join("fairlead/docs/engine.md"),
+        "+++\ndirectives = [\n  'def engine.old',\n  'flag deprecate engine.old target=next-minor',\n]\n+++\n# Engines\n",
+    )
+    .unwrap();
+    let sync = repo.run(&["sync", "--yes", "--as-of", AS_OF]);
+    assert_eq!(sync.code, 0, "{}{}", sync.stdout, sync.stderr);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("plan");
+    let run = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let ledger = std::fs::read_to_string(repo.path().join("fairlead/ledger/hist/2026.hl")).unwrap();
+    assert!(
+        ledger.contains("plan root:engine.old deprecate target=0.2.0"),
+        "resolved against start 0.1.0 (nothing sealed before): {ledger}"
+    );
+}
