@@ -198,6 +198,8 @@ pub fn tightens(key: &str, child: &Kept, root: Option<&Kept>) -> bool {
 pub struct ScopeConfig {
     pub portable: bool,
     pub detached: bool,
+    /// R-SCOPE-029: what sibling scopes may name with a qualified ID (`kind.name` or `kind.*`).
+    pub provides: Vec<String>,
 }
 
 pub(crate) fn parse_scope_cfg(cx: &mut Ctx<'_>, root: &mut toml::Table) -> ScopeConfig {
@@ -205,6 +207,7 @@ pub(crate) fn parse_scope_cfg(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Scope
     if let Some(mut t) = take_table(cx, root, "", "scope") {
         out.portable = take_bool(cx, &mut t, "scope", "portable").unwrap_or(false);
         out.detached = take_bool(cx, &mut t, "scope", "detached").unwrap_or(false);
+        out.provides = take_string_list(cx, &mut t, "scope", "provides").unwrap_or_default();
         cx.unknown_in("scope", &t);
     }
     out

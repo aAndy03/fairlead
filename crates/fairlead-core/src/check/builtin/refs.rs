@@ -19,7 +19,30 @@ use fairlead_syntax::{
 use std::collections::BTreeSet;
 
 pub struct RefsCheck;
-const CODES: [DiagCode; 6] = [HN_R001, HN_R002, HN_D002, HN_R004, HN_D003, HN_M007];
+const CODES: [DiagCode; 7] = [
+    HN_R001, HN_R002, HN_D002, HN_R004, HN_D003, HN_M007, HN_R008,
+];
+
+/// R-SCOPE-029: an item a sibling may name: listed in its scope's `[scope] provides`
+/// (`kind.name` or `kind.*`) or declared `vis=public`.
+fn provided(reg: &Registry, item: &ItemId) -> bool {
+    let name = format!("{}.{}", item.kind.as_str(), item.name.as_str());
+    let public = reg
+        .item(item)
+        .and_then(|it| crate::check::builtin::field_str(it, "vis"))
+        == Some("public");
+    public
+        || reg
+            .scope(&item.scope)
+            .and_then(|s| s.control.as_ref())
+            .is_some_and(|c| {
+                c.scope_cfg.provides.iter().any(|p| {
+                    p == &name
+                        || p.strip_suffix(".*")
+                            .is_some_and(|k| k == item.kind.as_str())
+                })
+            })
+}
 /// Kinds that need no declaration in a doc (control tables, foreign regions, built-ins).
 const RESERVED: [&str; 5] = ["rule", "file", "exc", "foreign", "ext"];
 
@@ -179,6 +202,30 @@ impl Check for RefsCheck {
                             out.push(retired(path, d, &id, t));
                         }
                         continue;
+                    }
+                    if let IdQualifier::Scope(_) = &id.qualifier
+                        && d.verb != Verb::Def
+                        && let Lookup::Found(item) = reg.lookup(scope, &id)
+                        && !reg.chain(scope).contains(&&item.scope)
+                        && !reg.chain(&item.scope).contains(&scope)
+                        && !provided(reg, &item)
+                    {
+                        out.push(
+                            DiagB::new(
+                                HN_R008,
+                                path,
+                                d.span.line,
+                                d.span.col,
+                                format!("{id} is not provided by scope {}", item.scope.0.as_str()),
+                            )
+                            .hint(format!(
+                                "add it to [scope] provides in {}'s control file, or declare it vis=public",
+                                item.scope.0.as_str()
+                            ))
+                            .related(id.to_string())
+                            .text(id.to_string())
+                            .build(),
+                        );
                     }
                     if let Lookup::Missing { nearest } = reg.lookup(scope, &id) {
                         // R-CHK-057: an ID qualified with a scope absent from the tree is unknown,
@@ -354,6 +401,36 @@ mod tests {
         );
         assert_eq!(r4[1].severity, Severity::Error, "no alias");
         assert_eq!(of(&ds, c::HN_D003).len(), 1);
+    }
+
+    #[test]
+    fn r_scope_029__sideways_ref_needs_provides() {
+        let w = |lib_ctl: &str, def: &str| {
+            World::new()
+                .root("[kinds.cmp]\nimpl = 1\n")
+                .scope("lib", lib_ctl)
+                .scope("app", "[fairlead]\nscope = \"app\"\n")
+                .file(
+                    "lib/fairlead/docs/cmp.md",
+                    &format!("+++\ndirectives = ['{def}']\n+++\n# C\n"),
+                )
+                .file(
+                    "app/main.ts",
+                    "// fairlead: use lib:cmp.x\nexport const M = 1;\n",
+                )
+                .build()
+                .run_check(&RefsCheck)
+        };
+        let plain = "[fairlead]\nscope = \"lib\"\n";
+        let hidden = w(plain, "def cmp.x");
+        assert_eq!(of(&hidden, c::HN_R008).len(), 1, "{hidden:?}");
+        let listed = w(
+            &format!("{plain}[scope]\nprovides = [\"cmp.*\"]\n"),
+            "def cmp.x",
+        );
+        assert!(of(&listed, c::HN_R008).is_empty());
+        let public = w(plain, "def cmp.x vis=public");
+        assert!(of(&public, c::HN_R008).is_empty());
     }
 
     #[test]
