@@ -439,3 +439,32 @@ fn r_ret_041__tombstones_not_in_default_context() {
     assert_eq!(ctx.code, 0, "{}", ctx.stderr);
     assert!(!ctx.stdout.contains("engine.gone"), "{}", ctx.stdout);
 }
+
+#[test]
+fn r_lc_031__seal_fingerprints_an_entry_once_from_its_material() {
+    let repo = ready_repo();
+    std::fs::create_dir_all(repo.path().join("fairlead/docs/graveyard")).unwrap();
+    std::fs::create_dir_all(repo.path().join("ui")).unwrap();
+    std::fs::write(
+        repo.path().join("ui/ThemeToggle.tsx"),
+        "export function ThemeToggle() {\n  return useTheme();\n}\n",
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("fairlead/docs/graveyard/dark-toggle.md"),
+        "+++\nid = \"grv.dark-toggle-v1\"\nstate = \"rejected\"\nat = \"0.1.0\"\nwhat = \"Per-component dark-mode toggles\"\nwhy = \"Token drift\"\nmatch = [\"dark mode\", \"ui/**/*Toggle*\"]\n+++\n\n# Dark toggle\n",
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("graveyard");
+    let run = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let e = std::fs::read_to_string(repo.path().join("fairlead/docs/graveyard/dark-toggle.md"))
+        .unwrap();
+    assert!(
+        e.contains("fingerprint = { ids = [\"themetoggle\"], minhash = \"b3:"),
+        "{e}"
+    );
+    assert!(e.ends_with("+++\n\n# Dark toggle\n"), "body kept: {e}");
+}

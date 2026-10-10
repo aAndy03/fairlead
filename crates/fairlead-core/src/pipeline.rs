@@ -466,6 +466,53 @@ pub struct SealRequest {
     pub seal_anywhere: bool,
 }
 
+/// R-LC-031: every graveyard entry without a fingerprint gets one from its rejected material,
+/// read here once: the `material` paths and the tree files its glob terms match (relative to the
+/// entry's scope directory). Later checks compare against the stored value and never rescan.
+fn grave_prints(loaded: &Loaded) -> Result<Vec<(RepoPath, String, String)>, Error> {
+    let (entries, _) = crate::graveyard::collect(&loaded.corpus);
+    let mut out = Vec::new();
+    for e in entries.iter().filter(|e| e.fingerprint.is_none()) {
+        let dir = loaded_scope_dir(loaded, &e.path);
+        let rel_of = |p: &RepoPath| -> Option<String> {
+            if dir.is_empty() || dir == "." {
+                Some(p.as_str().to_owned())
+            } else {
+                p.as_str()
+                    .strip_prefix(&format!("{dir}/"))
+                    .map(str::to_owned)
+            }
+        };
+        let mut paths: BTreeSet<RepoPath> = e
+            .material
+            .iter()
+            .filter_map(|m| RepoPath::new(m).ok())
+            .collect();
+        for p in loaded.corpus.records.keys() {
+            if crate::graveyard::is_graveyard_path(p) {
+                continue;
+            }
+            if rel_of(p).is_some_and(|r| !crate::graveyard::path_hits(e, &r).is_empty()) {
+                paths.insert(p.clone());
+            }
+        }
+        let mut files = Vec::new();
+        for p in &paths {
+            let abs = loaded.root.dir.join(p.as_str());
+            if let Ok(text) = std::fs::read_to_string(abs.as_std_path()) {
+                files.push((p.as_str().to_owned(), text));
+            }
+        }
+        let fp = crate::graveyard::fingerprint(&files);
+        let abs = loaded.root.dir.join(e.path.as_str());
+        let old = std::fs::read_to_string(abs.as_std_path())
+            .map_err(|err| Error::io(e.path.as_str(), "read", &err, false))?;
+        let new = crate::graveyard::with_fingerprint(&old, &fp).map_err(Error::Internal)?;
+        out.push((e.path.clone(), old, new));
+    }
+    Ok(out)
+}
+
 /// `seal` steps 1 to 4 (R-VER-050): run the check, read git state, plan, build the write-set.
 /// `sealed-at` is the `--as-of` date at 00:00 UTC: retention needs days (R-RET-011), and the
 /// planner stays deterministic with no clock read of its own.
@@ -538,6 +585,7 @@ pub fn plan_seal(
         due: &due,
         plan_records: &plan_records,
         tombs: &tombs,
+        graves: &grave_prints(loaded)?,
     })
     .map_err(|r| {
         Error::Refused(crate::error::Refusal {

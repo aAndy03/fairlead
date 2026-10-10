@@ -48,6 +48,8 @@ pub struct SealInput<'a> {
     pub plan_records: &'a [(RepoPath, String)],
     /// Completed lifecycle removals; the seal writes their tombstones (R-LC-020).
     pub tombs: &'a [crate::lifecycle::Tomb],
+    /// Graveyard entries fingerprinted by this seal: `(path, old text, new text)` (R-LC-031).
+    pub graves: &'a [(RepoPath, String, String)],
 }
 
 /// A lifecycle plan as the due gate sees it (R-LC-006).
@@ -83,6 +85,8 @@ pub struct SealPlan {
     pub plan_records: Vec<(RepoPath, String)>,
     /// Tombstones this seal writes, `removed` set to the sealed version (R-LC-020).
     pub tombs: Vec<crate::lifecycle::Tomb>,
+    /// Graveyard entries this seal fingerprints (R-LC-031).
+    pub graves: Vec<(RepoPath, String, String)>,
 }
 
 /// Why the seal refused, before anything was written (exit 4).
@@ -316,6 +320,7 @@ pub fn plan(input: &SealInput<'_>) -> Result<SealPlan, SealRefusal> {
         dirty: !dirty.is_empty(),
         approaching,
         plan_records: input.plan_records.to_vec(),
+        graves: input.graves.to_vec(),
         tombs: input
             .tombs
             .iter()
@@ -508,6 +513,17 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
         sealed.ordinal = Some(ord);
         sealed.path = target;
         sealed_now.push(sealed);
+    }
+
+    // Fingerprints of graveyard entries, computed once, here (R-LC-031).
+    for (path, old, new) in &plan.graves {
+        add(PlannedWrite {
+            path: path.clone(),
+            kind: WriteKind::Replace,
+            bytes: new.clone().into_bytes(),
+            class: FileClass::Authored,
+            expect_prior: Some(crate::hash::hash_normalised(old.as_bytes())),
+        })?;
     }
 
     // Tombstones of completed removals (R-LC-020), one append per year file.
@@ -820,6 +836,7 @@ mod tests {
                 due: &self.due,
                 plan_records: &[],
                 tombs: &[],
+                graves: &[],
             })
         }
     }

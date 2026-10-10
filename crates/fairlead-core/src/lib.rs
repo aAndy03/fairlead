@@ -28,6 +28,7 @@ pub mod extract;
 pub mod facts;
 pub mod generate;
 pub mod git;
+pub mod graveyard;
 pub mod hash;
 pub mod hist;
 pub mod lifecycle;
