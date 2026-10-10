@@ -1461,6 +1461,113 @@ pub fn plan_scope_op(
     })
 }
 
+/// `move SRC --detach` (R-CLI-047, R-PORT-013): refused (exit 4) unless the scope inherits
+/// nothing or is `portable`; writes `[scope] detached = true`; grants from the old ancestors
+/// lapse and the exceptions relying on them are listed as inert.
+pub fn plan_detach(loaded: &Loaded, reg: &Registry, src: &RepoPath) -> Result<MoveOut, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let sc = reg
+        .scopes()
+        .find(|s| s.dir.as_str() == src.as_str() && !s.dir.as_str().is_empty())
+        .ok_or_else(|| {
+            Error::Usage(format!(
+                "{} is not a scope directory (other than the root)",
+                src.as_str()
+            ))
+        })?;
+    let ctl = sc
+        .control
+        .as_ref()
+        .ok_or_else(|| Error::Usage("the scope's control file did not parse".into()))?;
+    let inherited: Vec<String> = reg
+        .view(&sc.id)
+        .items
+        .keys()
+        .filter(|i| i.scope != sc.id)
+        .map(|i| {
+            format!(
+                "{}:{}.{}",
+                i.scope.0.as_str(),
+                i.kind.as_str(),
+                i.name.as_str()
+            )
+        })
+        .collect();
+    if !inherited.is_empty() && !ctl.scope_cfg.portable {
+        return Err(refusal(
+            crate::error::RefusalKind::PlanNotConfirmed,
+            format!(
+                "{} is not portable and inherits {} items (first {})",
+                sc.id.0.as_str(),
+                inherited.len(),
+                inherited[0]
+            ),
+            "set `[scope] portable = true` first, or detach a scope that inherits nothing (R-PORT-013)",
+        ));
+    }
+    if !inherited.is_empty() {
+        return Err(refusal(
+            crate::error::RefusalKind::PlanNotConfirmed,
+            format!("{} inherits {} items", sc.id.0.as_str(), inherited.len()),
+            "detaching a scope that inherits needs the snapshot layer of 0.3 portability; until then detach only a scope that inherits nothing",
+        ));
+    }
+    let mut obligations = Vec::new();
+    let chain: Vec<&ScopeId> = reg.chain(&sc.id);
+    for a in reg.grants().iter().filter(|a| {
+        a.for_scopes.contains(&sc.id) && a.granting != sc.id && chain.contains(&&a.granting)
+    }) {
+        for o in reg
+            .overrides()
+            .iter()
+            .filter(|o| o.declared_in == sc.id && o.target == a.target)
+        {
+            obligations.push(format!(
+                "~ inert ovr {}.{} at {}:{} (the [[allow]] {} of {} lapses)",
+                o.target.kind.as_str(),
+                o.target.name.as_str(),
+                o.at.path.as_str(),
+                o.at.line,
+                a.id,
+                a.granting.0.as_str()
+            ));
+        }
+    }
+    let path = ctl.path.clone();
+    let old = std::fs::read_to_string(loaded.root.dir.join(path.as_str()).as_std_path())
+        .map_err(|e| Error::io(path.as_str(), "read", &e, false))?
+        .replace("\r\n", "\n");
+    let mut doc: toml_edit::DocumentMut =
+        old.parse().map_err(|e| Error::Internal(format!("{e}")))?;
+    if doc.get("scope").is_none() {
+        doc["scope"] = toml_edit::table();
+    }
+    doc["scope"]["detached"] = toml_edit::value(true);
+    let mut set = WriteSet::new(WriteSetKind::Move);
+    set.add(PlannedWrite {
+        path: path.clone(),
+        kind: WriteKind::Replace,
+        bytes: doc.to_string().into_bytes(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: Some(crate::hash::hash_normalised(old.as_bytes())),
+    })?;
+    let lines = vec![PlanLine {
+        action: PlanAction::Edit,
+        path,
+        detail: "[scope] detached = true".into(),
+        diff: None,
+    }];
+    let plan = Plan::new(set, lines, Vec::new());
+    Ok(MoveOut {
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        fp: crate::hash::Fingerprint::from_hash(&plan.plan_hash),
+        plan,
+        obligations,
+        code_sites: Vec::new(),
+        loosening: false,
+    })
+}
+
 /// R-PORT-004, R-GIT-062: a loosening move needs `fairlead approve move-<fp>`; the write-set must
 /// equal HEAD unless `--allow-dirty`.
 pub fn move_gate(loaded: &Loaded, out: &MoveOut, allow_dirty: bool) -> Result<(), Error> {

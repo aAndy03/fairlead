@@ -73,6 +73,7 @@ pub struct ControlFile {
     pub authority: AuthorityConfig,
     pub graveyard: GraveyardConfig,
     pub defaults: AxisDefaults,
+    pub scope_cfg: ScopeConfig,
     /// `HN-C002` (R-SYN-039): unknown keys and tables, kept for tools that rewrite the file.
     pub unknown: Vec<UnknownKey>,
     /// `HN-C003` (R-SYN-041, R-SCOPE-051/052/056): non-delegable keys in a child file; the keys are inert.
@@ -250,6 +251,7 @@ pub fn parse_control(
     let authority = vocab::parse_authority(&mut cx, &mut table);
     let graveyard = vocab::parse_graveyard(&mut cx, &mut table);
     let defaults = vocab::parse_defaults(&mut cx, &mut table);
+    let scope_cfg = vocab::parse_scope_cfg(&mut cx, &mut table);
     cx.unknown_in("", &table);
 
     if baseline.file.is_empty() {
@@ -303,6 +305,7 @@ pub fn parse_control(
         authority,
         graveyard,
         defaults,
+        scope_cfg,
         unknown,
         violations: sorted(violations),
     })
@@ -568,8 +571,8 @@ exp = "2027-03-31"
         let text = format!("{ROOT}\n[scope]\nportable = true\nrequires = [\"x\"]\n");
         let c = parse_control(&p("fairlead/control.toml"), text.as_bytes(), true).unwrap();
         assert!(
-            c.unknown.iter().any(|u| u.path == "scope"),
-            "`[scope]` is a 0.3 table: unknown in 0.1"
+            c.unknown.iter().any(|u| u.path == "scope.requires"),
+            "`requires` of `[scope]` is 0.3: unknown in 0.2"
         );
         let text2 = ROOT.replace("fairlead-version = \"0.1\"", "requires = \"x\"");
         let c2 = parse_control(&p("fairlead/control.toml"), text2.as_bytes(), true).unwrap();

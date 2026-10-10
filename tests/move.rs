@@ -270,3 +270,30 @@ fn r_lc_023__demote_leaves_a_scope_tombstone_and_applies() {
         lib.stdout
     );
 }
+
+#[test]
+fn r_port_013__detach_refused_unless_portable_or_empty() {
+    let repo = two_scopes();
+    std::fs::create_dir_all(repo.path().join("fairlead/docs")).unwrap();
+    std::fs::write(
+        repo.path().join("fairlead/docs/cmp.md"),
+        "+++\ndirectives = ['def cmp.shared sum=\"s\"']\n+++\n# Shared\n",
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("shared");
+    let run = repo.run(&["move", "app", "--detach", "--yes", "--as-of", AS_OF]);
+    assert_eq!(run.code, 4, "{}{}", run.stdout, run.stderr);
+    assert!(run.stderr.contains("is not portable"), "{}", run.stderr);
+}
+
+#[test]
+fn r_port_013__detached_scope_is_marked_and_reported() {
+    let repo = two_scopes();
+    let run = repo.run(&["move", "app", "--detach", "--yes", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(read(&repo, "app/fairlead/control.toml").contains("[scope]\ndetached = true"));
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(check.stdout.contains("HN-M011"), "{}", check.stdout);
+}

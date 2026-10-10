@@ -73,6 +73,24 @@ impl Default for GraveyardConfig {
     }
 }
 
+/// `[scope]` (0.2 part): `portable` and `detached` (R-PORT-013). `provides` and `requires`
+/// arrive with 0.3 portability and stay unknown keys here.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct ScopeConfig {
+    pub portable: bool,
+    pub detached: bool,
+}
+
+pub(crate) fn parse_scope_cfg(cx: &mut Ctx<'_>, root: &mut toml::Table) -> ScopeConfig {
+    let mut out = ScopeConfig::default();
+    if let Some(mut t) = take_table(cx, root, "", "scope") {
+        out.portable = take_bool(cx, &mut t, "scope", "portable").unwrap_or(false);
+        out.detached = take_bool(cx, &mut t, "scope", "detached").unwrap_or(false);
+        cx.unknown_in("scope", &t);
+    }
+    out
+}
+
 /// `[defaults]`: the scope's env set and default maturity (R-ENV-005, R-ENV-006).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct AxisDefaults {

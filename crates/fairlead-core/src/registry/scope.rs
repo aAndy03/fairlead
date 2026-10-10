@@ -110,6 +110,10 @@ impl ScopeTable {
         let mut cur = self.scopes.get(id);
         while let Some(s) = cur {
             out.push(&s.id);
+            // R-PORT-013: a detached scope inherits nothing; its chain ends with itself.
+            if s.control.as_ref().is_some_and(|c| c.scope_cfg.detached) {
+                break;
+            }
             cur = s.parent.as_ref().and_then(|p| self.scopes.get(p));
         }
         out.reverse();

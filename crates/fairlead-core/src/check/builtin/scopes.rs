@@ -16,7 +16,7 @@ use fairlead_syntax::diag::{DiagCode, Severity};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct ScopesCheck;
-const CODES: [DiagCode; 5] = [HN_N002, HN_C009, HN_M002, HN_M003, HN_V013];
+const CODES: [DiagCode; 6] = [HN_N002, HN_C009, HN_M002, HN_M003, HN_V013, HN_M011];
 
 /// One scope as a membership shard last recorded it.
 struct Member {
@@ -111,6 +111,25 @@ impl Check for ScopesCheck {
     }
     fn run(&self, cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
         let (reg, facts) = (cx.registry, cx.facts);
+        if let Some(c) = reg.scope(scope).and_then(|s| s.control.as_ref())
+            && c.scope_cfg.detached
+        {
+            out.push(
+                DiagB::new(
+                    HN_M011,
+                    &c.path,
+                    0,
+                    0,
+                    format!(
+                        "scope {} is detached: it inherits nothing from its ancestors",
+                        scope.0.as_str()
+                    ),
+                )
+                .hint("attach or adopt it again with `move --attach` (0.3)")
+                .text(scope.0.as_str().to_owned())
+                .build(),
+            );
+        }
         if scope != reg.root_scope() {
             return;
         }

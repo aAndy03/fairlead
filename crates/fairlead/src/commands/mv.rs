@@ -4,8 +4,8 @@
 use fairlead_core::error::Error;
 use fairlead_core::outcome::ExitCode;
 use fairlead_core::pipeline::{
-    MoveRequest, ScopeOp, WriteSession, commit_plan, load, merge_gate, move_gate, plan_move,
-    plan_scope_op, plan_sync, resolve_loaded, to_root_relative,
+    MoveRequest, ScopeOp, WriteSession, commit_plan, load, merge_gate, move_gate, plan_detach,
+    plan_move, plan_scope_op, plan_sync, resolve_loaded, to_root_relative,
 };
 use fairlead_core::write::{BaselineMode, SyncRequest, SysProbe};
 
@@ -56,6 +56,12 @@ fn mv(global: &GlobalArgs, args: &MoveArgs) -> Result<CommandResult, Error> {
         None
     };
     let out = match scope_op {
+        None if args.detach => {
+            if args.dst.is_some() {
+                return Err(Error::Usage("--detach takes no DST".into()));
+            }
+            plan_detach(&loaded, &registry, &src)?
+        }
         Some(op) => {
             if args.dst.is_some() {
                 return Err(Error::Usage("--delete and --demote take no DST".into()));
