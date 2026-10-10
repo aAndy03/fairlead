@@ -79,6 +79,9 @@ pub struct Facts {
     pub pending_move: bool,
     /// Tombstone year files (`<folder>/tombstones/<year>.toml`), raw text (R-LC-020).
     pub tombstones: BTreeMap<RepoPath, Arc<str>>,
+    /// Foreign regions whose in-file anchor was at HEAD but is gone now (R-FILE-043): path, the
+    /// `foreign.<name>` ID, and its line at HEAD.
+    pub foreign_lost: Vec<(RepoPath, String, u32)>,
     /// Authority records and the signature state of the commit that last wrote each, filled only
     /// by `check --ci` with `authority.signed-records = true` (R-LC-040).
     pub authority: Vec<AuthorityRecord>,

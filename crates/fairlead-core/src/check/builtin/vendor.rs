@@ -8,7 +8,7 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VendorCheck;
-const CODES: [DiagCode; 2] = [HN_G004, HN_G005];
+const CODES: [DiagCode; 3] = [HN_G004, HN_G005, HN_G006];
 const ACCEPT: &str = "accept with fairlead sync --accept-vendor";
 
 impl Check for VendorCheck {
@@ -16,6 +16,26 @@ impl Check for VendorCheck {
         &CODES
     }
     fn run(&self, cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+        // R-FILE-043: a foreign region's anchor vanished from a file changed since HEAD.
+        for (path, id, line) in cx
+            .facts
+            .foreign_lost
+            .iter()
+            .filter(|(p, _, _)| cx.registry.scope_of(p) == Some(scope))
+        {
+            out.push(
+                crate::check::finding::DiagB::new(
+                    HN_G006,
+                    path,
+                    *line,
+                    1,
+                    format!("the {id} region lost its anchors (it was at line {line} in HEAD)"),
+                )
+                .hint("restore the `def foreign.<tool> +end ... end` comments around the tool's text; the declarations in the managerial folder are unaffected")
+                .text(id.clone())
+                .build(),
+            );
+        }
         let (reg, f) = (cx.registry, cx.facts);
         let mine = |p: &RepoPath| reg.scope_of(p) == Some(scope);
         // CI-10: a mismatch git also reports changed is an uncommitted edit, anything else is drift.

@@ -276,6 +276,7 @@ pub(crate) mod testutil {
             pending_move: false,
             tombstones: Default::default(),
             authority: Vec::new(),
+            foreign_lost: Vec::new(),
             manifest_hints: ManifestHints {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],

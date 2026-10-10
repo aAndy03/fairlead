@@ -379,3 +379,22 @@ fn r_port_011__reserved_vs_live_is_error() {
         run.stderr
     );
 }
+
+#[test]
+fn r_file_043__foreign_lost_when_a_tool_strips_the_anchors() {
+    let repo = repo(&[(
+        "app/globals.css",
+        ":root { --x: 1px; }\n/* fairlead: def foreign.shadcn tool=shadcn +end */\n:root { --radius: 4px; }\n/* fairlead: end */\n",
+    )]);
+    std::fs::write(
+        repo.path().join("app/globals.css"),
+        ":root { --x: 1px; }\n:root { --radius: 4px; }\n",
+    )
+    .unwrap();
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        check.stdout.contains("HN-G006") && check.stdout.contains("foreign.shadcn"),
+        "{}",
+        check.stdout
+    );
+}

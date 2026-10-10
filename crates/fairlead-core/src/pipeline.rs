@@ -90,7 +90,8 @@ fn load_rest(
     let git = git
         .join()
         .map_err(|_| Error::Internal("the git status thread panicked".into()))?;
-    let facts = collect_facts_with(&root, &walked, &controls, git)?;
+    let mut facts = collect_facts_with(&root, &walked, &controls, git)?;
+    facts.foreign_lost = foreign_lost(&root, &corpus);
     let mut load_diags = walked.diags.clone();
     load_diags.extend(control_diagnostics(&controls));
     sort_diagnostics(&mut load_diags);
@@ -104,6 +105,50 @@ fn load_rest(
         load_diags,
         cache,
     })
+}
+
+/// R-FILE-043: a file changed against HEAD whose HEAD copy carried a `def foreign.<name>` anchor
+/// that the file no longer has (a tool rewrote it and dropped the comments).
+fn foreign_lost(root: &Root, corpus: &Corpus) -> Vec<(RepoPath, String, u32)> {
+    let Some(repo) = crate::git::GitRepo::open(root) else {
+        return Vec::new();
+    };
+    let Ok(changed) = repo.changed_files() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for p in &changed.0 {
+        let Some(old) = repo.file_at("HEAD", p) else {
+            continue;
+        };
+        let old = String::from_utf8_lossy(&old);
+        let now: Vec<String> = corpus
+            .records
+            .get(p)
+            .and_then(|r| r.extraction.as_ref())
+            .map(|x| {
+                x.directives
+                    .iter()
+                    .flat_map(|d| d.ids.iter())
+                    .map(|i| i.kind_name())
+                    .filter(|k| k.starts_with("foreign."))
+                    .collect()
+            })
+            .unwrap_or_default();
+        for (i, line) in old.lines().enumerate() {
+            let Some(at) = line.find("def foreign.") else {
+                continue;
+            };
+            let id: String = line[at + 4..]
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))
+                .collect();
+            if !now.contains(&id) {
+                out.push((p.clone(), id, u32::try_from(i + 1).unwrap_or(u32::MAX)));
+            }
+        }
+    }
+    out
 }
 
 /// R-ARCH-080: `--threads N` bounds the extraction pool; without it the global pool is used.
