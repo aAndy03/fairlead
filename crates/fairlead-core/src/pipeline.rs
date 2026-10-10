@@ -369,6 +369,229 @@ pub struct WriteOutcome {
     pub report: CommitReport,
 }
 
+/// The `upgrade` plan (R-EDN-030): the edit write-set, its hash, the readable edit list and the
+/// fields nobody may invent.
+pub struct UpgradeOut {
+    pub from: crate::discover::Edition,
+    pub to: crate::discover::Edition,
+    pub hash: String,
+    pub plan: Plan,
+    pub edits: Vec<String>,
+    pub needs: Vec<crate::upgrade::NeedsHuman>,
+}
+
+/// R-EDN-030, R-EDN-037: the deterministic one-edition edit set. The control file carries the new
+/// `edition` and is the commit point; every generated file is re-rendered by this binary for the
+/// new edition. Authored files other than the control file are never touched.
+pub fn plan_upgrade(
+    loaded: &Loaded,
+    registry: &Registry,
+    options: &CheckOptions,
+    to: crate::discover::Edition,
+) -> Result<UpgradeOut, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let from = loaded.root.edition;
+    let spec = crate::upgrade::one_step(from, to).map_err(|m| {
+        Error::Refused(crate::error::Refusal {
+            kind: crate::error::RefusalKind::PlanNotConfirmed,
+            message: m,
+            hint: "install the binary of the next edition and upgrade one step at a time".into(),
+        })
+    })?;
+    let ctl = loaded.root_control.path.clone();
+    let abs = loaded.root.dir.join(ctl.as_str());
+    let old = std::fs::read_to_string(abs.as_std_path())
+        .map_err(|e| Error::io(ctl.as_str(), "read", &e, false))?
+        .replace("\r\n", "\n");
+    let new = crate::upgrade::rewrite_edition(&old, to).map_err(Error::Internal)?;
+    let table: toml::Table = old.parse().unwrap_or_default();
+    let needs = crate::upgrade::needs_human(&ctl, &table, spec);
+    let context = check_context(loaded, registry, options);
+    let generated = crate::generate::generate(
+        registry,
+        &loaded.corpus,
+        &loaded.facts,
+        context.baseline.as_ref(),
+        to,
+    );
+    let mut set = WriteSet::new(WriteSetKind::Upgrade);
+    let mut lines = Vec::new();
+    let mut edits = Vec::new();
+    for (path, g) in &generated.files {
+        let bytes = g.render(to);
+        let have = loaded.facts.generated_on_disk.get(path);
+        if have.is_some_and(|h| **h == *bytes) {
+            continue;
+        }
+        set.add(PlannedWrite {
+            path: path.clone(),
+            kind: if have.is_some() {
+                WriteKind::Replace
+            } else {
+                WriteKind::Create
+            },
+            bytes,
+            class: crate::classify::FileClass::Generated,
+            expect_prior: have.map(|h| crate::hash::hash_normalised(h)),
+        })?;
+        edits.push(format!("regenerate {} for edition {}", path.as_str(), to.0));
+        lines.push(PlanLine {
+            action: PlanAction::Edit,
+            path: path.clone(),
+            detail: format!("regenerated for edition {}", to.0),
+            diff: None,
+        });
+    }
+    set.add(PlannedWrite {
+        path: ctl.clone(),
+        kind: WriteKind::Replace,
+        bytes: new.into_bytes(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: Some(crate::hash::hash_normalised(old.as_bytes())),
+    })?;
+    set.commit_point = Some(ctl.clone());
+    edits.push(format!(
+        "{}: [fairlead] edition {} -> {} (written last)",
+        ctl.as_str(),
+        from.0,
+        to.0
+    ));
+    lines.push(PlanLine {
+        action: PlanAction::Edit,
+        path: ctl,
+        detail: format!("edition {} -> {} (commit point)", from.0, to.0),
+        diff: None,
+    });
+    let plan = Plan::new(set, lines, Vec::new());
+    Ok(UpgradeOut {
+        from,
+        to,
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        plan,
+        edits,
+        needs,
+    })
+}
+
+/// What `upgrade --yes` may do (R-EDN-031).
+pub enum UpgradeGate {
+    /// A ready, approved doc matches the plan hash and the write-set is clean.
+    Apply,
+    /// No doc for this plan: write the draft (the only file this run writes) and stop.
+    Draft { id: String, plan: Plan },
+}
+
+fn upgrade_refusal(message: String, hint: &str) -> Error {
+    Error::Refused(crate::error::Refusal {
+        kind: crate::error::RefusalKind::PlanNotConfirmed,
+        message,
+        hint: hint.into(),
+    })
+}
+
+/// R-EDN-031, R-EDN-034: needs-human refuses; a plan hash no doc approves writes a draft; an older
+/// doc is "plan stale, re-plan"; a doc that is not ready and approved is "approval missing"; the
+/// write-set must equal HEAD unless `allow_dirty`.
+pub fn upgrade_gate(
+    loaded: &Loaded,
+    out: &UpgradeOut,
+    allow_dirty: bool,
+) -> Result<UpgradeGate, Error> {
+    if !out.needs.is_empty() {
+        let list: Vec<String> = out
+            .needs
+            .iter()
+            .map(|n| format!("{} in {}", n.field, n.path.as_str()))
+            .collect();
+        return Err(upgrade_refusal(
+            format!("needs-human: {}", list.join(", ")),
+            "fill these by hand, then run fairlead upgrade again; an upgrade never invents a value (R-EDN-034)",
+        ));
+    }
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    let pending: Vec<&crate::docs::ChangeDoc> = docs
+        .iter()
+        .filter(|d| d.kind == "upgrade" && d.status.is_pending())
+        .collect();
+    let matching = pending
+        .iter()
+        .find(|d| d.extra.get("plan-hash").map(String::as_str) == Some(out.hash.as_str()));
+    let Some(doc) = matching else {
+        if let Some(old) = pending.first() {
+            return Err(upgrade_refusal(
+                format!(
+                    "plan stale, re-plan: {} approves {}, the tree now plans {}",
+                    old.id,
+                    old.extra.get("plan-hash").map_or("nothing", String::as_str),
+                    out.hash
+                ),
+                "set the old doc's status = \"abandoned\", then run fairlead upgrade --yes for a fresh draft",
+            ));
+        }
+        let id = crate::docs::DraftId::from_bits(random_bits())
+            .as_str()
+            .to_owned();
+        let path = RepoPath::new(&format!(
+            "{}/docs/changes/{id}-upgrade-edition-{}-to-{}.md",
+            loaded.root.folder, out.from.0, out.to.0
+        ))
+        .map_err(|e| Error::Internal(format!("{e:?}")))?;
+        let text = crate::upgrade::draft_doc(
+            &id,
+            &loaded.root.folder,
+            out.from,
+            out.to,
+            &version_line(loaded).open.to_string(),
+            &out.hash,
+            &out.edits,
+            &out.needs,
+        );
+        let mut set = crate::write::WriteSet::new(crate::write::WriteSetKind::New);
+        set.add(crate::write::PlannedWrite {
+            path: path.clone(),
+            kind: crate::write::WriteKind::Create,
+            bytes: text.into_bytes(),
+            class: crate::classify::FileClass::Authored,
+            expect_prior: None,
+        })?;
+        let lines = vec![crate::write::PlanLine {
+            action: crate::write::PlanAction::Create,
+            path,
+            detail: format!("upgrade doc {id}"),
+            diff: None,
+        }];
+        return Ok(UpgradeGate::Draft {
+            id,
+            plan: Plan::new(set, lines, Vec::new()),
+        });
+    };
+    let fp = crate::upgrade::upgrade_fp(doc.id.as_str(), &out.hash);
+    let approved = loaded.facts.approvals.approvals.iter().any(|a| a.fp == fp);
+    if doc.status != crate::docs::Status::Ready || !approved {
+        return Err(upgrade_refusal(
+            format!("approval missing: {} must be ready and approved", doc.id),
+            &format!(
+                "set status = \"ready\" in {}, then a human runs `fairlead approve {}`",
+                doc.path.as_str(),
+                doc.id
+            ),
+        ));
+    }
+    if !allow_dirty && let Some(repo) = crate::git::GitRepo::open(&loaded.root) {
+        let changed = repo.changed_files()?.0;
+        if let Some(p) = out.plan.set.writes.keys().find(|p| changed.contains(*p)) {
+            return Err(upgrade_refusal(
+                format!(
+                    "{} differs from HEAD; the write-set must equal HEAD",
+                    p.as_str()
+                ),
+                "commit or stash it, or pass --allow-dirty (rollback is git, R-EDN-035)",
+            ));
+        }
+    }
+    Ok(UpgradeGate::Apply)
+}
+
 /// R-LC-032: a proposal whose title matches the effective graveyard of its scope is refused, with
 /// the entry printed, unless it names the entry in `revisits` and gives a one-line `revisit-why`.
 fn graveyard_gate(loaded: &Loaded, registry: &Registry, request: &NewRequest) -> Result<(), Error> {

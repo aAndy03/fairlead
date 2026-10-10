@@ -439,6 +439,67 @@ mod tests {
     }
 
     #[test]
+    fn r_edn_032__interrupted_apply_resumes() {
+        use crate::classify::FileClass;
+        let e = env();
+        put(&e, "fairlead/control.toml", "[fairlead]\nedition = 1\n");
+        put(
+            &e,
+            "fairlead/gen/members",
+            "# scope root edition=1 body=x\n",
+        );
+        let lock = WriterLock::acquire(&e.root, &e.probe).unwrap();
+        let mut s = WriteSet::new(WriteSetKind::Upgrade);
+        for (p, b, class) in [
+            (
+                "fairlead/gen/members",
+                "# scope root ed=2 body=x\n",
+                FileClass::Generated,
+            ),
+            (
+                "fairlead/control.toml",
+                "[fairlead]\nedition = 2\n",
+                FileClass::Authored,
+            ),
+        ] {
+            s.add(crate::write::PlannedWrite {
+                path: RepoPath::new(p).unwrap(),
+                kind: WriteKind::Replace,
+                bytes: b.as_bytes().to_vec(),
+                class,
+                expect_prior: None,
+            })
+            .unwrap();
+        }
+        s.commit_point = Some(RepoPath::new("fairlead/control.toml").unwrap());
+        // renames: 1 journal, 2 the generated file, 3 the control file (last) fails every attempt
+        let fs = FailingFs::new().renames_fail(3, 8);
+        let failed = Transaction::begin_with(&e.root, &lock, s.clone(), &fs)
+            .unwrap()
+            .commit();
+        assert!(failed.is_err());
+        assert_eq!(
+            read(&e, "fairlead/control.toml"),
+            "[fairlead]\nedition = 1\n",
+            "never half-applied: the control file is the commit point"
+        );
+        let resumed = Transaction::begin(&e.root, &lock, s.clone())
+            .unwrap()
+            .commit()
+            .unwrap();
+        assert_eq!(resumed.written.len(), 2);
+        assert_eq!(
+            read(&e, "fairlead/control.toml"),
+            "[fairlead]\nedition = 2\n"
+        );
+        let again = Transaction::begin(&e.root, &lock, s)
+            .unwrap()
+            .commit()
+            .unwrap();
+        assert!(again.written.is_empty(), "a second apply is a no-op");
+    }
+
+    #[test]
     fn r_ver_041__delete_and_create_rename_a_doc_and_roll_back_together() {
         let draft = "fairlead/docs/changes/d-00000001-x.md";
         let sealed = "fairlead/docs/changes/0001-x.md";

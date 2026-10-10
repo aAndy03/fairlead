@@ -9,9 +9,46 @@ use crate::{
 use fairlead_syntax::diag::DiagCode;
 
 pub struct VersionsCheck;
-const CODES: [DiagCode; 10] = [
-    HN_G003, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V008, HN_V009, HN_V015,
+const CODES: [DiagCode; 11] = [
+    HN_G003, HN_V001, HN_V002, HN_V003, HN_V004, HN_V006, HN_V007, HN_V008, HN_V009, HN_V011,
+    HN_V015,
 ];
+
+/// R-EDN-032: a generated file whose header names another edition than the codebase's is the
+/// trace of an interrupted `upgrade` (`H-UPG-PARTIAL`).
+fn upgrade_partial(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    let edition = crate::check::builtin::edition_of(cx.registry).0;
+    for (path, bytes) in &cx.facts.generated_on_disk {
+        if cx.registry.scope_of(path) != Some(scope) {
+            continue;
+        }
+        let text = String::from_utf8_lossy(bytes);
+        let Some(h) = text
+            .lines()
+            .next()
+            .and_then(crate::generate::header::parse_header)
+        else {
+            continue;
+        };
+        if h.edition != edition {
+            out.push(
+                DiagB::new(
+                    HN_V011,
+                    path,
+                    1,
+                    1,
+                    format!(
+                        "generated for edition {} but the codebase is on edition {edition}: a half-applied upgrade",
+                        h.edition
+                    ),
+                )
+                .hint("re-run `fairlead upgrade --yes` to finish it, or restore the tree from git")
+                .text(path.as_str().to_owned())
+                .build(),
+            );
+        }
+    }
+}
 
 fn in_scope(cx: &CheckCx<'_>, d: &ChangeDoc, scope: &ScopeId) -> bool {
     cx.registry.scope_of(&d.path) == Some(scope)
@@ -427,6 +464,7 @@ impl Check for VersionsCheck {
         ledger_continuity(cx, scope, out);
         version_line_integrity(cx, scope, out);
         incomplete_writes(cx, scope, out);
+        upgrade_partial(cx, scope, out);
         ancestor_drift(cx, scope, out);
         let hash_of = |d: &ChangeDoc| cx.corpus.records.get(&d.path).map(|r| r.hash);
         for group in id_collisions(&docs, hash_of) {
@@ -495,6 +533,31 @@ mod tests {
         format!(
             "+++\nid = \"{id}\"\nkind = \"change\"\nstatus = \"{status}\"\nscope = \"root\"\ncreated = \"0.1.0\"\n{extra}+++\n\n# x\n"
         )
+    }
+
+    #[test]
+    fn r_edn_032__a_half_migrated_tree_is_upg_partial() {
+        let header = |e: u32| {
+            crate::generate::header::render_file(
+                &crate::generate::header::HeaderKind::Scope("root".into()),
+                e,
+                "root .\n",
+            )
+        };
+        let run = |e: u32| {
+            World::new()
+                .facts(|f| {
+                    f.generated_on_disk.insert(
+                        crate::path::RepoPath::new("fairlead/gen/members").unwrap(),
+                        header(e).into_bytes().into(),
+                    );
+                })
+                .build()
+                .run_check(&VersionsCheck)
+        };
+        assert!(of(&run(1), c::HN_V011).is_empty());
+        #[cfg(feature = "test-edition")]
+        assert_eq!(of(&run(2), c::HN_V011).len(), 1);
     }
 
     #[test]

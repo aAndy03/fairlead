@@ -171,9 +171,27 @@ pub fn revive_preview(
         .iter()
         .find(|d| d.id == draft)
         .ok_or_else(|| Error::Usage(format!("no change doc {}", req.target)))?;
+    if d.kind == "upgrade" {
+        let hash = d.extra.get("plan-hash").cloned().unwrap_or_default();
+        let fp = crate::upgrade::upgrade_fp(draft.as_str(), &hash);
+        let already = facts.approvals.approvals.iter().any(|a| a.fp == fp);
+        let mut line = format!("upgrade plan {hash} ({})", draft.as_str());
+        if already {
+            line.push_str(" (already approved)");
+        }
+        return Ok(Some(ApprovePreview {
+            confirm_prefix: fp.as_str().chars().take(4).collect(),
+            fp,
+            target: Id::parse("edition.upgrade")
+                .map_err(|_| Error::Internal("upgrade id".into()))?,
+            ovr_line: sanitize_data(&line, 240),
+            scope: reg.root_scope().clone(),
+            exp: None,
+        }));
+    }
     if d.kind != "revive" {
         return Err(Error::Usage(format!(
-            "{} is a {} doc; only a revive doc is approved by draft ID",
+            "{} is a {} doc; only a revive or upgrade doc is approved by draft ID",
             req.target, d.kind
         )));
     }

@@ -88,8 +88,8 @@ pub enum Command {
     Move(ReservedArgs),
     /// Close the open version: seal ready change docs, write the version file last (R-CLI-041).
     Seal(SealArgs),
-    /// Arrives in 0.2 (R-CLI-042).
-    Upgrade(ReservedArgs),
+    /// Move a codebase one edition forward through an approved, plan-hashed transaction (R-CLI-042).
+    Upgrade(UpgradeArgs),
 }
 
 #[derive(Args, Debug, Clone)]
@@ -299,6 +299,22 @@ pub struct SealArgs {
     pub abort: bool,
 }
 
+#[derive(Args, Debug, Clone, Default)]
+pub struct UpgradeArgs {
+    /// Apply: the first run writes the draft upgrade doc; an approved doc applies the plan.
+    #[arg(long)]
+    pub yes: bool,
+    /// Apply although files of the write-set differ from HEAD (R-EDN-031).
+    #[arg(long)]
+    pub allow_dirty: bool,
+    /// Retrieve edition migration data over the network (no remote data exists yet, Q-2).
+    #[arg(long)]
+    pub fetch: bool,
+    /// Upgrade one sealed sub-root alone (R-EDN-043).
+    #[arg(long, value_name = "SCOPE")]
+    pub scope: Option<String>,
+}
+
 /// Arguments of a verb that arrives later. They are accepted so the refusal is exact (R-CLI-001).
 #[derive(Args, Debug, Clone, Default)]
 pub struct ReservedArgs {
@@ -356,7 +372,7 @@ pub fn dispatch(cli: Cli) -> ExitCode {
         Some(Command::Approve(args)) => commands::approve::run(&global, &args),
         Some(Command::Move(_)) => commands::reserved::run(&global, ReservedVerb::Move),
         Some(Command::Seal(args)) => commands::seal::run(&global, &args),
-        Some(Command::Upgrade(_)) => commands::reserved::run(&global, ReservedVerb::Upgrade),
+        Some(Command::Upgrade(args)) => commands::upgrade::run(&global, &args),
     };
     emit(&result)
 }
@@ -518,7 +534,7 @@ mod tests {
     fn r_cli_001__a_reserved_verb_dispatches_to_exit_2() {
         let cli = Cli {
             global: GlobalArgs::default(),
-            command: Some(Command::Upgrade(ReservedArgs::default())),
+            command: Some(Command::Move(ReservedArgs::default())),
         };
         assert_eq!(dispatch(cli), ExitCode::Usage);
     }

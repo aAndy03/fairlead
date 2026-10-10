@@ -8,18 +8,16 @@ use crate::commands::CommandResult;
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ReservedVerb {
     Move,
-    Upgrade,
 }
 
 impl ReservedVerb {
     pub fn name(self) -> &'static str {
         match self {
             Self::Move => "move",
-            Self::Upgrade => "upgrade",
         }
     }
 
-    /// 15-cli.md verb summary: `move` and `upgrade` are 0.2 (D-38); `seal` is implemented.
+    /// 15-cli.md verb summary: `move` is 0.2 (D-38); `seal` and `upgrade` are implemented.
     pub fn milestone(self) -> &'static str {
         "0.2"
     }
@@ -42,10 +40,7 @@ mod tests {
 
     #[test]
     fn r_cli_001__each_reserved_verb_refuses_with_its_milestone_and_exit_2() {
-        let cases = [
-            (ReservedVerb::Move, "move arrives in 0.2\n"),
-            (ReservedVerb::Upgrade, "upgrade arrives in 0.2\n"),
-        ];
+        let cases = [(ReservedVerb::Move, "move arrives in 0.2\n")];
         for (verb, text) in cases {
             let result = run(&GlobalArgs::default(), verb);
             assert_eq!(result.stderr, text);

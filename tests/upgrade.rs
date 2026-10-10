@@ -68,3 +68,234 @@ fn r_edn_011__writers_refuse_older_edition() {
     }
     assert_eq!(repo.tree_snapshot(), before, "nothing written");
 }
+
+/// An edition-1 repo that already sets the field edition 2 requires.
+fn ready_for_2() -> TempRepo {
+    let repo = repo_on(&[]);
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        text.replace("[settings]\n", "[settings]\npurpose = \"test codebase\"\n"),
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("purpose");
+    repo
+}
+
+fn upgrade(repo: &TempRepo, extra: &[&str]) -> testkit::Run {
+    let mut args = vec!["upgrade", "--as-of", AS_OF];
+    args.extend(extra);
+    repo.run_in(repo.path(), &args, &ED2)
+}
+
+fn plan_hash(stdout: &str) -> String {
+    stdout
+        .split_whitespace()
+        .find(|w| w.starts_with("b3:"))
+        .unwrap()
+        .to_owned()
+}
+
+fn draft_doc(repo: &TempRepo) -> std::path::PathBuf {
+    std::fs::read_dir(repo.path().join("fairlead/docs/changes"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.to_string_lossy().contains("upgrade-edition-1-to-2"))
+        .unwrap()
+}
+
+fn approve_by_hand(repo: &TempRepo, doc: &std::path::Path, hash: &str) {
+    let text = std::fs::read_to_string(doc).unwrap();
+    std::fs::write(
+        doc,
+        text.replace("status = \"draft\"", "status = \"ready\""),
+    )
+    .unwrap();
+    let id = text
+        .lines()
+        .find_map(|l| l.strip_prefix("id = \""))
+        .unwrap()
+        .trim_end_matches('"')
+        .to_owned();
+    let fp = fairlead_core::upgrade::upgrade_fp(&id, hash);
+    std::fs::write(
+        repo.path().join("fairlead/approvals.toml"),
+        format!(
+            "[[approval]]\nfp = \"{}\"\ntarget = \"edition.upgrade\"\nscope = \"root\"\napprover = \"@owner\"\ndate = \"2026-10-10\"\n",
+            fp.as_str()
+        ),
+    )
+    .unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("approve the upgrade");
+}
+
+#[test]
+fn r_edn_037__same_tree_same_plan_hash() {
+    let repo = ready_for_2();
+    let a = upgrade(&repo, &[]);
+    assert_eq!(a.code, 4, "plan only: {}{}", a.stdout, a.stderr);
+    assert!(a.stdout.contains("upgrade: edition 1 -> 2"), "{}", a.stdout);
+    assert!(a.stdout.contains("not applied"));
+    let b = upgrade(&repo, &[]);
+    assert_eq!(plan_hash(&a.stdout), plan_hash(&b.stdout));
+}
+
+#[test]
+fn r_edn_034__needs_human_blocks_apply() {
+    let repo = repo_on(&[]);
+    let plan = upgrade(&repo, &[]);
+    assert!(
+        plan.stdout.contains("needs-human: settings.purpose"),
+        "{}",
+        plan.stdout
+    );
+    let before = repo.tree_snapshot();
+    let yes = upgrade(&repo, &["--yes"]);
+    assert_eq!(yes.code, 4);
+    assert!(
+        yes.stderr.contains("needs-human: settings.purpose"),
+        "{}",
+        yes.stderr
+    );
+    assert_eq!(repo.tree_snapshot(), before);
+}
+
+#[test]
+fn r_edn_031__draft_then_approval_missing_then_apply_then_no_op() {
+    let repo = ready_for_2();
+    let first = upgrade(&repo, &["--yes"]);
+    assert_eq!(first.code, 4, "{}{}", first.stdout, first.stderr);
+    assert!(first.stdout.contains("awaits approval"), "{}", first.stdout);
+    let doc = draft_doc(&repo);
+    let text = std::fs::read_to_string(&doc).unwrap();
+    assert!(text.contains("kind = \"upgrade\"") && text.contains("impact = \"break\""));
+    let control = std::fs::read_to_string(repo.path().join("fairlead/control.toml")).unwrap();
+    assert!(
+        control.contains("edition = 1"),
+        "the draft is the only file written"
+    );
+    repo.git(&["add", "-A"]);
+    repo.git_commit("draft");
+    let missing = upgrade(&repo, &["--yes"]);
+    assert_eq!(missing.code, 4);
+    assert!(
+        missing.stderr.contains("approval missing"),
+        "{}",
+        missing.stderr
+    );
+    approve_by_hand(&repo, &doc, &plan_hash(&first.stdout));
+    let apply = upgrade(&repo, &["--yes"]);
+    assert_eq!(apply.code, 0, "{}{}", apply.stdout, apply.stderr);
+    assert!(
+        apply.stdout.contains("upgraded to edition 2"),
+        "{}",
+        apply.stdout
+    );
+    let control = std::fs::read_to_string(repo.path().join("fairlead/control.toml")).unwrap();
+    assert!(control.contains("edition = 2"), "{control}");
+    let members = std::fs::read_to_string(repo.path().join("fairlead/gen/members")).unwrap();
+    assert!(members.starts_with("# scope root ed=2 "), "{members}");
+    let check = repo.run_in(repo.path(), &["check", "--as-of", AS_OF], &ED2);
+    assert_eq!(check.code, 0, "{}{}", check.stdout, check.stderr);
+    let again = upgrade(&repo, &["--yes"]);
+    assert_eq!(again.code, 0);
+    assert!(
+        again.stdout.contains("nothing to upgrade"),
+        "{}",
+        again.stdout
+    );
+}
+
+#[test]
+fn r_edn_031__a_changed_tree_makes_the_plan_stale() {
+    let repo = ready_for_2();
+    assert_eq!(upgrade(&repo, &["--yes"]).code, 4);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("draft");
+    std::fs::write(
+        repo.path().join("fairlead/docs/new.md"),
+        "+++\ndirectives = ['def rule.extra check=pattern']\n+++\n",
+    )
+    .unwrap();
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(&control, format!("{text}\n[kinds.cmp]\nimpl = 1\n")).unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("more");
+    let stale = upgrade(&repo, &["--yes"]);
+    assert_eq!(stale.code, 4);
+    assert!(
+        stale.stderr.contains("plan stale, re-plan"),
+        "{}",
+        stale.stderr
+    );
+}
+
+#[test]
+fn r_edn_031__write_set_must_equal_head() {
+    let repo = ready_for_2();
+    let first = upgrade(&repo, &["--yes"]);
+    let doc = draft_doc(&repo);
+    approve_by_hand(&repo, &doc, &plan_hash(&first.stdout));
+    // A generated file differs from HEAD: the plan (and its hash) stays the same, the gate refuses.
+    let members = repo.path().join("fairlead/gen/members");
+    let text = std::fs::read_to_string(&members).unwrap();
+    std::fs::write(&members, format!("{text}extra\n")).unwrap();
+    let dirty = upgrade(&repo, &["--yes"]);
+    assert_eq!(dirty.code, 4, "{}{}", dirty.stdout, dirty.stderr);
+    assert!(
+        dirty.stderr.contains("differs from HEAD"),
+        "{}",
+        dirty.stderr
+    );
+}
+
+#[test]
+fn r_arch_124__fetch_has_no_client() {
+    let repo = repo_on(&[]);
+    let run = repo.run_in(repo.path(), &["upgrade", "--fetch"], &ED2);
+    assert_eq!(run.code, 2);
+    assert!(
+        run.stderr.contains("no remote migration data is published"),
+        "{}",
+        run.stderr
+    );
+}
+
+#[test]
+fn r_arch_124__net_module_only_reachable_from_upgrade() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let mut offenders = Vec::new();
+    let mut stack = vec![root.join("crates")];
+    while let Some(dir) = stack.pop() {
+        for e in std::fs::read_dir(&dir).unwrap() {
+            let p = e.unwrap().path();
+            if p.is_dir() {
+                stack.push(p);
+            } else if p.extension().is_some_and(|x| x == "rs") {
+                let text = std::fs::read_to_string(&p).unwrap();
+                let named = p.to_string_lossy().replace('\\', "/");
+                let allowed = named.ends_with("fairlead-core/src/lib.rs")
+                    || named.ends_with("fairlead-core/src/net.rs")
+                    || named.ends_with("fairlead/src/commands/upgrade.rs");
+                if !allowed && (text.contains("crate::net") || text.contains("core::net::")) {
+                    offenders.push(named);
+                }
+            }
+        }
+    }
+    assert!(offenders.is_empty(), "{offenders:?}");
+    let manifest = std::fs::read_to_string(root.join("crates/fairlead-core/Cargo.toml")).unwrap();
+    assert!(
+        manifest.contains("fetch = []"),
+        "the feature exists and is empty"
+    );
+    assert!(
+        !manifest.contains("default = [\"vendored-libgit2\", \"fetch\"]"),
+        "off by default"
+    );
+}

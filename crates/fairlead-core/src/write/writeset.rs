@@ -35,6 +35,8 @@ pub enum WriteSetKind {
     New,
     Approve,
     Seal,
+    /// R-EDN-032: the root control file (renamed last) and generated files.
+    Upgrade,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -126,6 +128,11 @@ fn allowed(kind: WriteSetKind, w: &PlannedWrite, folder: &str) -> bool {
             (Some(_), ["tombstones", _]) => w.class == FileClass::Authored && ext == "toml",
             (Some(_), ["docs", ..]) => w.class == FileClass::Authored && ext == "md",
             (Some(0), ["versions", _]) => w.class == FileClass::Authored && ext == "md",
+            _ => false,
+        },
+        WriteSetKind::Upgrade => match (fpos, after.as_slice()) {
+            (Some(_), ["gen", ..]) => w.class == FileClass::Generated,
+            (Some(0), ["control.toml"]) => w.class == FileClass::Authored,
             _ => false,
         },
         WriteSetKind::Init => {

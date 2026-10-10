@@ -3,8 +3,8 @@ $ fairlead move a b
 ? 2
 move arrives in 0.2
 
-$ fairlead upgrade --yes
+$ fairlead upgrade --fetch
 ? 2
-upgrade arrives in 0.2
+upgrade --fetch: no remote migration data is published for this binary; every supported migration is embedded (R-EDN-025)
 
 ```

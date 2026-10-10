@@ -20,6 +20,8 @@ default = ["vendored-libgit2"]
 vendored-libgit2 = ["git2/vendored-libgit2"]
 # Owner question Q-1: a synthetic edition 2 for testing `upgrade`; never in a release build.
 test-edition = []
+# R-ARCH-124: the network module of `upgrade --fetch`; off by default, no client in 0.2 (Q-2).
+fetch = []
 
 [dependencies]
 fairlead-syntax = { path = "../fairlead-syntax", version = "0.1.0" }

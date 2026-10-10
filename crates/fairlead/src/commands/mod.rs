@@ -10,6 +10,7 @@ pub mod new;
 pub mod reserved;
 pub mod seal;
 pub mod sync;
+pub mod upgrade;
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;

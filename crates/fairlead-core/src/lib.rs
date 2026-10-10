@@ -35,6 +35,8 @@ pub mod hist;
 pub mod lifecycle;
 pub mod manifest;
 pub mod merkle;
+#[cfg(feature = "fetch")]
+pub mod net;
 pub mod outcome;
 pub mod path;
 pub mod pipeline;
@@ -43,6 +45,7 @@ pub mod render;
 pub mod seal;
 pub mod secrets;
 pub mod time;
+pub mod upgrade;
 pub mod version;
 pub mod walk;
 pub mod write;
