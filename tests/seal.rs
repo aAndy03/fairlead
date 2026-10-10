@@ -925,3 +925,59 @@ fn r_chk_058__ci_runs_no_subprocess_by_default() {
         "verify-commit runs only with signed-records"
     );
 }
+
+#[test]
+fn r_git_040__shallow_never_silently_passes() {
+    let repo = ready_repo();
+    assert_eq!(
+        repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF])
+            .code,
+        0
+    );
+    repo.git(&["add", "-A"]);
+    repo.git_commit("seal 0.1.0");
+    std::fs::write(repo.path().join("src/b.rs"), "fn b() {}\n").unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("later work");
+    let shallow = repo.path().with_extension("shallow");
+    let url = format!(
+        "file://{}",
+        repo.path().to_string_lossy().replace('\\', "/")
+    );
+    let shallow_s = shallow.to_string_lossy().into_owned();
+    repo.git(&["clone", "-q", "--depth", "1", &url, &shallow_s]);
+    let run = testkit::run_fairlead(
+        &shallow,
+        &["check", "--as-of", AS_OF, "--format", "terse"],
+        &[],
+    );
+    assert!(
+        run.stdout.contains("HN-V010"),
+        "{}{}",
+        run.stdout,
+        run.stderr
+    );
+    assert_ne!(run.code, 0, "never a silent pass");
+    let _ = std::fs::remove_dir_all(&shallow);
+}
+
+#[test]
+fn r_git_006__no_git_reports_unavailable() {
+    let repo = ready_repo();
+    assert_eq!(
+        repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF])
+            .code,
+        0
+    );
+    std::fs::remove_dir_all(repo.path().join(".git")).unwrap();
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        check.stdout.contains("HN-V010") && check.stdout.contains("unavailable"),
+        "{}{}",
+        check.stdout,
+        check.stderr
+    );
+    assert_ne!(check.code, 0);
+    let ctx = repo.run(&["context", "--as-of", AS_OF]);
+    assert_eq!(ctx.code, 0, "context runs without git: {}", ctx.stderr);
+}

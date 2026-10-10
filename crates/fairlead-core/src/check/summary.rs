@@ -9,7 +9,7 @@ use crate::check::options::CheckOptions;
 use crate::check::rules::RuleSet;
 use crate::check::{CheckReport, Finding, FindingState};
 use crate::config::Stage;
-use crate::diag::codes::{HN_A002, HN_G001};
+use crate::diag::codes::{HN_A002, HN_G001, HN_V010};
 use crate::facts::Facts;
 use crate::outcome::{ExitCode, VerbOutcome};
 use crate::registry::{ApprovalStatus, Registry, ScopeId};
@@ -225,12 +225,15 @@ impl CheckReport {
             .unknown_scopes
             .iter()
             .any(|s| !self.absent_scopes.contains(s));
-        let (mut usage, mut findings, mut stale) = (unresolved, false, false);
+        let (mut usage, mut findings, mut stale, mut unavailable) =
+            (unresolved, false, false, false);
         for f in self.findings.iter().filter(live) {
             usage |= f.severity == Severity::Error && matches!(family(f.code), Some(b'S' | b'C'));
             findings |= (f.severity == Severity::Error && f.stage == Stage::Enforce)
                 || (opts.ramp.deny_warnings && f.severity >= Severity::Warn);
             stale |= f.code == HN_G001;
+            // R-GIT-040, R-GIT-006: unavailable coverage or history never passes.
+            unavailable |= f.code == HN_V010;
         }
         findings |= self.zero_declarations && opts.require_declarations;
         let mut o = VerbOutcome::ok();
@@ -243,7 +246,7 @@ impl CheckReport {
         if stale {
             o.signal(ExitCode::StaleGenerated);
         }
-        if !self.absent_scopes.is_empty() {
+        if !self.absent_scopes.is_empty() || unavailable {
             o.signal(ExitCode::Internal);
         }
         if self.partial && !(usage || findings || stale) {
