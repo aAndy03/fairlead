@@ -52,6 +52,9 @@ pub struct Extras {
     /// Identifier hashes for `sym=` evidence, once the root's `[hier] level` is 2 or more.
     #[serde(default)]
     pub idents: Vec<u64>,
+    /// Import specifiers (R-HIER-033), under the same condition.
+    #[serde(default)]
+    pub imports: Vec<crate::evidence::ImportSpec>,
 }
 
 use crate::classify::{ClassifyRules, FileClass, classify, scans_directives};
@@ -98,6 +101,8 @@ pub struct FileRecord {
     pub css: Option<cssscan::CssFacts>,
     /// Identifier hashes for `sym=` evidence (R-HIER-031; `extract::idents`).
     pub idents: Vec<u64>,
+    /// Import specifiers for import evidence (R-HIER-033; `evidence`).
+    pub imports: Vec<crate::evidence::ImportSpec>,
     pub skip: Option<SkipReason>,
 }
 
@@ -217,7 +222,7 @@ impl ExtractPlan {
             h.update(b"env\0");
         }
         if self.hier_evidence {
-            h.update(b"idents\0");
+            h.update(b"idents+imports\0");
         }
         h.update(b"styles-cascade\0");
         for e in &self.styles.extensions {
@@ -294,6 +299,8 @@ fn compute_extras(
     }
     if scanned && class == FileClass::Authored && plan.hier_evidence {
         out.idents = idents::ident_hashes(text, &ext);
+        use crate::evidence::ImportExtractor as _;
+        out.imports = crate::evidence::RegexImports.imports(text, &ext);
     }
     if plan.classify.in_managerial_folder(path) {
         out.secrets = crate::secrets::scan_secrets(text);
@@ -360,6 +367,7 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
         grave: extras.grave,
         css: extras.css,
         idents: extras.idents,
+        imports: extras.imports,
         skip,
     }
 }
@@ -472,6 +480,7 @@ fn unread_record(e: &WalkEntry, class: FileClass, skip: SkipReason, head: &[u8])
         grave: None,
         css: None,
         idents: Vec::new(),
+        imports: Vec::new(),
         skip: Some(skip),
     }
 }
@@ -510,6 +519,7 @@ fn from_cache(
         grave: extras.grave,
         css: extras.css,
         idents: extras.idents,
+        imports: extras.imports,
         skip,
     })
 }
@@ -569,6 +579,7 @@ fn process(
                     grave: rec.grave.clone(),
                     css: rec.css.clone(),
                     idents: rec.idents.clone(),
+                    imports: rec.imports.clone(),
                 };
                 cache.put_extras(&rec.hash, &extras_key(fp, plan, &e.path), &extras);
             }

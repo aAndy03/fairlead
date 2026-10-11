@@ -24,6 +24,7 @@ pub mod discover;
 pub mod docs;
 pub mod edition;
 pub mod error;
+pub mod evidence;
 pub mod explain;
 pub mod extract;
 pub mod facts;

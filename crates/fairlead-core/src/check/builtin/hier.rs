@@ -403,19 +403,26 @@ fn evidence(
         }
     }
     let bound = m.bindings(reg, files);
+    // The units each file is bound to; only units, since a container is not a `use` target.
+    let mut owners_of: std::collections::BTreeMap<&crate::path::RepoPath, Vec<&ItemId>> =
+        std::collections::BTreeMap::new();
+    for (u, fs) in bound.iter().filter(|(u, _)| m.units.contains_key(*u)) {
+        for f in fs {
+            owners_of.entry(f).or_default().push(u);
+        }
+    }
     for f in files
         .iter()
         .filter(|f| reg.scope_of(f) == Some(scope) && code(f))
     {
         let ids = idents(f);
-        if ids.is_empty() {
-            continue;
-        }
+        let mut reported: std::collections::BTreeSet<&ItemId> = std::collections::BTreeSet::new();
         for (u, sym) in &good {
             if mentions(ids, sym)
                 && !used.contains(&(*f, u))
                 && !bound.get(u).is_some_and(|b| b.contains(*f))
             {
+                reported.insert(u);
                 out.push(
                     DiagB::new(
                         HN_H012,
@@ -432,6 +439,50 @@ fn evidence(
                     .hint(
                         "declare the edge with // fairlead: use <id> next to the call (R-HIER-031)",
                     )
+                    .related(bare_id(u))
+                    .text(bare_id(u))
+                    .build(),
+                );
+            }
+        }
+        // R-HIER-033: an import of a file bound to another unit, with no `use` of that unit,
+        // contradicts the declared edges. Evidence never creates a rank or stale verdict.
+        let Some(rec) = cx.corpus.records.get(*f) else {
+            continue;
+        };
+        for imp in &rec.imports {
+            let Some(target) = crate::evidence::candidates(f.as_str(), &imp.spec)
+                .into_iter()
+                .filter_map(|c| crate::path::RepoPath::new(&c).ok())
+                .find(|c| cx.corpus.records.contains_key(c))
+            else {
+                continue;
+            };
+            let Some(owners) = owners_of.get(&target) else {
+                continue;
+            };
+            for u in owners {
+                if used.contains(&(*f, u))
+                    || bound.get(u).is_some_and(|b| b.contains(*f))
+                    || !reported.insert(u)
+                {
+                    continue;
+                }
+                out.push(
+                    DiagB::new(
+                        HN_H012,
+                        f,
+                        imp.line,
+                        0,
+                        format!(
+                            "{} imports {}, bound to {}, without use {} (evidence=import)",
+                            f.as_str(),
+                            target.as_str(),
+                            bare_id(u),
+                            bare_id(u)
+                        ),
+                    )
+                    .hint("declare the edge with // fairlead: use <id> next to the import (R-HIER-031, R-HIER-033)")
                     .related(bare_id(u))
                     .text(bare_id(u))
                     .build(),
@@ -1323,6 +1374,57 @@ fn e() {}
             of(&commented, c::HN_H012).is_empty(),
             "comments are excluded"
         );
+    }
+
+    #[test]
+    fn r_hier_033__evidence_never_creates_rank_verdict() {
+        let ds = World::new()
+            .root(L2)
+            .file(
+                "src/svc.rs",
+                "// fairlead: def ctr.a
+fn d() {}
+// fairlead: def un.svc layer=core.service container=ctr.a
+fn serve_requests() {}
+",
+            )
+            .file(
+                "src/eng.rs",
+                "// fairlead: def un.eng layer=core.engine container=ctr.a
+use crate::svc;
+fn e() {}
+",
+            )
+            .build()
+            .run_check(&HierCheck);
+        let d = of(&ds, c::HN_H012);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(
+            d[0].message.contains("imports src/svc.rs, bound to un.svc")
+                && d[0].message.contains("evidence=import")
+        );
+        assert_eq!(d[0].location.line, 2);
+        assert!(
+            of(&ds, c::HN_H007).is_empty(),
+            "an import is never an upward edge on its own"
+        );
+    }
+
+    #[test]
+    fn r_hier_034__reports_state_lower_bound() {
+        let code = [
+            unit("un.a", "core.engine", "ctr.a", "", &["un.b"]),
+            unit("un.b", "core.service", "ctr.a", "", &["un.a"]),
+        ]
+        .concat();
+        let ds = units("allow", &code);
+        for code in [c::HN_H007, c::HN_H008] {
+            let d = of(&ds, code);
+            assert!(
+                !d.is_empty() && d.iter().all(|x| x.hint.contains("lower bound")),
+                "{ds:#?}"
+            );
+        }
     }
 
     #[test]
