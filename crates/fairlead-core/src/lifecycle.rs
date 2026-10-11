@@ -509,6 +509,7 @@ pub fn completed_removals(reg: &Registry, recorded: &BTreeMap<String, RecordedPl
             why: format!("{} plan completed", r.word),
             paths: Vec::new(),
             deleted_by: None,
+            moved_to: None,
         });
     }
     out
@@ -699,6 +700,8 @@ pub struct Tomb {
     pub paths: Vec<String>,
     /// `sync` for an ID deleted outside the lifecycle flow (R-CLI-046).
     pub deleted_by: Option<String>,
+    /// Where a retired container went (R-HIER-101), the fix of `hier.orphan-unit` (R-HIER-102).
+    pub moved_to: Option<String>,
 }
 
 impl Tomb {
@@ -743,6 +746,7 @@ pub fn parse_tombs(file: &RepoPath, text: &str) -> Result<Vec<Tomb>, String> {
                 })
                 .unwrap_or_default(),
             deleted_by: s("deleted-by"),
+            moved_to: s("moved-to"),
         });
     }
     Ok(out)

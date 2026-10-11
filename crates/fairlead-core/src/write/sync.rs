@@ -235,6 +235,7 @@ pub fn sync_plan_from(
                 why: format!("TODO(fairlead): why was {id} deleted?"),
                 paths: Vec::new(),
                 deleted_by: Some("sync".into()),
+                moved_to: None,
             };
             files
                 .entry(file.clone())

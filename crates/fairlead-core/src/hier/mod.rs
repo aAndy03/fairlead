@@ -135,6 +135,31 @@ impl Model {
                 },
             );
         }
+        // A kind with one container is a container kind: its other items are containers too,
+        // even before anything names them (a merge target, a new parent).
+        let container_kinds: BTreeSet<String> = m
+            .containers
+            .keys()
+            .map(|c| c.kind.as_str().to_owned())
+            .collect();
+        for it in reg.items() {
+            if container_kinds.contains(it.id.kind.as_str())
+                && !m.units.contains_key(&it.id)
+                && !m.containers.contains_key(&it.id)
+            {
+                let parent_raw = scalar(it, "parent");
+                let parent = parent_raw.as_deref().and_then(|p| resolve(reg, &it.id, p));
+                m.containers.insert(
+                    it.id.clone(),
+                    Container {
+                        id: it.id.clone(),
+                        parent_raw,
+                        parent,
+                        paths: list(it, "path"),
+                    },
+                );
+            }
+        }
         // A container named only as another's parent is a container too.
         let parents: Vec<ItemId> = m
             .containers

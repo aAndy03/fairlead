@@ -1708,6 +1708,7 @@ pub fn plan_scope_op(
                         why: format!("scope {} deleted", sc.id.0.as_str()),
                         paths: Vec::new(),
                         deleted_by: Some("delete".into()),
+                        moved_to: None,
                     },
                     Some(&date.to_string()),
                 ));
@@ -1726,6 +1727,7 @@ pub fn plan_scope_op(
                     ),
                     paths: vec![sc.dir.as_str().to_owned()],
                     deleted_by: None,
+                    moved_to: None,
                 },
                 None,
             ));
@@ -1971,6 +1973,7 @@ pub fn plan_merge(
                     ),
                     paths: Vec::new(),
                     deleted_by: None,
+                    moved_to: None,
                 },
                 None,
             ));
@@ -2108,6 +2111,238 @@ pub fn plan_merge(
         plan,
         obligations,
         code_sites: code,
+        loosening: false,
+    })
+}
+
+/// Whether `move --merge SRC DST` names two containers rather than two paths (R-HIER-100).
+pub fn names_containers(reg: &Registry, src: &str, dst: &str) -> bool {
+    let m = crate::hier::Model::build(reg);
+    find_container(reg, &m, src).is_ok() && find_container(reg, &m, dst).is_ok()
+}
+
+/// A container named as `kind.name` (unique in the tree) or `scope:kind.name`.
+fn find_container(
+    reg: &Registry,
+    m: &crate::hier::Model,
+    text: &str,
+) -> Result<crate::registry::ItemId, Error> {
+    let id = fairlead_syntax::ids::Id::parse(text)
+        .map_err(|_| Error::Usage(format!("{text} is not a container ID")))?;
+    let hits: Vec<&crate::registry::ItemId> = m
+        .containers
+        .keys()
+        .filter(|c| c.kind == id.kind && c.name == id.name)
+        .filter(|c| match &id.qualifier {
+            fairlead_syntax::ids::IdQualifier::Scope(q) => c.scope.0 == *q,
+            fairlead_syntax::ids::IdQualifier::Root => c.scope == *reg.root_scope(),
+            fairlead_syntax::ids::IdQualifier::Bare => true,
+        })
+        .collect();
+    match hits.as_slice() {
+        [one] => Ok((*one).clone()),
+        [] => Err(Error::Usage(format!("no container {text}"))),
+        _ => Err(Error::Usage(format!(
+            "{text} is ambiguous; qualify it with its scope"
+        ))),
+    }
+}
+
+/// `move --merge <ctr> <ctr>` (R-HIER-100, R-HIER-101): every authored `container=` and `parent=`
+/// naming SRC is rewritten to DST, SRC's own `def` line is removed, a `[[tomb]]` with `moved-to`
+/// is appended in SRC's scope, and a draft change doc of `type = "refactor"` records it. Unit IDs
+/// and code markers never change.
+pub fn plan_merge_containers(
+    loaded: &Loaded,
+    reg: &Registry,
+    src: &str,
+    dst: &str,
+) -> Result<MoveOut, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let m = crate::hier::Model::build(reg);
+    let s = find_container(reg, &m, src)?;
+    let d = find_container(reg, &m, dst)?;
+    if s == d {
+        return Err(Error::Usage("SRC and DST are the same container".into()));
+    }
+    if m.ancestors(&d).unwrap_or_default().contains(&s) {
+        return Err(Error::Usage(format!(
+            "{dst} is nested in {src}; merge a parent into its child by hand"
+        )));
+    }
+    let bare = |i: &crate::registry::ItemId| format!("{}.{}", i.kind.as_str(), i.name.as_str());
+    let named = |text: &str, from: &crate::registry::ScopeId| {
+        fairlead_syntax::ids::Id::parse(text).is_ok_and(
+            |id| matches!(reg.lookup(from, &id), crate::registry::Lookup::Found(f) if f == s),
+        )
+    };
+    let mut set = WriteSet::new(WriteSetKind::Move);
+    let mut lines = Vec::new();
+    let mut touched: Vec<String> = Vec::new();
+    for (path, rec) in &loaded.corpus.records {
+        let Some(ex) = rec.extraction.as_ref() else {
+            continue;
+        };
+        let Some(scope) = reg.scope_of(path) else {
+            continue;
+        };
+        // DST as the referencing scope can name it: bare on its chain, qualified otherwise.
+        let dst_text = if reg.chain(scope).contains(&&d.scope) {
+            bare(&d)
+        } else {
+            d.to_id().to_string()
+        };
+        let mut rewrite: Vec<(u32, String, String)> = Vec::new();
+        let mut drop: Vec<u32> = Vec::new();
+        for dir in &ex.directives {
+            if dir.verb == fairlead_syntax::directive::Verb::Def
+                && dir
+                    .ids
+                    .first()
+                    .is_some_and(|i| i.kind == s.kind && i.name == s.name && scope == &s.scope)
+            {
+                drop.push(dir.span.line);
+                continue;
+            }
+            for a in &dir.args {
+                let v = crate::registry::item::arg_scalar(&a.value);
+                if matches!(a.key.as_str(), "container" | "parent") && named(&v, scope) {
+                    rewrite.push((
+                        dir.span.line,
+                        format!("{}={v}", a.key),
+                        format!("{}={dst_text}", a.key),
+                    ));
+                }
+            }
+        }
+        if rewrite.is_empty() && drop.is_empty() {
+            continue;
+        }
+        let abs = loaded.root.dir.join(path.as_str());
+        let old = std::fs::read(abs.as_std_path())
+            .map_err(|e| Error::Internal(format!("cannot read {}: {e}", path.as_str())))?;
+        let text = String::from_utf8_lossy(&old).into_owned();
+        let mut out = Vec::new();
+        for (i, l) in text.split_inclusive('\n').enumerate() {
+            let n = u32::try_from(i + 1).unwrap_or(u32::MAX);
+            if drop.contains(&n) {
+                continue;
+            }
+            let mut l = l.to_owned();
+            for (_, a, b) in rewrite.iter().filter(|(ln, _, _)| *ln == n) {
+                // The value may be written bare or quoted.
+                let (k, v) = a.split_once('=').unwrap_or((a.as_str(), ""));
+                let quoted = format!("{k}=\"{v}\"");
+                l = if l.contains(&quoted) {
+                    l.replacen(&quoted, b, 1)
+                } else {
+                    l.replacen(a.as_str(), b, 1)
+                };
+            }
+            out.push(l);
+        }
+        let new = out.concat();
+        set.add(PlannedWrite {
+            path: path.clone(),
+            kind: WriteKind::Replace,
+            bytes: new.clone().into_bytes(),
+            class: rec.class,
+            expect_prior: Some(crate::hash::hash_normalised(&old)),
+        })?;
+        lines.push(PlanLine {
+            action: PlanAction::Edit,
+            path: path.clone(),
+            detail: format!(
+                "{} reference(s) to {src} now name {dst}{}",
+                rewrite.len(),
+                if drop.is_empty() {
+                    ""
+                } else {
+                    "; its def removed"
+                }
+            ),
+            diff: Some(crate::write::plain_diff(&text, &new, 20)),
+        });
+        touched.push(path.as_str().to_owned());
+    }
+    let mgr = {
+        let dir = reg
+            .scope(&s.scope)
+            .map(|x| x.dir.as_str().trim_matches('/').to_owned())
+            .unwrap_or_default();
+        if dir.is_empty() {
+            loaded.root.folder.clone()
+        } else {
+            format!("{dir}/{}", loaded.root.folder)
+        }
+    };
+    let date = reg.as_of().0;
+    let tp = RepoPath::new(&format!("{mgr}/tombstones/{}.toml", date.year()))
+        .map_err(|e| Error::Internal(format!("{e:?}")))?;
+    set.add(PlannedWrite {
+        path: tp.clone(),
+        kind: WriteKind::AppendBlock {
+            marker: String::new(),
+        },
+        bytes: format!(
+            "\n[[tomb]]\nid = \"{}\"\nremoved = \"{date}\"\nwhy = \"merged into {}\"\nmoved-to = \"{}\"\n",
+            bare(&s),
+            d.to_id(),
+            d.to_id()
+        )
+        .into_bytes(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: None,
+    })?;
+    lines.push(PlanLine {
+        action: PlanAction::Edit,
+        path: tp,
+        detail: format!("tombstone for {src} with moved-to {dst}"),
+        diff: None,
+    });
+    let id = crate::docs::DraftId::from_bits({
+        let h = crate::hash::hash_raw(format!("merge {} {}", s.to_id(), d.to_id()).as_bytes());
+        let mut b = [0u8; 5];
+        b.copy_from_slice(&h.0[..5]);
+        b
+    });
+    let title = format!("Refactor: merge {src} into {dst}");
+    let doc_path = RepoPath::new(&format!(
+        "{}/docs/changes/{id}-{}.md",
+        loaded.root.folder,
+        crate::docs::slug(&title)
+    ))
+    .map_err(|e| Error::Internal(format!("{e:?}")))?;
+    let covers: Vec<String> = touched.iter().map(|t| format!("\"{t}\"")).collect();
+    let doc = format!(
+        "+++\nid = \"{id}\"\nkind = \"change\"\ntype = \"refactor\"\nstatus = \"draft\"\nimpact = \"fix\"\nscope = \"root\"\ntitle = \"{title}\"\ncovers = [{}]\ntouches = [\"{}\", \"{}\"]\ncreated = \"{}\"\n\n[[op]]\naction = \"merge\"\nfrom = \"{}\"\ninto = \"{}\"\n+++\n\n# {title}\n\nWritten by `fairlead move --merge`: every `container=` and `parent=` naming {src} now names {dst}; unit IDs are unchanged.\n",
+        covers.join(", "),
+        bare(&s),
+        bare(&d),
+        version_line(loaded).open,
+        s.to_id(),
+        d.to_id()
+    );
+    set.add(PlannedWrite {
+        path: doc_path.clone(),
+        kind: WriteKind::Create,
+        bytes: doc.into_bytes(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: None,
+    })?;
+    lines.push(PlanLine {
+        action: PlanAction::Create,
+        path: doc_path,
+        detail: "refactor doc (draft)".into(),
+        diff: None,
+    });
+    let plan = Plan::new(set, lines, Vec::new());
+    Ok(MoveOut {
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        fp: crate::hash::Fingerprint::from_hash(&plan.plan_hash),
+        plan,
+        obligations: vec![format!("units of {src} now belong to {dst}")],
+        code_sites: Vec::new(),
         loosening: false,
     })
 }

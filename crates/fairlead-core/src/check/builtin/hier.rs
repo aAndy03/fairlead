@@ -818,16 +818,33 @@ impl Check for HierCheck {
                     format!("{} has no container", bare_id(&u.id)),
                     "add container=<ctr id> to its def (R-HIER-050)",
                 )),
-                ([raw], None) => out.extend(at(
-                    cx,
-                    &u.id,
-                    HN_H004,
-                    format!(
-                        "{} names container {raw}, which does not exist",
-                        bare_id(&u.id)
-                    ),
-                    "declare the container, or name an existing one (R-HIER-050)",
-                )),
+                ([raw], None) => {
+                    // R-HIER-102: a retired container's tombstone says where it went.
+                    let moved = cx
+                        .registry
+                        .retired()
+                        .iter()
+                        .find(|t| t.id == *raw || raw.ends_with(&format!(":{}", t.id)))
+                        .and_then(|t| t.moved_to.clone());
+                    let hint = match &moved {
+                        Some(to) => format!(
+                            "{raw} was retired and moved to {to}: name it in container= (R-HIER-102)"
+                        ),
+                        None => {
+                            "declare the container, or name an existing one (R-HIER-050)".to_owned()
+                        }
+                    };
+                    out.extend(at(
+                        cx,
+                        &u.id,
+                        HN_H004,
+                        format!(
+                            "{} names container {raw}, which does not exist",
+                            bare_id(&u.id)
+                        ),
+                        &hint,
+                    ));
+                }
                 _ => {}
             }
             let proposed = cx

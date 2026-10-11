@@ -113,3 +113,126 @@ fn r_hier_072__sync_writes_the_suggestions_shard() {
     );
     assert!(!check.stdout.contains("HN-G00"), "{}", check.stdout);
 }
+
+fn ladder_repo(files: &[(&str, &str)]) -> TempRepo {
+    let mut b = RepoBuilder::new();
+    for (p, t) in files {
+        b = b.file(p, t);
+    }
+    let repo = b.git_init(true).build();
+    assert_eq!(repo.run(&["init", "--yes", "--as-of", AS_OF]).code, 0);
+    let ctl = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(
+        &ctl,
+        format!("{text}\n[layers.core]\nprimitive = 10\nengine = 30\n\n[kinds.cx]\nshape = \"code\"\n\n[kinds.un]\nlayers = [\"core.*\"]\n\n[hier]\nlevel = 1\n"),
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--as-of", AS_OF]).code, 0);
+    repo
+}
+
+#[test]
+fn r_hier_100__move_rewrites_container_keys_only() {
+    let repo = ladder_repo(&[
+        (
+            "src/ctr.rs",
+            "// fairlead: def cx.edge\n// fairlead: def cx.integrity\n// fairlead: def cx.inner parent=cx.edge\nfn d() {}\n",
+        ),
+        (
+            "src/u.rs",
+            "// fairlead: def un.partial layer=core.engine container=cx.edge\nfn partial() {}\n",
+        ),
+    ]);
+    let plan = repo.run(&[
+        "move",
+        "--merge",
+        "cx.edge",
+        "cx.integrity",
+        "--dry-run",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(plan.code, 0, "{}{}", plan.stdout, plan.stderr);
+    assert!(
+        plan.stdout.contains("refactor doc (draft)"),
+        "{}",
+        plan.stdout
+    );
+    let run = repo.run(&[
+        "move",
+        "--merge",
+        "cx.edge",
+        "cx.integrity",
+        "--yes",
+        "--allow-dirty",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let u = std::fs::read_to_string(repo.path().join("src/u.rs")).unwrap();
+    assert_eq!(
+        u,
+        "// fairlead: def un.partial layer=core.engine container=cx.integrity\nfn partial() {}\n",
+        "the unit ID and its marker are unchanged"
+    );
+    let c = std::fs::read_to_string(repo.path().join("src/ctr.rs")).unwrap();
+    assert_eq!(
+        c,
+        "// fairlead: def cx.integrity\n// fairlead: def cx.inner parent=cx.integrity\nfn d() {}\n"
+    );
+    let tomb = std::fs::read_to_string(repo.path().join("fairlead/tombstones/2026.toml")).unwrap();
+    assert!(
+        tomb.contains("id = \"cx.edge\"") && tomb.contains("moved-to = \"root:cx.integrity\""),
+        "{tomb}"
+    );
+    let docs = std::fs::read_dir(repo.path().join("fairlead/docs/changes"))
+        .unwrap()
+        .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap())
+        .find(|t| t.contains("type = \"refactor\""))
+        .expect("a refactor doc");
+    assert!(
+        docs.contains("from = \"root:cx.edge\"") && docs.contains("into = \"root:cx.integrity\""),
+        "{docs}"
+    );
+    let after = check(&repo);
+    assert!(!after.stdout.contains("HN-H004"), "{}", after.stdout);
+}
+
+#[test]
+fn r_hier_102__retired_container_hint() {
+    let repo = ladder_repo(&[
+        (
+            "src/ctr.rs",
+            "// fairlead: def cx.edge\n// fairlead: def cx.integrity\nfn d() {}\n",
+        ),
+        (
+            "src/u.rs",
+            "// fairlead: def un.partial layer=core.engine container=cx.edge\nfn partial() {}\n",
+        ),
+    ]);
+    let run = repo.run(&[
+        "move",
+        "--merge",
+        "cx.edge",
+        "cx.integrity",
+        "--yes",
+        "--allow-dirty",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    std::fs::write(
+        repo.path().join("src/late.rs"),
+        "// fairlead: def un.late layer=core.engine container=cx.edge\nfn late() {}\n",
+    )
+    .unwrap();
+    let c = repo.run(&["check", "--as-of", AS_OF, "--format", "json"]);
+    assert!(
+        c.stdout
+            .contains("names container cx.edge, which does not exist")
+            && c.stdout.contains("moved to root:cx.integrity"),
+        "{}",
+        c.stdout
+    );
+}
