@@ -164,7 +164,7 @@ pub(crate) fn resolve_axes(reg: &Registry, corpus: &Corpus, v: &Vocab<'_>) -> Re
     r
 }
 
-fn covers(extent: &Extent, line: u32) -> bool {
+pub(crate) fn covers(extent: &Extent, line: u32) -> bool {
     match extent {
         Extent::File | Extent::Doc => true,
         Extent::Lines { first, last } => (*first..=*last).contains(&line),
@@ -188,7 +188,7 @@ fn gate(v: &Vocab<'_>, dirs: &[Directive], line: u32) -> Option<BTreeSet<usize>>
 }
 
 /// The position of each distinct declared rank (ranks may have gaps, R-ENV-002).
-fn rank_steps(v: &Vocab<'_>) -> BTreeMap<i64, usize> {
+pub(crate) fn rank_steps(v: &Vocab<'_>) -> BTreeMap<i64, usize> {
     let ranks: BTreeSet<i64> = v.cfg.maturity.values().copied().collect();
     ranks.into_iter().enumerate().map(|(i, r)| (r, i)).collect()
 }

@@ -12,9 +12,9 @@ pub struct HierCheck;
 
 /// A container edge: from, to, why (for the cycle report), and where it is written.
 type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
-const CODES: [DiagCode; 13] = [
+const CODES: [DiagCode; 14] = [
     HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H006, HN_H007, HN_H008, HN_H009, HN_H010,
-    HN_H011, HN_H012, HN_H023,
+    HN_H011, HN_H012, HN_H017, HN_H023,
 ];
 
 fn at(
@@ -492,6 +492,76 @@ fn evidence(
     }
 }
 
+/// R-HIER-073 (`HN-H017`): a unit edge from a more mature unit to a less mature one, or from a
+/// unit that reaches an environment its dependency does not exist in. The 0.2 checks
+/// `rule.maturity-gap` (`HN-E006`) and `rule.env-leakage` (`HN-E001`) already judge every `use`
+/// inside a `def` site's extent; this one judges the unit edges they cannot see (a `path=`-bound
+/// unit, or a `use` written with the `def` above its block), so nothing is reported twice.
+fn maturity(
+    cx: &CheckCx<'_>,
+    edges: &[crate::hier::UnitEdge],
+    scope: &ScopeId,
+    out: &mut Vec<Diagnostic>,
+) {
+    use crate::check::builtin::envs::{covers, rank_steps, resolve_axes};
+    let reg = cx.registry;
+    let Some(root) = crate::check::builtin::root_control(reg) else {
+        return;
+    };
+    if !root.lifecycle_declared() {
+        return;
+    }
+    let v = crate::lifecycle::Vocab::new(&root.vocab);
+    let res = resolve_axes(reg, cx.corpus, &v);
+    let steps = rank_steps(&v);
+    for e in edges.iter().filter(|e| e.from.scope == *scope) {
+        let seen_by_env_check = reg
+            .sites_of(&e.from)
+            .iter()
+            .any(|s| s.path == e.path && covers(&s.extent, e.line));
+        if seen_by_env_check {
+            continue;
+        }
+        let (Some(fa), Some(ta)) = (res.axes.get(&e.from), res.axes.get(&e.to)) else {
+            continue;
+        };
+        let mut why = Vec::new();
+        if let (Some(fr), Some(tr)) = (fa.mat.values().min(), ta.mat.values().min())
+            && steps.get(fr).zip(steps.get(tr)).is_some_and(|(a, b)| a > b)
+        {
+            why.push(format!(
+                "{} is {} and {} is {}",
+                bare_id(&e.from),
+                v.rank_word(*fr),
+                bare_id(&e.to),
+                v.rank_word(*tr)
+            ));
+        }
+        let missing: Vec<&str> = fa
+            .envs
+            .difference(&ta.envs)
+            .map(|env| v.env_name(*env))
+            .collect();
+        if !missing.is_empty() {
+            why.push(format!(
+                "{} reaches {} where {} does not exist",
+                bare_id(&e.from),
+                missing.join(", "),
+                bare_id(&e.to)
+            ));
+        }
+        if !why.is_empty() {
+            out.push(
+                DiagB::new(HN_H017, &e.path, e.line, e.col, why.join("; "))
+                    .hint("raise the dependency's maturity or envs, lower the dependent's, or drop the edge (R-HIER-073)")
+                    .related(bare_id(&e.to))
+                    .text(bare_id(&e.to))
+                    .build(),
+            );
+        }
+    }
+}
+
 /// R-HIER-026, R-HIER-028, R-VAR-010, R-VAR-011: a reference to a unit from outside its
 /// visibility (`subtree`, the default: the home scope and its descendants; `public`: anywhere).
 /// Independent of rank. A qualified sideways reference to an item its scope does not provide is
@@ -712,6 +782,7 @@ impl Check for HierCheck {
             cycle_edges(&m, &edges, cargo, scope, out);
             visibility(cx, &m, scope, out);
             evidence(cx, &m, &files, scope, out);
+            maturity(cx, &edges, scope, out);
         }
         sym_ambiguous(cx, &m, scope, out);
         // L1: a unit's layer, its single container and its single binding.
@@ -1425,6 +1496,50 @@ fn e() {}
                 "{ds:#?}"
             );
         }
+    }
+
+    #[test]
+    fn r_hier_073__a_mature_unit_depends_on_a_less_mature_one() {
+        let vocab = "[env]
+order = [\"dev\", \"prod\"]
+
+[maturity]
+alpha = 0
+beta = 1
+stable = 2
+";
+        let ds = World::new()
+            .root(&format!("{L2}{vocab}"))
+            .file(
+                "src/a.rs",
+                "// fairlead: def ctr.a
+fn d() {}
+// fairlead: def un.lib layer=core.primitive container=ctr.a mat=alpha in=dev
+fn lib() {}
+",
+            )
+            .file(
+                "src/b.rs",
+                "// fairlead: def un.app layer=core.engine container=ctr.a mat=stable
+// fairlead: use un.lib
+fn app() {
+    lib();
+}
+",
+            )
+            .build()
+            .run_check(&HierCheck);
+        let d = of(&ds, c::HN_H017);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(
+            d[0].message
+                .contains("un.app is stable and un.lib is alpha")
+                && d[0]
+                    .message
+                    .contains("reaches prod where un.lib does not exist"),
+            "{}",
+            d[0].message
+        );
     }
 
     #[test]
