@@ -24,7 +24,7 @@ test-edition = []
 fetch = []
 
 [dependencies]
-fairlead-syntax = { path = "../fairlead-syntax", version = "0.2.1" }
+fairlead-syntax = { path = "../fairlead-syntax", version = "0.2.2" }
 ignore = "0.4.33"
 globset = "0.4.20"
 regex = "1"                      # UNVERIFIED version: confirm MSRV 1.88 and licence (C-2)

@@ -1,6 +1,6 @@
 ```console
 $ fairlead --version
-fairlead 0.2.1
+fairlead 0.2.2
 
 $ fairlead --threads 0 check
 ? 2

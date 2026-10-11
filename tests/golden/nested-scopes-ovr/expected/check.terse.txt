@@ -1,4 +1,4 @@
-fairlead check 0.2.1 edition=1 as-of=2026-10-09 scopes=2 files=9 rules=0
+fairlead check 0.2.2 edition=1 as-of=2026-10-09 scopes=2 files=9 rules=0
 errors 0 warn 1 info 0 | baselined 0 | waived 0 | observe 0 | accepted 0
 HN-X005 warn web/src/app.ts:1:4 ovr of sealed tok.color.primary has no allow and is inert | fix: fairlead new escalation
 waivers: web 1/25 | relaxations: none

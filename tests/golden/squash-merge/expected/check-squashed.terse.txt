@@ -1,4 +1,4 @@
-fairlead check 0.2.1 edition=1 as-of=2026-10-10 scopes=1 files=15 rules=0
+fairlead check 0.2.2 edition=1 as-of=2026-10-10 scopes=1 files=15 rules=0
 errors 0 warn 1 info 0 | baselined 2 | waived 0 | observe 0 | accepted 0
 HN-D006 warn src/c.rs changed file is not covered by a draft or ready change doc | fix: fairlead new change "<title>" --field covers=<glob>, or add it to an open doc's covers
 waivers: none | relaxations: none
