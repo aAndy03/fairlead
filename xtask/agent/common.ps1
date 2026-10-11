@@ -126,8 +126,21 @@ function Get-OpencodeExe {
     (Get-Command opencode -CommandType Application | Select-Object -First 1).Source
 }
 
+# The answer's text: the `text` parts of opencode's JSON event lines, decoded; the raw output when
+# no line parses (so quotes and backslashes in an answer survive, seen 2026-10-11 in A-4).
+function Get-AnswerText([string]$Raw) {
+    $parts = foreach ($line in ($Raw -split "`n")) {
+        try {
+            $e = $line | ConvertFrom-Json -ErrorAction Stop
+            if ($e.part -and $e.part.text) { $e.part.text }
+        } catch { }
+    }
+    if ($parts) { ($parts -join "`n") } else { $Raw }
+}
+
 # The last `LABEL: <word>` line of an answer, lower-cased; `unparsed` when absent or not allowed.
 function Get-Label([string]$Text, [string[]]$Allowed) {
+    $Text = Get-AnswerText $Text
     $m = [regex]::Matches($Text, 'LABEL:\s*([A-Za-z-]+)')
     if ($m.Count -eq 0) { return 'unparsed' }
     $w = $m[$m.Count - 1].Groups[1].Value.ToLowerInvariant()
@@ -136,7 +149,7 @@ function Get-Label([string]$Text, [string[]]$Allowed) {
 
 # Every `ITEM: ...` line of an answer (checklist protocols).
 function Get-Items([string]$Text) {
-    $m = [regex]::Matches($Text, 'ITEM:\s*([^"\\\r\n]+)')
+    $m = [regex]::Matches((Get-AnswerText $Text), 'ITEM:\s*([^\r\n]+)')
     @($m | ForEach-Object { $_.Groups[1].Value.Trim() })
 }
 
@@ -165,6 +178,10 @@ function Write-Result {
     )
     $root = Get-RepoRoot
     $path = Join-Path $root ("docs\plans\$Milestone\results\{0}-{1}.md" -f $Settings.date, $Settings.protocol)
+    # A second run on the same day never overwrites the first (seen 2026-10-11 in A-4).
+    for ($n = 2; Test-Path $path; $n++) {
+        $path = Join-Path $root ("docs\plans\$Milestone\results\{0}-{1}-{2}.md" -f $Settings.date, $Settings.protocol, $n)
+    }
     $lines = @("# $($Settings.protocol) result ($($Settings.date), agent-run)", '', '## Settings', '')
     foreach ($k in $Settings.Keys) { $lines += "- $k`: $($Settings[$k])" }
     $lines += @('', '## Raw counts', '', $Counts, '', '## Verdict', '', $Verdict, '', '## Threats noticed', '', $Threats)

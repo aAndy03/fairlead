@@ -24,6 +24,9 @@ Expect ((Get-Label "reason`nLABEL: Wrong" @('right', 'wrong')) -eq 'wrong') 'lab
 Expect ((Get-Label '{"text":"x LABEL: live\n"}' @('stale', 'expired', 'live')) -eq 'live') 'label inside JSON text'
 Expect ((Get-Label 'LABEL: maybe' @('right', 'wrong')) -eq 'unparsed') 'an unknown label is unparsed'
 Expect ((Get-Items "ITEM: a b`nx`nITEM: c").Count -eq 2) 'items are read'
+$json = '{"type":"text","part":{"text":"ITEM: title \"says more\" is vague\nLABEL: issues"}}'
+Expect (@(Get-Items $json)[0] -eq 'title "says more" is vague') 'an item keeps its quotes'
+Expect ((Get-Label $json @('clean', 'issues')) -eq 'issues') 'a label inside a JSON event'
 $tasks = @(Get-Content -Raw (Join-Path $PSScriptRoot 'a1-tasks.json') | ConvertFrom-Json | ForEach-Object { $_ })
 Expect ($tasks.Count -ge 40) "a1 tasks: $($tasks.Count) (8 weeks x 5)"
 foreach ($p in 'A-1-subject', 'A-1-review', 'A-2-label', 'A-3-thresholds', 'A-4-changelog', 'A-5-golden') {
