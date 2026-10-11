@@ -2,8 +2,11 @@
 //! comments excluded, kept as 64-bit hashes so a large tree costs 8 bytes per distinct name.
 //! Collected only when the root's `[hier] level` is 2 or more.
 
-/// `sym` must be at least this long (R-HIER-030); shorter names are never looked up.
+/// `sym` must be at least this long (R-HIER-030).
 pub const MIN_SYM: usize = 6;
+/// Identifiers shorter than this are not recorded; bridge wire names and symbols (R-HIER-062,
+/// R-HIER-063) may be shorter than a `sym`.
+pub const MIN_IDENT: usize = 3;
 
 /// FNV-1a, 64 bits: stable across platforms and runs, so cached hashes stay valid.
 pub fn ident_hash(s: &str) -> u64 {
@@ -19,7 +22,7 @@ fn is_ident_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }
 
-/// Sorted, distinct hashes of the identifiers of `text` that are at least `MIN_SYM` long, start
+/// Sorted, distinct hashes of the identifiers of `text` that are at least `MIN_IDENT` long, start
 /// with a letter, `_` or `$`, and lie outside the comments of `ext`.
 pub fn ident_hashes(text: &str, ext: &str) -> Vec<u64> {
     let comments = fairlead_syntax::lexer::comment_spans(text, ext);
@@ -32,7 +35,7 @@ pub fn ident_hashes(text: &str, ext: &str) -> Vec<u64> {
     let mut start: Option<usize> = None;
     let flush = |a: usize, b: usize, out: &mut Vec<u64>| {
         let word = text.get(a..b).unwrap_or("");
-        if word.len() >= MIN_SYM
+        if word.len() >= MIN_IDENT
             && word.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_' || c == '$')
             && !in_comment(a)
         {
@@ -83,8 +86,8 @@ mod tests {
         assert!(!mentions(&h, "verify_manifest"), "not a substring");
         assert!(mentions(&h, "verify_manifest_v2"));
         assert!(
-            !mentions(&ident_hashes("let short = 1;\n", "ts"), "short"),
-            "below 6 characters"
+            !mentions(&ident_hashes("let ab = 1;\n", "ts"), "ab"),
+            "below 3 characters"
         );
     }
 }

@@ -55,6 +55,9 @@ pub struct Extras {
     /// Import specifiers (R-HIER-033), under the same condition.
     #[serde(default)]
     pub imports: Vec<crate::evidence::ImportSpec>,
+    /// Lines of `invoke(<not a literal>)` calls (R-HIER-063), under the same condition.
+    #[serde(default)]
+    pub dyn_invokes: Vec<u32>,
 }
 
 use crate::classify::{ClassifyRules, FileClass, classify, scans_directives};
@@ -103,6 +106,8 @@ pub struct FileRecord {
     pub idents: Vec<u64>,
     /// Import specifiers for import evidence (R-HIER-033; `evidence`).
     pub imports: Vec<crate::evidence::ImportSpec>,
+    /// Lines of dynamic `invoke(name)` calls (R-HIER-063).
+    pub dyn_invokes: Vec<u32>,
     pub skip: Option<SkipReason>,
 }
 
@@ -222,7 +227,7 @@ impl ExtractPlan {
             h.update(b"env\0");
         }
         if self.hier_evidence {
-            h.update(b"idents+imports\0");
+            h.update(b"idents3+imports+invokes\0");
         }
         h.update(b"styles-cascade\0");
         for e in &self.styles.extensions {
@@ -301,6 +306,7 @@ fn compute_extras(
         out.idents = idents::ident_hashes(text, &ext);
         use crate::evidence::ImportExtractor as _;
         out.imports = crate::evidence::RegexImports.imports(text, &ext);
+        out.dyn_invokes = crate::evidence::dynamic_invokes(text, &ext);
     }
     if plan.classify.in_managerial_folder(path) {
         out.secrets = crate::secrets::scan_secrets(text);
@@ -368,6 +374,7 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
         css: extras.css,
         idents: extras.idents,
         imports: extras.imports,
+        dyn_invokes: extras.dyn_invokes,
         skip,
     }
 }
@@ -481,6 +488,7 @@ fn unread_record(e: &WalkEntry, class: FileClass, skip: SkipReason, head: &[u8])
         css: None,
         idents: Vec::new(),
         imports: Vec::new(),
+        dyn_invokes: Vec::new(),
         skip: Some(skip),
     }
 }
@@ -520,6 +528,7 @@ fn from_cache(
         css: extras.css,
         idents: extras.idents,
         imports: extras.imports,
+        dyn_invokes: extras.dyn_invokes,
         skip,
     })
 }
@@ -580,6 +589,7 @@ fn process(
                     css: rec.css.clone(),
                     idents: rec.idents.clone(),
                     imports: rec.imports.clone(),
+                    dyn_invokes: rec.dyn_invokes.clone(),
                 };
                 cache.put_extras(&rec.hash, &extras_key(fp, plan, &e.path), &extras);
             }

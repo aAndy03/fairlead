@@ -12,10 +12,10 @@ pub struct HierCheck;
 
 /// A container edge: from, to, why (for the cycle report), and where it is written.
 type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
-const CODES: [DiagCode; 22] = [
+const CODES: [DiagCode; 26] = [
     HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H006, HN_H007, HN_H008, HN_H009, HN_H010,
     HN_H011, HN_H012, HN_H013, HN_H014, HN_H015, HN_H016, HN_H017, HN_H018, HN_H019, HN_H020,
-    HN_H023, HN_E004,
+    HN_H021, HN_H022, HN_H023, HN_H024, HN_H025, HN_E004,
 ];
 
 fn at(
@@ -440,6 +440,177 @@ fn entries(
             format!("{} is reached by no entry", bare_id(&u.id)),
             &format!("declare an entry that reaches it, use it from a reached unit, or retire it (R-HIER-041); {LOWER_BOUND}"),
         ));
+    }
+}
+
+/// R-HIER-060 to R-HIER-063, R-CHK-043 (level 3): a bridge declares its keys, each end carries
+/// its `def <id> side=ts|rs` marker and its `#symbol`, the wire name appears on both sides (a TS
+/// call literal, a Rust fn name), `ver` agrees on the end markers and on consumers' `pin=`, and a
+/// dynamic `invoke(name)` is unverifiable rather than guessed. Text presence only: payload fields
+/// stay unverified (R-HIER-061).
+fn bridges(cx: &CheckCx<'_>, m: &Model, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    use crate::extract::idents::mentions;
+    let reg = cx.registry;
+    let dirs_of = |p: &crate::path::RepoPath| {
+        cx.corpus
+            .records
+            .get(p)
+            .and_then(|r| r.extraction.as_ref())
+            .map(|x| x.directives.clone())
+            .unwrap_or_default()
+    };
+    for b in m.bridges(reg).iter().filter(|b| b.id.scope == *scope) {
+        let id = bare_id(&b.id);
+        let missing: Vec<&str> = crate::hier::BRIDGE_KEYS
+            .iter()
+            .copied()
+            .filter(|k| b.get(k).is_none())
+            .collect();
+        if !missing.is_empty() {
+            out.extend(at(
+                cx,
+                &b.id,
+                HN_H021,
+                format!("bridge {id} declares no {}", missing.join(", ")),
+                "a bridge declares proto, dir, wire, ver, params and one ts= and one rs= end as path#symbol (R-HIER-060)",
+            ));
+        }
+        let ver = b.get("ver");
+        let wire = b.get("wire");
+        for side in ["ts", "rs"] {
+            let Some(raw) = b.get(side) else { continue };
+            let Some((path, sym)) = b.end(reg, side) else {
+                out.extend(at(
+                    cx,
+                    &b.id,
+                    HN_H021,
+                    format!("bridge {id}: {side}={raw} is not path#symbol"),
+                    "write the end as path#symbol (R-HIER-060)",
+                ));
+                continue;
+            };
+            let Some(rec) = cx.corpus.records.get(&path) else {
+                out.extend(at(
+                    cx,
+                    &b.id,
+                    HN_H021,
+                    format!(
+                        "bridge {id}: the {side} end {} does not exist",
+                        path.as_str()
+                    ),
+                    "fix the path, or restore the file (R-HIER-062)",
+                ));
+                continue;
+            };
+            let marker = dirs_of(&path).into_iter().find(|d| {
+                d.verb == fairlead_syntax::directive::Verb::Def
+                    && d.ids
+                        .first()
+                        .is_some_and(|i| i.kind == b.id.kind && i.name == b.id.name)
+                    && d.args.iter().any(|a| {
+                        a.key == "side" && crate::registry::item::arg_scalar(&a.value) == side
+                    })
+            });
+            let at_end = |code, msg: String, hint: &str, line: u32| {
+                DiagB::new(code, &path, line, 0, msg)
+                    .hint(hint)
+                    .related(id.clone())
+                    .text(id.clone())
+                    .build()
+            };
+            match &marker {
+                None => out.push(at_end(
+                    HN_H021,
+                    format!(
+                        "bridge {id}: {} has no `def {id} side={side}` marker",
+                        path.as_str()
+                    ),
+                    "mark the end next to its symbol (R-HIER-062)",
+                    0,
+                )),
+                Some(d) => {
+                    let mv = d
+                        .args
+                        .iter()
+                        .find(|a| a.key == "ver")
+                        .map(|a| crate::registry::item::arg_scalar(&a.value));
+                    if let (Some(mv), Some(v)) = (mv.as_deref(), ver)
+                        && mv != v
+                    {
+                        out.push(at_end(
+                            HN_H022,
+                            format!("bridge {id}: the {side} end marker says ver={mv}, the declaration ver={v}"),
+                            "update the end, then its ver (R-HIER-063)",
+                            d.span.line,
+                        ));
+                    }
+                }
+            }
+            if !mentions(&rec.idents, &sym) {
+                out.push(at_end(
+                    HN_H021,
+                    format!("bridge {id}: the {side} end never mentions {sym}"),
+                    "fix the #symbol, or restore it (R-HIER-062)",
+                    0,
+                ));
+            }
+            if let Some(w) = wire
+                && !mentions(&rec.idents, w)
+            {
+                match rec.dyn_invokes.first() {
+                    Some(line) if side == "ts" => out.push(at_end(
+                        HN_H024,
+                        format!("bridge {id}: the ts end calls invoke with a dynamic name; wire {w} is unverifiable"),
+                        "use the literal wire name at the call, or accept the warning (R-CHK-043)",
+                        *line,
+                    )),
+                    _ => out.push(at_end(
+                        HN_H025,
+                        format!("bridge {id}: the {side} end has no wire {w}"),
+                        if side == "ts" {
+                            "call the command with its wire literal (R-HIER-063)"
+                        } else {
+                            "name the Rust fn after the wire (R-HIER-063)"
+                        },
+                        0,
+                    )),
+                }
+            }
+        }
+        // R-SYN-049: a consumer's `use <bridge> pin=<N>` must equal the declared ver.
+        for e in reg
+            .edges()
+            .iter()
+            .filter(|e| e.resolved.as_ref() == Some(&b.id))
+        {
+            let pin = dirs_of(&e.from.path).into_iter().find_map(|d| {
+                (d.verb == fairlead_syntax::directive::Verb::Use && d.span.line == e.from.span.line)
+                    .then(|| {
+                        d.args
+                            .iter()
+                            .find(|a| a.key == "pin")
+                            .map(|a| crate::registry::item::arg_scalar(&a.value))
+                    })
+                    .flatten()
+            });
+            if let (Some(p), Some(v)) = (pin.as_deref(), ver)
+                && p != v
+            {
+                out.push(
+                    DiagB::new(
+                        HN_H022,
+                        &e.from.path,
+                        e.from.span.line,
+                        e.from.span.col,
+                        format!("use {id} pin={p}, but the bridge is ver={v}"),
+                    )
+                    .hint("review the consumer against the new version, then raise its pin (R-HIER-063, R-SYN-049)")
+                    .related(id.clone())
+                    .text(id.clone())
+                    .build(),
+                );
+            }
+        }
     }
 }
 
@@ -935,6 +1106,7 @@ impl Check for HierCheck {
         };
         if level >= 3 {
             entries(cx, h, &m, &edges, &bound, scope, out);
+            bridges(cx, &m, scope, out);
         }
         if level >= 2 {
             rank_edges(h, &m, &edges, scope, out);
@@ -2110,6 +2282,103 @@ directives = ['def grp.unnamed']
                 .contains("suggest demote un.svc to ctr.a: one consumer for 2 seals")),
             "{demote:#?}"
         );
+    }
+
+    const BRG: &str = "// fairlead: def brg.run proto=tauri-command dir=\"ts->rs\" wire=sync_run ver=1 params=req ts=\"app/api.ts#syncRun\" rs=\"core/cmds.rs#sync_run\"\nfn decl() {}\n";
+    const TS_END: &str = "// fairlead: def brg.run side=ts ver=1\nexport function syncRun() { return invoke('sync_run'); }\n";
+    const RS_END: &str = "// fairlead: def brg.run side=rs ver=1\npub fn sync_run() {}\n";
+
+    fn bridge(decl: &str, ts: &str, rs: &str, extra: &[(&str, &str)]) -> Vec<Diagnostic> {
+        let root = format!(
+            "{}\n[kinds.brg]\nshape = \"code\"\n",
+            L2.replace("level = 2\n", "level = 3\n")
+        );
+        let mut w = World::new()
+            .root(&root)
+            .file("src/decl.rs", decl)
+            .file("app/api.ts", ts)
+            .file("core/cmds.rs", rs);
+        for (p, t) in extra {
+            w = w.file(p, t);
+        }
+        w.build().run_check(&HierCheck)
+    }
+    fn bridge_codes(ds: &[Diagnostic]) -> Vec<&'static str> {
+        ds.iter()
+            .filter(|d| [c::HN_H021, c::HN_H022, c::HN_H024, c::HN_H025].contains(&d.code))
+            .map(|d| d.code.0)
+            .collect()
+    }
+
+    #[test]
+    fn r_hier_060__bridge_requires_both_ends_and_wire() {
+        let ok = bridge(BRG, TS_END, RS_END, &[]);
+        assert!(bridge_codes(&ok).is_empty(), "{ok:#?}");
+        let ds = bridge(&BRG.replace(" params=req", ""), TS_END, RS_END, &[]);
+        let d = of(&ds, c::HN_H021);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(d[0].message.contains("bridge brg.run declares no params"));
+    }
+
+    #[test]
+    fn r_hier_062__an_end_needs_its_marker_and_symbol() {
+        let ds = bridge(BRG, TS_END, "pub fn sync_run() {}\n", &[]);
+        assert!(
+            of(&ds, c::HN_H021)
+                .iter()
+                .any(|d| d.message.contains("has no `def brg.run side=rs` marker")),
+            "{ds:#?}"
+        );
+        let ds = bridge(BRG, &TS_END.replace("syncRun", "runSync"), RS_END, &[]);
+        assert!(
+            of(&ds, c::HN_H021)
+                .iter()
+                .any(|d| d.message.contains("the ts end never mentions syncRun")),
+            "{ds:#?}"
+        );
+    }
+
+    #[test]
+    fn r_hier_063__the_wire_appears_on_both_sides() {
+        let ds = bridge(BRG, &TS_END.replace("'sync_run'", "'sync_go'"), RS_END, &[]);
+        let d = of(&ds, c::HN_H025);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(d[0].message.contains("the ts end has no wire sync_run"));
+        let ds = bridge(BRG, TS_END, &RS_END.replace("sync_run", "do_sync"), &[]);
+        assert!(bridge_codes(&ds).contains(&c::HN_H025.0), "{ds:#?}");
+    }
+
+    #[test]
+    fn r_chk_043__a_dynamic_invoke_is_unverifiable() {
+        let dynamic = "// fairlead: def brg.run side=ts ver=1\nexport function syncRun(cmd: string) { return invoke(cmd); }\n";
+        let ds = bridge(BRG, dynamic, RS_END, &[]);
+        let d = of(&ds, c::HN_H024);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert_eq!(d[0].severity, fairlead_syntax::diag::Severity::Warn);
+        assert!(
+            of(&ds, c::HN_H025).is_empty(),
+            "never guessed, never a missing wire"
+        );
+    }
+
+    #[test]
+    fn r_hier_063__ver_and_pin_must_match_the_declaration() {
+        let ds = bridge(
+            BRG,
+            &TS_END.replace("ver=1", "ver=2"),
+            RS_END,
+            &[("src/user.rs", "// fairlead: use brg.run pin=0\nfn u() {}\n")],
+        );
+        let d = of(&ds, c::HN_H022);
+        assert_eq!(d.len(), 2, "{ds:#?}");
+        assert!(
+            d.iter()
+                .any(|x| x.message.contains("ts end marker says ver=2"))
+        );
+        assert!(d.iter().any(|x| {
+            x.message
+                .contains("use brg.run pin=0, but the bridge is ver=1")
+        }));
     }
 
     #[test]

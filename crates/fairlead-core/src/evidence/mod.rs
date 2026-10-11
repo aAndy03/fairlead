@@ -65,6 +65,29 @@ impl ImportExtractor for RegexImports {
     }
 }
 
+static DYN_INVOKE: LazyLock<Option<Regex>> =
+    LazyLock::new(|| Regex::new(r#"\binvoke\s*(?:<[^>]*>)?\s*\(\s*[^'"`\s)]"#).ok());
+
+/// R-HIER-063, R-CHK-043: lines of TS-family calls `invoke(name)` whose name is not a literal;
+/// such a wire name is never guessed.
+pub fn dynamic_invokes(text: &str, ext: &str) -> Vec<u32> {
+    if !matches!(
+        ext,
+        "ts" | "tsx" | "js" | "jsx" | "mjs" | "cjs" | "mts" | "cts" | "vue" | "svelte"
+    ) {
+        return Vec::new();
+    }
+    let Some(re) = DYN_INVOKE.as_ref() else {
+        return Vec::new();
+    };
+    let mut out: Vec<u32> = re
+        .find_iter(text)
+        .map(|m| line_of(text, m.start()))
+        .collect();
+    out.dedup();
+    out
+}
+
 /// The files an import may name, most specific first: a relative TS specifier against the
 /// importing file's directory (with the usual extensions and `index` files), or a Rust
 /// `crate::a::b` path against the crate's `src/` (`a/b.rs`, `a/b/mod.rs`, then `a.rs`, `a/mod.rs`).

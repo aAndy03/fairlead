@@ -684,6 +684,10 @@ fn code_declares(kinds: &KindTable, table: &ScopeTable, scope: &ScopeId, d: &Dir
     if matches!(id.kind.as_str(), "foreign" | "rule" | "file" | "handoff") {
         return false;
     }
+    // A bridge end marker (`def brg.x side=ts|rs`, R-HIER-062) marks a site of the bridge.
+    if d.args.iter().any(|a| a.key == "side") {
+        return false;
+    }
     let by_kind = kinds
         .decl(table, scope, id.kind.as_str())
         .is_some_and(|k| matches!(k.shape, crate::config::KindShape::Code) || !k.layers.is_empty());

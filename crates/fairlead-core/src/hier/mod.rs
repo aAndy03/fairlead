@@ -319,6 +319,54 @@ impl Model {
     }
 }
 
+/// A bridge (R-HIER-060, D-29): an item with `proto=`, two typed ends in different languages.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Bridge {
+    pub id: ItemId,
+    /// The declaration's keys as written (`proto dir wire ver params ts rs` and the optional ones).
+    pub keys: BTreeMap<String, String>,
+}
+
+impl Bridge {
+    pub fn get(&self, k: &str) -> Option<&str> {
+        self.keys.get(k).map(String::as_str)
+    }
+    /// An end `path#symbol`, the path resolved against the bridge's home scope directory.
+    pub fn end(&self, reg: &Registry, side: &str) -> Option<(crate::path::RepoPath, String)> {
+        let (path, sym) = self.get(side)?.split_once('#')?;
+        let dir = reg
+            .scope(&self.id.scope)
+            .map(|s| s.dir.as_str().trim_matches('/').to_owned())
+            .unwrap_or_default();
+        let full = if dir.is_empty() {
+            path.trim_start_matches("./").to_owned()
+        } else {
+            format!("{dir}/{}", path.trim_start_matches("./"))
+        };
+        Some((crate::path::RepoPath::new(&full).ok()?, sym.to_owned()))
+    }
+}
+
+/// R-HIER-060: the keys every bridge declares.
+pub const BRIDGE_KEYS: [&str; 7] = ["proto", "dir", "wire", "ver", "params", "ts", "rs"];
+
+impl Model {
+    /// Every bridge: an item that declares `proto=`, ordered by ID.
+    pub fn bridges(&self, reg: &Registry) -> Vec<Bridge> {
+        reg.items()
+            .filter(|it| it.fields.contains_key("proto"))
+            .map(|it| Bridge {
+                id: it.id.clone(),
+                keys: it
+                    .fields
+                    .keys()
+                    .filter_map(|k| Some((k.clone(), scalar(it, k)?)))
+                    .collect(),
+            })
+            .collect()
+    }
+}
+
 /// R-HIER-040: the shipped entry types; `[hier] etypes` adds more.
 pub const SHIPPED_ETYPES: [&str; 5] = ["user-action", "cli", "export", "test", "registered"];
 

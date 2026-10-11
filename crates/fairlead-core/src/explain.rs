@@ -478,6 +478,19 @@ fn id_sections(
         section("readings", vec![], readings),
         section("shadowing", shadow, vec![]),
     ];
+    // R-HIER-061, R-HIER-067: a bridge's report says what text checks cannot verify.
+    if item.fields.contains_key("proto") {
+        let mut prose = vec![
+            "params: fields unverified (payload field equality needs a parser or generator; R-HIER-061)"
+                .to_owned(),
+        ];
+        if item.fields.contains_key("exposure") {
+            prose.push(
+                "exposure: unverified (Tauri capabilities are not parsed; R-HIER-067)".to_owned(),
+            );
+        }
+        out.push(section("bridge", prose, vec![]));
+    }
     // 0.2.2-T5: the check findings that name the item (a due lifecycle plan, an open escalation),
     // with their fix; the field test found a seal blocked by a plan `explain` never mentioned.
     if let Some(rep) = report {

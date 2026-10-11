@@ -508,6 +508,7 @@ pub(crate) mod testutil {
             css: None,
             idents: vec![],
             imports: vec![],
+            dyn_invokes: vec![],
             skip: None,
         }
     }

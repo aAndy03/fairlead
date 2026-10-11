@@ -308,3 +308,21 @@ fn r_hier_045__seal_records_unit_digests_at_level_three() {
         "containers have no digest"
     );
 }
+
+#[test]
+fn r_hier_061__explain_says_bridge_fields_and_exposure_are_unverified() {
+    let repo = ladder_repo(&[(
+        "src/d.rs",
+        "// fairlead: def brg.run proto=tauri-command dir=\"ts->rs\" wire=sync_run ver=1 params=req exposure=main ts=\"a.ts#x\" rs=\"b.rs#y\"\nfn d() {}\n",
+    )]);
+    let ctl = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(&ctl, format!("{text}\n[kinds.brg]\nshape = \"code\"\n")).unwrap();
+    let e = repo.run(&["explain", "brg.run", "--as-of", AS_OF]);
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    assert!(
+        e.stdout.contains("params: fields unverified") && e.stdout.contains("exposure: unverified"),
+        "{}",
+        e.stdout
+    );
+}
