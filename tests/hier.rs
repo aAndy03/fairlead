@@ -326,3 +326,31 @@ fn r_hier_061__explain_says_bridge_fields_and_exposure_are_unverified() {
         e.stdout
     );
 }
+
+#[test]
+fn r_hier_065__explain_entry_prints_the_trace() {
+    let repo = ladder_repo(&[(
+        "src/a.rs",
+        "// fairlead: def cx.core\nfn d() {}\n// fairlead: def un.pipe layer=core.engine container=cx.core steps=un.verify,un.transfer on-error=un.partial\nfn pipe() {}\n// fairlead: def ent.click etype=user-action unit=un.pipe\nfn click() {}\n",
+    )]);
+    let ctl = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(&ctl, format!("{text}\n[kinds.ent]\nshape = \"code\"\n")).unwrap();
+    let e = repo.run(&[
+        "explain",
+        "ent.click",
+        "--as-of",
+        AS_OF,
+        "--format",
+        "terse",
+    ]);
+    assert_eq!(e.code, 0, "{}", e.stderr);
+    for want in [
+        "un.pipe step=entry",
+        "un.verify step=1",
+        "un.transfer step=2",
+        "un.partial step=on-error",
+    ] {
+        assert!(e.stdout.contains(want), "{want}: {}", e.stdout);
+    }
+}

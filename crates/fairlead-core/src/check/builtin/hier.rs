@@ -2598,6 +2598,48 @@ directives = ['def grp.unnamed']
     }
 
     #[test]
+    fn r_hier_065__reaches_checked_against_flow() {
+        let root = format!(
+            "{}\n[kinds.brg]\nshape = \"code\"\n",
+            L2.replace(
+                "to = [\"core.service\"]",
+                "to = [\"core.service\"]\nvia = \"bridge\""
+            )
+        );
+        let run = |bridge_tail: &str| {
+            World::new()
+                .root(&root)
+                .file(
+                    "src/a.rs",
+                    &format!(
+                        "// fairlead: def ctr.a\nfn d() {{}}\n// fairlead: def un.svc layer=core.service container=ctr.a\nfn svc() {{}}\n// fairlead: def un.eng layer=core.engine container=ctr.a\nfn eng() {{}}\n// fairlead: def brg.go proto=tauri-command dir=\"ts->rs\" wire=go ver=1 params=req ts=\"a.ts#go\" rs=\"b.rs#go\"{bridge_tail}\nfn b() {{}}\n"
+                    ),
+                )
+                .file(
+                    "src/page.rs",
+                    "// fairlead: def un.page layer=ui.page container=ctr.a\n// fairlead: use brg.go\nfn page() {}\n",
+                )
+                .build()
+                .run_check(&HierCheck)
+        };
+        let to_engine = run(" reaches=un.eng");
+        let d = of(&to_engine, c::HN_H007);
+        assert_eq!(d.len(), 1, "{to_engine:#?}");
+        assert!(
+            d[0].message
+                .contains("un.page (ui.page) uses un.eng (core.engine): no [[flow]]")
+        );
+        assert!(
+            of(&run(" reaches=un.svc"), c::HN_H007).is_empty(),
+            "the flow sanctions ui to core.service"
+        );
+        assert!(
+            of(&run(" implements=un.eng"), c::HN_H007).is_empty(),
+            "inverted bridges are exempt"
+        );
+    }
+
+    #[test]
     fn r_hier_002__cross_ladder_needs_a_flow() {
         let code = [
             unit("un.page", "ui.page", "ctr.a", "", &["un.svc", "un.eng"]),

@@ -478,6 +478,43 @@ fn id_sections(
         section("readings", vec![], readings),
         section("shadowing", shadow, vec![]),
     ];
+    // P2-T8: an entry's expected chain: its unit, then that unit's `steps=` in order and its
+    // `on-error=` branches (30-hierarchy, "Entry traces").
+    if item.fields.contains_key("etype") {
+        let get = |it: &crate::registry::Item, k: &str| -> Vec<String> {
+            match it.fields.get(k) {
+                Some(FieldValue::List(v)) => v.clone(),
+                Some(FieldValue::Scalar(s)) => s
+                    .split(',')
+                    .map(|x| x.trim().to_owned())
+                    .filter(|x| !x.is_empty())
+                    .collect(),
+                None => Vec::new(),
+            }
+        };
+        let mut lines = Vec::new();
+        if let Some(u) = get(item, "unit").first() {
+            lines.push(tl(u, &[("step", "entry")]));
+            let uid = fairlead_syntax::ids::Id::parse(u).ok().and_then(|i| {
+                match reg.lookup(&item_id.scope, &i) {
+                    Lookup::Found(f) => Some(f),
+                    _ => None,
+                }
+            });
+            if let Some(unit) = uid.and_then(|f| reg.item(&f)) {
+                for (n, s) in get(unit, "steps").iter().enumerate() {
+                    lines.push(tl(s, &[("step", &(n + 1).to_string())]));
+                }
+                for s in get(unit, "on-error") {
+                    lines.push(tl(&s, &[("step", "on-error")]));
+                }
+            }
+        }
+        for r in get(item, "reaches") {
+            lines.push(tl(&r, &[("step", "reaches")]));
+        }
+        out.push(section("trace", vec![], lines));
+    }
     // R-HIER-061, R-HIER-067: a bridge's report says what text checks cannot verify.
     if item.fields.contains_key("proto") {
         let mut prose = vec![

@@ -274,9 +274,26 @@ impl Model {
         let by_path = self.bindings(reg, files);
         let mut out = Vec::new();
         for e in reg.edges() {
-            let Some(to) = e.resolved.as_ref().filter(|t| self.units.contains_key(*t)) else {
+            // R-HIER-065: a `use` of a bridge with `reaches=` is an edge to the reached unit; a
+            // bridge with only `implements=` (inverted, event style) makes no hierarchy edge.
+            let through = |t: &ItemId| -> Option<ItemId> {
+                let it = reg.item(t)?;
+                if !it.fields.contains_key("proto") {
+                    return None;
+                }
+                let r = resolve(reg, t, &scalar(it, "reaches")?)?;
+                self.units.contains_key(&r).then_some(r)
+            };
+            let Some(to) = e.resolved.as_ref().and_then(|t| {
+                if self.units.contains_key(t) {
+                    Some(t.clone())
+                } else {
+                    through(t)
+                }
+            }) else {
                 continue;
             };
+            let to = &to;
             let line = e.from.span.line;
             // A `use` binds to a block as a `def` does; it belongs to the unit whose extent
             // contains its own (a `def` and a `use` on the lines above one block share it).
