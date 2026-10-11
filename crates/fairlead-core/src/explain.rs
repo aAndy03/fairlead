@@ -558,6 +558,17 @@ mod tests {
     }
 
     #[test]
+    fn r_cli_035__every_m02_code_has_a_written_card() {
+        let missing: Vec<&str> = all_specs()
+            .iter()
+            .filter(|s| s.milestone == crate::check::codes::Milestone::M02)
+            .filter(|s| super::topics::card(s.code.0).is_none())
+            .map(|s| s.code.0)
+            .collect();
+        assert!(missing.is_empty(), "no card for {missing:?}");
+    }
+
+    #[test]
     fn r_cli_035__kinds_topic_is_computed_from_the_registry_and_0_2_topics_exist() {
         let t = text(&explain(&ExplainTarget::Topic("kinds".into()), &env(), None).unwrap());
         assert!(
