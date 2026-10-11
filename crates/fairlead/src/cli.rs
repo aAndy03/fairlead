@@ -11,12 +11,33 @@ use fairlead_core::outcome::ExitCode;
 use fairlead_core::render::OutputFormat;
 use fairlead_core::time::AsOf;
 
+/// 0.2.1-T8 (D-62): the field test learned the topics and exit codes only by failing.
+pub const TOP_HELP: &str = "Start:      fairlead init --dry-run, then fairlead init --yes; fairlead check; fairlead context <path>
+Learn:      fairlead explain syntax | kinds | approve | pr-template | docs-first | authority | <a diagnostic code from check>
+Exit codes: 0 ok; 1 findings that fail the run; 2 usage, configuration or syntax error;
+            3 stale generated files (run fairlead sync); 4 refused by a gate or a policy;
+            5 internal error or cannot determine. When several apply: 5, 2, 4, 1, 3, 0.";
+
+/// 0.2.1-T8: the `--field` keys `new` accepts per kind (the lists `write/new.rs` validates).
+pub const NEW_HELP: &str = "--field keys by kind (a key starting x- is always accepted):
+  rule         check (pattern|leak), forbid (a regex), msg, glob and exclude (comma lists of globs),
+               sev (error|warn|info), waivable (true|false), why, tokens (check=leak: design-token
+               values leaking into CSS or TSX; it is not a secret scanner)
+  scope        purpose (with --at <folder>)
+  escalation   to (an ancestor scope), set, why, blocking
+  change       impact (break|add|fix), covers (comma list of globs or IDs), hotfix, revisits, revisit-why
+  handoff and declared kinds
+               st, sum, kw, sym, of, policy, value, applies, min-len, home, css, and the keys of the
+               kind's [kinds.K] table (fairlead explain kinds)
+new checks the result before writing: a value the control file would reject writes nothing.";
+
 #[derive(Parser, Debug)]
 #[command(
     name = "fairlead",
     version,
     about = "Repository-local rules and context for agents",
-    arg_required_else_help = true
+    arg_required_else_help = true,
+    after_help = TOP_HELP
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -77,6 +98,7 @@ pub enum Command {
     /// Write generated files, the baseline with --baseline, and the cache (R-CLI-025).
     Sync(SyncArgs),
     /// Scaffold one authored item; never overwrites (R-CLI-028).
+    #[command(after_help = NEW_HELP)]
     New(NewArgs),
     /// Budgeted brief for an agent: a path, an ID, or the session start (R-CLI-032).
     Context(ContextArgs),

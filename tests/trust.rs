@@ -213,3 +213,19 @@ fn r_cli_037__an_empty_approval_list_says_so() {
     assert_eq!(run.code, 0, "{}", run.stderr);
     assert_eq!(run.stdout, "no approvals recorded\n");
 }
+
+#[test]
+fn r_cli_003__help_lists_exit_codes_and_every_topic() {
+    let dir = tempfile::tempdir().unwrap();
+    let help = testkit::run_fairlead(dir.path(), &["--help"], &[]);
+    assert!(help.stdout.contains("Exit codes: 0 ok"), "{}", help.stdout);
+    for t in fairlead_core::explain::topics::TOPICS {
+        assert!(help.stdout.contains(t), "{t} missing from --help");
+    }
+    let new = testkit::run_fairlead(dir.path(), &["new", "--help"], &[]);
+    assert!(
+        new.stdout.contains("forbid (a regex)") && new.stdout.contains("escalation"),
+        "{}",
+        new.stdout
+    );
+}
