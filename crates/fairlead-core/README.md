@@ -4,8 +4,8 @@ The engine of [fairlead](https://crates.io/crates/fairlead): root discovery, the
 extraction with its cache, the registry of declared items and scopes, the checks, context briefs,
 and the transactional writers behind `init`, `sync`, `new`, `seal`, `move` and `upgrade`.
 
-It reads the repository and git state; it never contacts the network and reads the clock
-only where a seal records its time. The `fairlead` command-line
+It reads the repository and git state; it never contacts the network, and reads the clock once,
+for today's date when no `--as-of` date is given. The `fairlead` command-line
 tool is a thin layer over `pipeline` (load, resolve, check, context, explain) and `write` (plans
 and transactions).
 
