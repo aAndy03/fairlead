@@ -191,8 +191,9 @@ fn cycle_edges(
                     why.join(", ")
                 ),
             )
+            .rule("hier-cycle")
             .hint(format!(
-                "extract the shared piece into a lower container (R-HIER-022); {LOWER_BOUND}"
+                "extract the shared piece into a lower container (R-HIER-022), or waive rule.hier-cycle with until= while it is transitional (R-HIER-103); {LOWER_BOUND}"
             ))
             .related(bare_id(first))
             .text(bare_id(first))
@@ -1275,6 +1276,7 @@ level = 2
         assert!(of(&ds, c::HN_H008).is_empty(), "the unit graph is a DAG");
         let d = of(&ds, c::HN_H009);
         assert_eq!(d.len(), 1, "{ds:#?}");
+        assert_eq!(d[0].rule.as_deref(), Some("rule.hier-cycle"), "R-HIER-103");
         assert!(
             d[0].message.contains("ctr.a, ctr.b")
                 && d[0].message.contains("un.a -> un.b")

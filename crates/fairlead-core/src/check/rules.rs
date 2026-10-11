@@ -57,11 +57,13 @@ pub struct RuleSet {
 }
 
 /// Built-in rules with a name of their own (chapters 21 and 30) and their default waivability;
-/// `hier-rank` is the rule an upward edge is waived under (R-HIER-024).
-pub(crate) const NAMED_BUILTINS: [(&str, bool); 3] = [
+/// `hier-rank` and `hier-cycle` are the rules an upward edge and a transitional container cycle
+/// are waived under (R-HIER-024, R-HIER-103).
+pub(crate) const NAMED_BUILTINS: [(&str, bool); 4] = [
     ("maturity-gap", true),
     ("env-leakage", false),
     ("hier-rank", true),
+    ("hier-cycle", true),
 ];
 
 fn scalar<'a>(it: &'a EffectiveItem, k: &str) -> Option<&'a str> {
