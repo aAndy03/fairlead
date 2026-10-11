@@ -1,12 +1,15 @@
 +++
 id = "d-rh0cb5hp"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 scope = "root"
 title = "explain works before init and says more"
 covers = ["crates/fairlead-core/src/explain.rs", "crates/fairlead-core/src/explain/topics.rs", "crates/fairlead/src/commands/explain.rs"]
 created = "0.2.1"
+sealed = "0.2.1"
+body-hash = "b3:gzcmp5xdjv979raaxb5r"
+ordinal = 11
 +++
 
 # explain works before init and says more

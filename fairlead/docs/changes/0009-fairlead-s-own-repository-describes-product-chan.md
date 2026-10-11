@@ -1,12 +1,15 @@
 +++
 id = "d-7b379a6e"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 scope = "root"
 title = "fairlead's own repository describes product changes only"
 covers = ["fairlead/control.toml"]
 created = "0.2.1"
+sealed = "0.2.1"
+body-hash = "b3:2kv1baa4tsgqzs9jjd6w"
+ordinal = 9
 +++
 
 # fairlead's own repository describes product changes only

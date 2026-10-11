@@ -1,12 +1,15 @@
 +++
 id = "d-yk7qtwbg"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 scope = "root"
 title = "new refuses a rule that check would reject"
 covers = ["crates/fairlead-core/src/pipeline.rs", "crates/fairlead-core/src/check/builtin/paths.rs"]
 created = "0.2.1"
+sealed = "0.2.1"
+body-hash = "b3:x9c6cx3d6ctbvd7bw1en"
+ordinal = 13
 +++
 
 # new refuses a rule that check would reject

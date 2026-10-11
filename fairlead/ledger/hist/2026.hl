@@ -9,3 +9,10 @@ d-ptn7sp0m kind=change ord=0007 impact=add title="Lifecycle and the graveyard" d
 d-sc8ry880 kind=change ord=0008 impact=add title="Scopes, styles and authority" d=40e0qsm4
 rollup.0.2.0 kind=rollup waivers=0 subtree-waivers=0 digest=axb9kwr8x0q2jxn54cwy d=rzkmhnf4
 # ckpt v=0.2.0 n=9 d=gjpsh60y
+d-7b379a6e kind=change ord=0009 impact=fix title="fairlead's own repository describes product changes only" d=nyk7wr1m
+d-b1rb2eeg kind=change ord=0010 impact=add title="check says what is hidden and what does not fail" d=p9c7br7f
+d-rh0cb5hp kind=change ord=0011 impact=fix title="explain works before init and says more" d=djjxdwka
+d-tf506nrd kind=change ord=0012 impact=fix title="Help lists exit codes, topics and field keys" d=hkn10q2y
+d-yk7qtwbg kind=change ord=0013 impact=fix title="new refuses a rule that check would reject" d=aa6r69rg
+rollup.0.2.1 kind=rollup waivers=0 subtree-waivers=0 digest=dtk0t1s1d68yher636ca d=rxy4jery
+# ckpt v=0.2.1 n=6 d=7n5sffak
