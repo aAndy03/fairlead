@@ -59,11 +59,14 @@ Write-Utf8 (Join-Path $run 'private\map.csv') (($map -join "`n") + "`n")
 $labelled = Join-Path $run 'labelled.csv'
 $rows | Export-Csv -NoTypeInformation -Encoding UTF8 -LiteralPath $labelled
 $score = & cargo run -q -p xtask --locked -- coverage-score $labelled | Out-String
+# Kept at once: Get-Settings below runs git and opencode, which reset $LASTEXITCODE (a run on
+# 2026-10-11 printed PASS for an 86.7% share that way).
+$scoreCode = $LASTEXITCODE
 $right = @($rows | Where-Object { $_.label -eq 'right' }).Count
 $wrong = @($rows | Where-Object { $_.label -eq 'wrong' }).Count
 $unparsed = @($rows | Where-Object { $_.label -eq 'unparsed' }).Count
 $settings = Get-Settings 'A-2' $Seed
-$verdict = if ($LASTEXITCODE -eq 0) { "PASS: $($score.Trim())" } else { "MISSED: $($score.Trim())" }
+$verdict = if ($scoreCode -eq 0) { "PASS: $($score.Trim())" } else { "MISSED: $($score.Trim())" }
 $out = Write-Result -Settings $settings `
     -Counts "rows=$($rows.Count) labelled=$($order.Count) right=$right wrong=$wrong unparsed=$unparsed; csv=$Csv" `
     -Verdict $verdict -Hashes (Get-AnswerHashes $run) `

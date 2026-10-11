@@ -1115,3 +1115,23 @@ fn r_ver_053__changelog_aggregate_is_generated_by_seal_and_sync() {
         edited.stdout
     );
 }
+
+#[test]
+fn r_arch_076__a_line_ending_rewrite_is_not_a_changed_file() {
+    // Agent protocol A-2 (E2-83): `core.autocrlf` rewriting a checkout flagged every file.
+    let repo = ready_repo();
+    let run = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("seal 0.1.0");
+    std::fs::write(repo.path().join("src/a.rs"), "fn a() {}\r\n").unwrap();
+    let eol = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(!eol.stdout.contains("src/a.rs"), "{}", eol.stdout);
+    std::fs::write(repo.path().join("src/a.rs"), "fn a() { let _ = 1; }\r\n").unwrap();
+    let real = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        real.stdout.contains("HN-D006 warn src/a.rs"),
+        "{}",
+        real.stdout
+    );
+}

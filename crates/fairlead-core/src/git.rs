@@ -210,6 +210,11 @@ impl GitRepo {
         let mut set = BTreeSet::new();
         let (mut news, mut olds) = (Vec::new(), Vec::new());
         for delta in diff.deltas() {
+            // R-ARCH-076: a file whose content differs only in line endings (`core.autocrlf`
+            // rewriting a checkout) has not changed (agent protocol A-2, E2-83).
+            if delta.status() == git2::Delta::Modified && self.same_but_eol(&delta) {
+                continue;
+            }
             if let Some(p) = delta.new_file().path().and_then(|p| p.to_str()) {
                 news.push(p.replace('\\', "/"));
             }
@@ -227,6 +232,21 @@ impl GitRepo {
             }
         }
         Ok(set)
+    }
+
+    /// Whether a modified file's base blob and its working-tree bytes are equal after BOM and
+    /// line-ending normalisation. Unreadable content counts as changed.
+    fn same_but_eol(&self, delta: &git2::DiffDelta<'_>) -> bool {
+        let Ok(old) = self.repo.find_blob(delta.old_file().id()) else {
+            return false;
+        };
+        let (Some(dir), Some(path)) = (self.repo.workdir(), delta.new_file().path()) else {
+            return false;
+        };
+        let Ok(now) = std::fs::read(dir.join(path)) else {
+            return false;
+        };
+        crate::hash::hash_normalised(old.content()) == crate::hash::hash_normalised(&now)
     }
 
     /// The commit a revision names (`main`, `HEAD~2`, a hash), as a full hash.
