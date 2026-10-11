@@ -286,6 +286,7 @@ mod tests {
             why: Some("legacy".into()),
             owner: Some("@platform".into()),
             exp: exp.map(|e| e.parse().unwrap()),
+            until: None,
             base: None,
             declared_in: ScopeId(ScopeSlug::parse("web").unwrap()),
             applies: None,

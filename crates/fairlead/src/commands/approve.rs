@@ -95,9 +95,12 @@ pub fn terminal_gate(stdin_tty: bool, stdout_tty: bool, ci_set: bool) -> Result<
 
 /// The ovr line, its fingerprint, scope and expiry, then the retype question (R-CLI-037).
 fn confirm_prompt(preview: &fairlead_core::write::ApprovePreview) -> String {
-    let exp = preview
-        .exp
-        .map_or_else(|| "none".to_string(), |d| d.to_string());
+    // A date expiry, a version expiry (R-VER-070), or none.
+    let exp = match (&preview.exp, &preview.until) {
+        (Some(d), _) => d.to_string(),
+        (None, Some(u)) => format!("when version {u} is open"),
+        (None, None) => "none".to_string(),
+    };
     format!(
         "{}\nfingerprint: {}\nscope: {}\nexpires: {}\nType the first 4 characters of the fingerprint to confirm: ",
         preview.ovr_line, preview.fp, preview.scope.0, exp

@@ -8,3 +8,11 @@ scope = "core"
 approver = "@aAndy03"
 date = "2026-10-09"
 renewal = 0
+
+[[approval]]
+fp = "px0n9ty88hxa"
+target = "root:rule.no-clock"
+scope = "core"
+approver = "@aAndy03"
+date = "2026-10-11"
+renewal = 1

@@ -76,6 +76,8 @@ pub struct Override {
     pub why: Option<String>,
     pub owner: Option<String>,
     pub exp: Option<jiff::civil::Date>,
+    /// `until=`: the version expiry as written (R-VER-070), shown by `approve`.
+    pub until: Option<String>,
     pub base: Option<OvrId>,
     pub declared_in: ScopeId,
     pub applies: Option<String>,
@@ -834,6 +836,7 @@ pub(crate) fn evaluate_scope(
             why: p.raw.why.clone(),
             owner: p.raw.owner.clone(),
             exp,
+            until: p.raw.until.clone(),
             base: p.base.clone(),
             declared_in: scope.clone(),
             applies,

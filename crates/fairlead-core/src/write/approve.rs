@@ -27,6 +27,8 @@ pub struct ApprovePreview {
     pub ovr_line: String,
     pub scope: ScopeId,
     pub exp: Option<jiff::civil::Date>,
+    /// `until=`: a version expiry (R-VER-070).
+    pub until: Option<String>,
     pub confirm_prefix: String,
 }
 
@@ -95,6 +97,9 @@ pub(crate) fn preview_of(o: &Override, already: bool) -> ApprovePreview {
     if let Some(d) = o.exp {
         line.push_str(&format!(" exp={d}"));
     }
+    if let Some(u) = &o.until {
+        line.push_str(&format!(" until={}", directive_value(u)));
+    }
     if already {
         line.push_str(" (already approved)");
     }
@@ -104,6 +109,7 @@ pub(crate) fn preview_of(o: &Override, already: bool) -> ApprovePreview {
         ovr_line: sanitize_data(&line, 240),
         scope: o.declared_in.clone(),
         exp: o.exp,
+        until: o.until.clone(),
         confirm_prefix: o.id.0.as_str().chars().take(4).collect(),
     }
 }
@@ -142,6 +148,7 @@ pub fn move_preview(
         ovr_line: sanitize_data(&line, 240),
         scope: reg.root_scope().clone(),
         exp: None,
+        until: None,
     }))
 }
 
@@ -179,6 +186,7 @@ pub fn pin_preview(
         ovr_line: sanitize_data(&line, 240),
         scope: reg.root_scope().clone(),
         exp: None,
+        until: None,
     }))
 }
 
@@ -212,6 +220,7 @@ pub fn revive_preview(
             ovr_line: sanitize_data(&line, 240),
             scope: reg.root_scope().clone(),
             exp: None,
+            until: None,
         }));
     }
     if d.kind != "revive" {
@@ -245,6 +254,7 @@ pub fn revive_preview(
             .cloned()
             .unwrap_or_else(|| reg.root_scope().clone()),
         exp: None,
+        until: None,
     }))
 }
 
@@ -512,6 +522,17 @@ mod tests {
     }
     fn today() -> AsOf {
         AsOf::parse("2026-10-09").unwrap()
+    }
+
+    #[test]
+    fn r_cli_037__preview_shows_a_version_expiry() {
+        // The owner's 2026-10-11 approval read "expires: none" for an until= waiver.
+        let mut o = pending("k3m9q2x7a1bz");
+        o.exp = None;
+        o.until = Some("0.4.0".into());
+        let p = preview_of(&o, false);
+        assert!(p.ovr_line.ends_with(" until=0.4.0"), "{}", p.ovr_line);
+        assert_eq!((p.exp, p.until.as_deref()), (None, Some("0.4.0")));
     }
 
     #[test]

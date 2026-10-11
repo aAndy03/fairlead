@@ -506,6 +506,7 @@ pub(crate) mod testutil {
             why: Some(why.into()),
             owner: Some("@lead".into()),
             exp: Some(jiff::civil::date(2026, 12, 31)),
+            until: None,
             base: None,
             declared_in: ScopeId(ScopeSlug::parse("web").unwrap()),
             applies: None,
