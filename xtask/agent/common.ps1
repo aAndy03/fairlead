@@ -83,18 +83,36 @@ function Invoke-Sample {
         $p = Start-Process -FilePath (Get-OpencodeExe) -ArgumentList $line -WorkingDirectory $WorkDir `
             -NoNewWindow -PassThru -RedirectStandardOutput $tmp -RedirectStandardError "$tmp.err"
         if ($p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
-            $out = [System.IO.File]::ReadAllText($tmp)
+            $out = Read-Shared $tmp
             if ($out -match '"type":"text"') { break }
             Write-Host '  no answer in the output; retrying'
         } else {
             Write-Host "  no answer after $TimeoutMinutes minutes; stopping that attempt"
-            & taskkill /T /F /PID $p.Id 2>$null | Out-Null
-            if (Test-Path $tmp) { $out = [System.IO.File]::ReadAllText($tmp) }
+            $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+            & taskkill /T /F /PID $p.Id 2>&1 | Out-Null
+            $ErrorActionPreference = $eap
+            # The stopped process may hold the output file a moment longer (seen 2026-10-11).
+            $p.WaitForExit(15000) | Out-Null
+            $out = Read-Shared $tmp
         }
     }
     Remove-Item -ErrorAction SilentlyContinue $tmp, "$tmp.err"
     Write-Utf8 $OutFile $out
     $out
+}
+
+# Reads a file another process may still hold open; empty when it cannot be read after retries.
+function Read-Shared([string]$Path) {
+    for ($i = 0; $i -lt 10; $i++) {
+        try {
+            if (-not (Test-Path $Path)) { return '' }
+            $fs = New-Object System.IO.FileStream($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            try { return (New-Object System.IO.StreamReader($fs)).ReadToEnd() } finally { $fs.Dispose() }
+        } catch {
+            Start-Sleep -Milliseconds 500
+        }
+    }
+    ''
 }
 
 # The real opencode executable: the npm wrapper (`opencode.cmd`) cannot be timed out and stopped

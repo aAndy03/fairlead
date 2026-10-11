@@ -7,6 +7,9 @@
 #   cargo build --release -p fairlead
 #   powershell -ExecutionPolicy Bypass -File xtask\agent\A-1.ps1
 #
+# An interrupted run continues where it stopped: -Resume <its run folder> (printed at the start).
+# Committed tasks and seals are kept; a task without its commit is redone from a clean tree.
+#
 # Defaults: the three repositories below and target\release\fairlead.exe. Other repositories go in
 # -Repos, comma-separated; any spelling a shell produces (one string, an array, separate words) is
 # accepted. Optional: -Weeks 8 -PerWeek 5 -Seed 1 -Start 2026-10-12.
@@ -23,6 +26,8 @@ param(
     [string]$Start = '2026-10-12',
     # Print what would run, then stop.
     [switch]$Check,
+    # Continue an interrupted run in this folder.
+    [string]$Resume = '',
     # Words after the known parameters (a list a shell split apart) are more repositories.
     [Parameter(ValueFromRemainingArguments = $true)][string[]]$More = @()
 )
@@ -46,7 +51,14 @@ if ($Check) {
 if ($RepoList.Count -ne 3) { throw 'A-1 runs on exactly three repositories (TS/React, Rust, mixed)' }
 $bin = (Resolve-Path $Bin).Path
 $env:PATH = (Split-Path -Parent $bin) + [System.IO.Path]::PathSeparator + $env:PATH
-$run = New-RunDir 'A-1'
+if ($Resume) {
+    $run = (Resolve-Path $Resume).Path
+    Write-Host "resuming in $run"
+} else {
+    $run = New-RunDir 'A-1'
+    Write-Host "run folder (for -Resume): $run"
+}
+$sealLog = Join-Path $run 'private\seals.log'
 # Windows PowerShell 5.1 emits a JSON array as one object; the ForEach-Object unrolls it.
 $taskList = @(Get-Content -Raw -LiteralPath $Tasks | ConvertFrom-Json | ForEach-Object { $_ })
 if ($taskList.Count -lt $Weeks * $PerWeek) { throw "need $($Weeks * $PerWeek) tasks, $Tasks has $($taskList.Count)" }
@@ -94,6 +106,17 @@ foreach ($src in (Get-Shuffled $RepoList $Seed)) {
     $rid = Get-OpaqueId $Seed "repo|$src"
     $map += "$rid,repo,$src,"
     $dir = Join-Path $run "work\$rid"
+    if (Test-Path (Join-Path $dir '.git')) {
+        if ((Invoke-Git $dir @('log', '--format=%s')) -match 'pilot: fairlead init') {
+            # Resume: drop the half-done edits of an interrupted task; its commit never happened.
+            Invoke-Git $dir @('reset', '-q', '--hard') | Out-Null
+            Invoke-Git $dir @('clean', '-q', '-fd') | Out-Null
+            Write-Host "kept $src"
+            $repoDirs += , @($rid, $dir)
+            continue
+        }
+        Remove-Item -Recurse -Force $dir
+    }
     Write-Host "downloading $src ..."
     $clone = Invoke-Native 'git' @('clone', '-q', $src, $dir)
     if ($clone.code -ne 0) { throw "clone failed: $src`n$($clone.err)" }
@@ -112,26 +135,45 @@ foreach ($src in (Get-Shuffled $RepoList $Seed)) {
 foreach ($rd in $repoDirs) {
     $rid = $rd[0]; $dir = $rd[1]
     $order = Get-Shuffled $taskList ($Seed + [Convert]::ToInt32($rid.Substring(0, 6), 16))
+    $done = @((Invoke-Git $dir @('log', '--format=%s')) -split "`n")
     for ($w = 0; $w -lt $Weeks; $w++) {
         $date = $startDate.AddDays(7 * $w + 4).ToString('yyyy-MM-dd')
         for ($t = 0; $t -lt $PerWeek; $t++) {
             $task = $order[$w * $PerWeek + $t]
             $sid = Get-OpaqueId $Seed "subject|$rid|$w|$t"
             $map += "$sid,subject,$rid,week $($w + 1) $($task.id)"
+            if ($done -contains "week $($w + 1): $($task.id)") { continue }
             $p = Join-Path $run "private\prompts\$sid.md"
             Write-Utf8 $p ($subjectBase.Replace('{{DATE}}', $date).Replace('{{TASK}}', $task.text))
-            Invoke-Sample -PromptFile $p -WorkDir $dir -OutFile (Join-Path $run "answers\$sid.json") -Auto | Out-Null
+            # A maintainer's task can take a while; only a hang is cut short.
+            Invoke-Sample -PromptFile $p -WorkDir $dir -OutFile (Join-Path $run "answers\$sid.json") -Auto -TimeoutMinutes 30 | Out-Null
             Invoke-Git $dir @('add', '-A') | Out-Null
             Invoke-Git $dir @('commit', '-q', '--allow-empty', '-m', "week $($w + 1): $($task.id)") | Out-Null
         }
+        # Resume: a week already sealed, or followed by later work, is not sealed again.
+        $later = @($done | Where-Object { $_ -match '^week (\d+): ' -and [int]$Matches[1] -gt ($w + 1) })
+        if (($done -contains "week $($w + 1): seal") -or $later.Count -gt 0) { continue }
         $seal = Invoke-Fairlead $dir @('seal', '--yes', '--anywhere', '--as-of', $date)
         $why = if ($seal.code -eq 0) { '' } else { ': ' + (($seal.err -split "`n")[0]).Trim() }
-        $log += "- $rid week $($w + 1) ($date): seal exit $($seal.code)$why"
+        Add-Content -Encoding utf8 -LiteralPath $sealLog "- $rid week $($w + 1) ($date): seal exit $($seal.code)$why"
         if ($seal.code -eq 0) {
             Invoke-Git $dir @('add', '-A') | Out-Null
             Invoke-Git $dir @('commit', '-q', '-m', "week $($w + 1): seal") | Out-Null
         }
         Write-Host "$rid week $($w + 1): seal exit $($seal.code)$why"
+    }
+}
+
+# The seal record: the log written as the run went, plus the git history for weeks sealed before a
+# resume (their refusal reasons were not recorded then).
+$logged = @(if (Test-Path $sealLog) { Get-Content -LiteralPath $sealLog })
+foreach ($rd in $repoDirs) {
+    $subjects = @((Invoke-Git $rd[1] @('log', '--format=%s')) -split "`n")
+    for ($w = 1; $w -le $Weeks; $w++) {
+        $line = $logged | Where-Object { $_ -like "- $($rd[0]) week $w *" } | Select-Object -Last 1
+        if ($line) { $log += $line }
+        elseif ($subjects -contains "week ${w}: seal") { $log += "- $($rd[0]) week ${w}: seal exit 0" }
+        else { $log += "- $($rd[0]) week ${w}: not sealed (reason not recorded before a resume)" }
     }
 }
 
