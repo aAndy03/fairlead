@@ -76,3 +76,31 @@ fn r_cli_028__new_refuses_a_rule_check_would_reject_and_writes_nothing() {
         check.stderr
     );
 }
+
+#[test]
+fn r_file_050__explain_says_how_a_file_item_is_declared() {
+    let repo = repo();
+    std::fs::write(
+        repo.path().join("src/b.rs"),
+        "// fairlead: def file.calc\nfn b() {}\n",
+    )
+    .unwrap();
+    let missing = repo.run(&["explain", "file.calc", "--as-of", AS_OF]);
+    assert_eq!(missing.code, 2);
+    assert!(
+        missing.stderr.contains("[[file]] table") && missing.stderr.contains("declares nothing"),
+        "{}",
+        missing.stderr
+    );
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        format!("{text}\n[[file]]\nid = \"file.calc\"\nkind = \"rust\"\npath = \"src/a.rs\"\n"),
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--as-of", AS_OF]).code, 0);
+    let found = repo.run(&["explain", "file.calc", "--as-of", AS_OF]);
+    assert_eq!(found.code, 0, "{}", found.stderr);
+    assert!(found.stdout.contains("root:file.calc"), "{}", found.stdout);
+}

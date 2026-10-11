@@ -339,6 +339,16 @@ fn id_sections(id: &Id, reg: &Registry) -> Result<Vec<ExplainSection>, Error> {
                 "{id} is ambiguous; qualify it as one of: {list}"
             )));
         }
+        // 0.2.1-T2 (D-62): a file-item exists only as a `[[file]]` table (R-FILE-050); the field
+        // test read `explain`'s bare "no declaration" for a `def file.*` in code as a lookup bug.
+        Lookup::Missing { .. } if id.kind.as_str() == "file" => {
+            return Err(Error::Usage(sanitize_data(
+                &format!(
+                    "no declaration of {id}: a file-item is declared in a control file as a [[file]] table (id, kind, path; R-FILE-050); a `def file.*` directive in code declares nothing"
+                ),
+                300,
+            )));
+        }
         Lookup::Missing { nearest } => {
             let hint = if nearest.is_empty() {
                 String::new()
