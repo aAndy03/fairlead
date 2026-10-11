@@ -1,6 +1,6 @@
 bump: 0.1.0 -> 0.1.1 (1 docs, 0 carried)
 wrote fairlead/docs/changes/0002-main-change.md
-wrote fairlead/docs/changes/d-jp12t4e9-main-change.md
+removed fairlead/docs/changes/d-jp12t4e9-main-change.md
 wrote fairlead/gen/alias
 wrote fairlead/gen/scope.lock
 wrote fairlead/ledger/hist/2026.hl

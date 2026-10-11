@@ -1,7 +1,7 @@
 unsealed 0.1.1
 bump: 0.1.1 -> 0.1.2 (1 docs, 0 carried)
 wrote fairlead/docs/changes/0003-work-change.md
-wrote fairlead/docs/changes/d-ecpypy0b-work-change.md
+removed fairlead/docs/changes/d-ecpypy0b-work-change.md
 wrote fairlead/gen/alias
 wrote fairlead/gen/scope.lock
 wrote fairlead/ledger/hist/2026.hl

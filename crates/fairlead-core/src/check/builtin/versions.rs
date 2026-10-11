@@ -252,12 +252,19 @@ fn incomplete_writes(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
             if let HistLine::Ckpt { v, .. } = l
                 && !sealed.contains(v)
             {
-                let msg =
-                    format!("ledger checkpoint for {v} has no version file: an interrupted seal");
+                // Two causes leave this state: a seal that stopped before its commit point, and a
+                // ledger merged or cherry-picked without the seal's version file (A-5 review).
+                let msg = format!(
+                    "ledger checkpoint for {v} has no version file: an interrupted seal, or a seal's ledger brought in without its version file"
+                );
+                let line = text
+                    .lines()
+                    .position(|t| t.starts_with(&format!("# ckpt v={v} ")))
+                    .map_or(1, |i| u32::try_from(i + 1).unwrap_or(1));
                 out.push(
-                    DiagB::new(HN_V005, path, 1, 1, msg.clone())
+                    DiagB::new(HN_V005, path, line, 1, msg.clone())
                         .hint(
-                            "run fairlead seal again to finish it, or restore the ledger from git",
+                            "if a seal was interrupted, run fairlead seal again; if a seal commit was cherry-picked or merged alone, take its change docs instead, or restore the ledger from git",
                         )
                         .text(msg)
                         .build(),

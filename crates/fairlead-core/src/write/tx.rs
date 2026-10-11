@@ -15,8 +15,11 @@ use std::marker::PhantomData;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct CommitReport {
+    /// Every path the commit changed, deletions included.
     pub written: Vec<RepoPath>,
     pub unchanged: Vec<RepoPath>,
+    /// The paths among `written` that were deleted (a sealed doc renamed to its ordinal).
+    pub removed: Vec<RepoPath>,
 }
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Recovery {
@@ -196,6 +199,7 @@ impl<'l> Transaction<'l> {
             return Ok(CommitReport {
                 written: vec![],
                 unchanged,
+                removed: vec![],
             });
         }
         let txid = base32(&plan_hash(&self.set).0, 12);
@@ -223,6 +227,11 @@ impl<'l> Transaction<'l> {
         Ok(CommitReport {
             written: todo.iter().map(|i| i.path.clone()).collect(),
             unchanged,
+            removed: todo
+                .iter()
+                .filter(|i| i.delete)
+                .map(|i| i.path.clone())
+                .collect(),
         })
     }
 

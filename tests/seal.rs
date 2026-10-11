@@ -79,7 +79,18 @@ fn r_ver_059__seal_writes_exactly_its_write_set_and_check_stays_clean() {
         .lines()
         .filter_map(|l| l.strip_prefix("wrote "))
         .collect();
-    assert_eq!(written.len(), 6, "{written:?}");
+    assert_eq!(written.len(), 5, "{written:?}");
+    // The draft-named doc is deleted once renamed to its ordinal (A-5 review, E2-81).
+    let removed: Vec<&str> = run
+        .stdout
+        .lines()
+        .filter_map(|l| l.strip_prefix("removed "))
+        .collect();
+    assert_eq!(removed.len(), 1, "{removed:?}");
+    assert!(
+        removed[0].starts_with("fairlead/docs/changes/d-"),
+        "{removed:?}"
+    );
     let version = std::fs::read_to_string(repo.path().join("fairlead/versions/0.1.0.md")).unwrap();
     assert!(
         version.contains("bump = \"start\"")

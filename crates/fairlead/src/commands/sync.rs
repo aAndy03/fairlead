@@ -58,7 +58,14 @@ pub fn changed_list(report: &CommitReport) -> String {
     report
         .written
         .iter()
-        .map(|path| format!("wrote {}\n", path.as_str()))
+        .map(|path| {
+            let verb = if report.removed.contains(path) {
+                "removed"
+            } else {
+                "wrote"
+            };
+            format!("{verb} {}\n", path.as_str())
+        })
         .collect()
 }
 
