@@ -238,6 +238,32 @@ impl GitRepo {
             .map_err(|e| Error::Usage(format!("{rev:?} names no commit: {}", e.message())))
     }
 
+    /// File names directly in `dir` (root-relative) at `rev`; empty when it did not exist.
+    pub fn names_at(&self, rev: &str, dir: &str) -> Vec<String> {
+        let rel = format!("{}{dir}", self.prefix);
+        let Some(tree) = self
+            .repo
+            .revparse_single(rev)
+            .ok()
+            .and_then(|o| o.peel_to_tree().ok())
+        else {
+            return Vec::new();
+        };
+        let Ok(entry) = tree.get_path(std::path::Path::new(&rel)) else {
+            return Vec::new();
+        };
+        let Some(sub) = entry
+            .to_object(&self.repo)
+            .ok()
+            .and_then(|o| o.into_tree().ok())
+        else {
+            return Vec::new();
+        };
+        sub.iter()
+            .filter_map(|e| e.name().ok().map(str::to_owned))
+            .collect()
+    }
+
     /// Paths staged in the index against HEAD (R-CLI-022 `--staged`).
     pub fn staged_paths(&self) -> Result<BTreeSet<RepoPath>, Error> {
         let head = self.repo.head().ok().and_then(|h| h.peel_to_tree().ok());

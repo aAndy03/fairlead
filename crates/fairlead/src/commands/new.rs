@@ -39,7 +39,16 @@ fn new(global: &GlobalArgs, args: &NewArgs) -> Result<CommandResult, Error> {
         hoist: args.hoist,
     };
     fairlead_core::pipeline::merge_gate(&loaded, "new", false)?;
-    let plan = plan_new(&loaded, &registry, &request, as_of(global))?;
+    let plan = if args.reid {
+        if args.kind != "change" {
+            return Err(Error::Usage(
+                "--reid applies to change docs: new change <draft id> --reid".into(),
+            ));
+        }
+        fairlead_core::pipeline::plan_reid(&loaded, &args.name)?
+    } else {
+        plan_new(&loaded, &registry, &request, as_of(global))?
+    };
     if args.print {
         // The planner puts the scaffold text in `notes` for `--print` and writes nothing (Contract issues CI-8).
         return Ok(CommandResult::text(plan.notes.join("\n")));

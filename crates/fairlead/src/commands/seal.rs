@@ -32,13 +32,43 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
     let loaded = load(&load_request(global, false, None)?)?;
     let registry = resolve_loaded(&loaded, as_of(global));
     let options = default_options(as_of(global));
-    let request = SealRequest {
+    let mut request = SealRequest {
         allow_dirty: args.allow_dirty,
         seal_anywhere: args.anywhere,
+        also_sealed: Vec::new(),
+        own_outputs: Default::default(),
     };
+    let mut loaded = loaded;
+    let mut registry = registry;
+    let mut unsealed = String::new();
+    if args.reseal {
+        // R-GIT-031: undo the own seal, then seal again after the integration line's numbers.
+        let (undo, own, theirs) = fairlead_core::pipeline::plan_unseal(&loaded)?;
+        if !args.yes || args.dry_run {
+            let mut r = CommandResult::text(format!(
+                "reseal: {own} is unintegrated; it is renumbered after {}\n{}not applied; re-run with --yes\n",
+                theirs
+                    .iter()
+                    .max()
+                    .map_or_else(|| "none".to_owned(), |v| v.to_string()),
+                undo.render_text("unseal plan")
+            ));
+            if !args.dry_run {
+                r.outcome.signal(ExitCode::Refused);
+            }
+            return Ok(r);
+        }
+        let undone = commit_plan(&session, undo)?;
+        request.own_outputs = undone.report.written.iter().cloned().collect();
+        unsealed = format!("unsealed {own}\n");
+        loaded = load(&load_request(global, false, None)?)?;
+        registry = resolve_loaded(&loaded, as_of(global));
+        request.also_sealed = theirs;
+        request.seal_anywhere = true;
+    }
     let (seal_plan, plan) = plan_seal(&loaded, &registry, &options, &request)?;
     let mut head = format!(
-        "bump: {} -> {} ({} docs, {} carried)\n",
+        "{unsealed}bump: {} -> {} ({} docs, {} carried)\n",
         seal_plan
             .prev
             .map_or_else(|| "none".to_owned(), |v| v.to_string()),

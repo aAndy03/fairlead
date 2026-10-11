@@ -981,3 +981,81 @@ fn r_git_006__no_git_reports_unavailable() {
     let ctx = repo.run(&["context", "--as-of", AS_OF]);
     assert_eq!(ctx.code, 0, "context runs without git: {}", ctx.stderr);
 }
+
+fn ready_change(repo: &TempRepo, title: &str) {
+    ready_doc(repo, title, "add", "src/**");
+    repo.git(&["add", "-A"]);
+    repo.git_commit(title);
+}
+
+#[test]
+fn r_git_031__reseal_renumbers_the_own_unintegrated_seal() {
+    let repo = ready_repo();
+    repo.git(&["branch", "-M", "main"]);
+    let seal = |r: &TempRepo, extra: &[&str]| {
+        let mut a = vec!["seal", "--yes", "--anywhere", "--as-of", AS_OF];
+        a.extend(extra);
+        let run = r.run(&a);
+        assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+        r.git(&["add", "-A"]);
+        r.git_commit("seal");
+        run
+    };
+    seal(&repo, &[]); // 0.1.0 on main
+    repo.git(&["checkout", "-q", "-b", "work"]);
+    ready_change(&repo, "Work change");
+    seal(&repo, &[]); // 0.1.1 on work
+    repo.git(&["checkout", "-q", "main"]);
+    ready_change(&repo, "Main change");
+    seal(&repo, &[]); // 0.1.1 on main too: a collision by number
+    repo.git(&["checkout", "-q", "work"]);
+    let plan = repo.run(&["seal", "--reseal", "--as-of", AS_OF]);
+    assert_eq!(plan.code, 4, "{}{}", plan.stdout, plan.stderr);
+    assert!(
+        plan.stdout.contains("0.1.1 is unintegrated"),
+        "{}",
+        plan.stdout
+    );
+    let run = repo.run(&["seal", "--reseal", "--yes", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(run.stdout.contains("unsealed 0.1.1"), "{}", run.stdout);
+    assert!(run.stdout.contains("-> 0.1.2"), "{}", run.stdout);
+    assert!(repo.path().join("fairlead/versions/0.1.2.md").exists());
+    let changes = repo.path().join("fairlead/docs/changes");
+    let work = std::fs::read_dir(&changes)
+        .unwrap()
+        .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap())
+        .find(|t| t.contains("Work change"))
+        .unwrap();
+    assert!(work.contains("sealed = \"0.1.2\""), "{work}");
+}
+
+#[test]
+fn r_ver_042__reid_gives_a_draft_a_new_id() {
+    let repo = ready_repo();
+    let changes = repo.path().join("fairlead/docs/changes");
+    let doc = std::fs::read_dir(&changes)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&doc).unwrap();
+    let id = text
+        .lines()
+        .find_map(|l| l.strip_prefix("id = \""))
+        .unwrap()
+        .trim_end_matches('"')
+        .to_owned();
+    let run = repo.run(&["new", "change", &id, "--reid", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(!doc.exists(), "the old name is gone");
+    let renamed = std::fs::read_dir(&changes)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let t = std::fs::read_to_string(&renamed).unwrap();
+    assert!(!t.contains(&id) && t.contains("id = \"d-"), "{t}");
+}

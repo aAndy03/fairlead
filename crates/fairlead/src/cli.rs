@@ -238,6 +238,9 @@ pub struct NewArgs {
     /// `new change --hotfix`: open a backfill debt (needs `docs-first.hotfix = true`, R-VER-047).
     #[arg(long)]
     pub hotfix: bool,
+    /// `new change <draft id or path> --reid`: give a colliding draft a new ID (R-VER-042).
+    #[arg(long)]
+    pub reid: bool,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -312,6 +315,9 @@ pub struct SealArgs {
     /// Roll an interrupted seal back and stop (any writer would roll it forward instead).
     #[arg(long, conflicts_with_all = ["yes", "commit"])]
     pub abort: bool,
+    /// Renumber your own unintegrated seal after the integration line (R-GIT-031).
+    #[arg(long)]
+    pub reseal: bool,
 }
 
 #[derive(Args, Debug, Clone, Default)]

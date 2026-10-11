@@ -922,6 +922,236 @@ pub fn plan_rename(
     })
 }
 
+/// `seal --reseal`, step 1 (R-GIT-031): undo the user's own unintegrated seal, the latest version
+/// file the integration branch does not have: its docs go back to `ready` under their draft
+/// names, its version file and its ledger records go. Returns the plan, the version undone and the
+/// versions sealed on the integration line, which the second step counts as sealed so the seal
+/// takes the next number. A version the integration line already has is never renumbered.
+pub fn plan_unseal(
+    loaded: &Loaded,
+) -> Result<(Plan, crate::version::Version, Vec<crate::version::Version>), Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let refuse = |m: String, h: &str| {
+        Error::Refused(crate::error::Refusal {
+            kind: crate::error::RefusalKind::PlanNotConfirmed,
+            message: m,
+            hint: h.into(),
+        })
+    };
+    let repo = crate::git::GitRepo::open(&loaded.root).ok_or_else(|| {
+        Error::Usage("--reseal needs git: it compares with the integration branch".into())
+    })?;
+    let branch = loaded.root_control.version.integration_branch.clone();
+    let tip = repo
+        .resolve(&format!("origin/{branch}"))
+        .or_else(|_| repo.resolve(&branch))
+        .map_err(|_| {
+            refuse(
+                format!("the integration branch {branch} is not known here"),
+                "fetch it first",
+            )
+        })?;
+    let folder = loaded.root.folder.clone();
+    let theirs: Vec<crate::version::Version> = repo
+        .names_at(&tip, &format!("{folder}/versions"))
+        .iter()
+        .filter_map(|n| crate::version::version_of_file_name(n))
+        .collect();
+    let mine = crate::docs::version_files(&loaded.corpus, &folder);
+    // Unintegrated: absent from the integration line, or there under the same number with other
+    // content (the collision of R-GIT-030). An identical file is integrated and never renumbered.
+    let integrated = |v: &crate::version::Version| {
+        let p = RepoPath::new(&format!("{folder}/versions/{v}.md")).ok();
+        let local = p
+            .as_ref()
+            .and_then(|p| std::fs::read(loaded.root.dir.join(p.as_str()).as_std_path()).ok());
+        match (p.and_then(|p| repo.file_at(&tip, &p)), local) {
+            (Some(a), Some(b)) => {
+                crate::hash::hash_normalised(&a) == crate::hash::hash_normalised(&b)
+            }
+            _ => false,
+        }
+    };
+    let Some(own) = mine.iter().copied().filter(|v| !integrated(v)).max() else {
+        return Err(refuse(
+            "nothing to reseal: every local version is on the integration line".into(),
+            "--reseal renumbers only your own unintegrated seal",
+        ));
+    };
+    if mine.iter().any(|v| *v > own) {
+        return Err(refuse(
+            format!("{own} is not the latest local seal"),
+            "reseal one seal at a time, newest first",
+        ));
+    }
+    let read = |p: &RepoPath| -> Result<String, Error> {
+        std::fs::read_to_string(loaded.root.dir.join(p.as_str()).as_std_path())
+            .map(|t| t.replace("\r\n", "\n"))
+            .map_err(|e| Error::io(p.as_str(), "read", &e, false))
+    };
+    let mut set = WriteSet::new(WriteSetKind::Seal);
+    let mut lines = Vec::new();
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    for d in docs.iter().filter(|d| d.sealed == Some(own)) {
+        let text = read(&d.path)?;
+        let new = crate::graveyard::set_keys(&text, |doc| {
+            doc["status"] = toml_edit::value("ready");
+            for k in ["sealed", "body-hash", "ordinal"] {
+                doc.remove(k);
+            }
+        })
+        .map_err(Error::Internal)?;
+        let slug = d
+            .path
+            .file_name()
+            .trim_end_matches(".md")
+            .split_once('-')
+            .map_or_else(|| "doc".to_owned(), |(_, s)| s.to_owned());
+        let dir = d
+            .path
+            .parent()
+            .map(|p| p.as_str().to_owned())
+            .unwrap_or_default();
+        let to = RepoPath::new(&format!("{dir}/{}-{slug}.md", d.id))
+            .map_err(|e| Error::Internal(format!("{e:?}")))?;
+        set.add(PlannedWrite {
+            path: to.clone(),
+            kind: if to == d.path {
+                WriteKind::Replace
+            } else {
+                WriteKind::Create
+            },
+            bytes: new.into_bytes(),
+            class: crate::classify::FileClass::Authored,
+            expect_prior: (to == d.path).then(|| crate::hash::hash_normalised(text.as_bytes())),
+        })?;
+        if to != d.path {
+            set.add(PlannedWrite {
+                path: d.path.clone(),
+                kind: WriteKind::Delete,
+                bytes: Vec::new(),
+                class: crate::classify::FileClass::Authored,
+                expect_prior: Some(crate::hash::hash_normalised(text.as_bytes())),
+            })?;
+        }
+        lines.push(PlanLine {
+            action: PlanAction::Edit,
+            path: to,
+            detail: format!("unsealed from {own}"),
+            diff: None,
+        });
+    }
+    let vf = RepoPath::new(&format!("{folder}/versions/{own}.md"))
+        .map_err(|e| Error::Internal(format!("{e:?}")))?;
+    let vtext = read(&vf)?;
+    set.add(PlannedWrite {
+        path: vf.clone(),
+        kind: WriteKind::Delete,
+        bytes: Vec::new(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: Some(crate::hash::hash_normalised(vtext.as_bytes())),
+    })?;
+    for (p, text) in &loaded.facts.ledgers {
+        let Ok(mut y) = crate::hist::YearFile::parse(text) else {
+            continue;
+        };
+        let Some(at) = y
+            .lines
+            .iter()
+            .position(|l| matches!(l, crate::hist::HistLine::Ckpt { v, .. } if *v == own))
+        else {
+            continue;
+        };
+        let from = y.lines[..at]
+            .iter()
+            .rposition(|l| matches!(l, crate::hist::HistLine::Ckpt { .. }))
+            .map_or(0, |i| i + 1);
+        y.lines.drain(from..=at);
+        let old = text.replace("\r\n", "\n");
+        let new = y.render();
+        set.add(PlannedWrite {
+            path: p.clone(),
+            kind: WriteKind::Replace,
+            bytes: new.into_bytes(),
+            class: crate::classify::FileClass::Ledger,
+            expect_prior: Some(crate::hash::hash_normalised(old.as_bytes())),
+        })?;
+        lines.push(PlanLine {
+            action: PlanAction::Edit,
+            path: p.clone(),
+            detail: format!("records of {own} removed"),
+            diff: None,
+        });
+    }
+    Ok((Plan::new(set, lines, Vec::new()), own, theirs))
+}
+
+/// `new change <draft id or path> --reid` (R-VER-042): a colliding draft gets a new draft ID; its
+/// file is renamed and its own text follows. With two docs on one ID, name the later one by path.
+pub fn plan_reid(loaded: &Loaded, target: &str) -> Result<Plan, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    let hits: Vec<&crate::docs::ChangeDoc> = docs
+        .iter()
+        .filter(|d| d.id.as_str() == target || d.path.as_str() == target)
+        .collect();
+    let d = match hits.as_slice() {
+        [one] => *one,
+        [] => return Err(Error::Usage(format!("no change doc {target}"))),
+        _ => {
+            return Err(Error::Usage(format!(
+                "{target} names {} docs; pass the path of the later one",
+                hits.len()
+            )));
+        }
+    };
+    if !d.status.is_pending() {
+        return Err(Error::Usage(format!(
+            "{} is sealed; a sealed doc keeps its ID",
+            d.id
+        )));
+    }
+    let taken: BTreeSet<&str> = docs.iter().map(|x| x.id.as_str()).collect();
+    let mut id = crate::docs::DraftId::from_bits(random_bits());
+    while taken.contains(id.as_str()) {
+        id = crate::docs::DraftId::from_bits(random_bits());
+    }
+    let text = std::fs::read_to_string(loaded.root.dir.join(d.path.as_str()).as_std_path())
+        .map_err(|e| Error::io(d.path.as_str(), "read", &e, false))?
+        .replace("\r\n", "\n");
+    let new = text.replace(d.id.as_str(), id.as_str());
+    let name = d.path.file_name().replacen(d.id.as_str(), id.as_str(), 1);
+    let dir = d
+        .path
+        .parent()
+        .map(|p| p.as_str().to_owned())
+        .unwrap_or_default();
+    let to =
+        RepoPath::new(&format!("{dir}/{name}")).map_err(|e| Error::Internal(format!("{e:?}")))?;
+    let mut set = WriteSet::new(WriteSetKind::New);
+    set.add(PlannedWrite {
+        path: to.clone(),
+        kind: WriteKind::Create,
+        bytes: new.into_bytes(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: None,
+    })?;
+    set.add(PlannedWrite {
+        path: d.path.clone(),
+        kind: WriteKind::Delete,
+        bytes: Vec::new(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: Some(crate::hash::hash_normalised(text.as_bytes())),
+    })?;
+    let lines = vec![PlanLine {
+        action: PlanAction::Create,
+        path: to,
+        detail: format!("{} re-identified as {id}", d.id),
+        diff: None,
+    }];
+    Ok(Plan::new(set, lines, Vec::new()))
+}
+
 /// `move SRC DST` (R-CLI-040).
 #[derive(Clone, Debug)]
 pub struct MoveRequest {
@@ -2300,6 +2530,10 @@ pub struct SealRequest {
     /// `--anywhere`: seal off the integration branch even when `version.seal-where` says
     /// `integration` (the control key `any` has the same effect).
     pub seal_anywhere: bool,
+    /// `--reseal`: versions sealed on the integration line, counted as sealed here (R-GIT-031).
+    pub also_sealed: Vec<crate::version::Version>,
+    /// `--reseal`: the paths its undo step wrote, which are not a dirty tree.
+    pub own_outputs: BTreeSet<RepoPath>,
 }
 
 /// R-LC-031: every graveyard entry without a fingerprint gets one from its rejected material,
@@ -2418,13 +2652,36 @@ pub fn plan_seal(
                 detached,
                 branch,
                 unmerged: repo.unmerged_paths()?,
-                changed: repo.changed_files()?.0.into_iter().collect(),
+                // `--reseal`: the files its own undo step rewrote are part of this seal's work.
+                changed: repo
+                    .changed_files()?
+                    .0
+                    .into_iter()
+                    .filter(|p| !request.own_outputs.contains(p))
+                    .collect(),
             }
         }
     };
     let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
     let paths: BTreeSet<RepoPath> = loaded.corpus.records.keys().cloned().collect();
-    let versions = crate::docs::version_files(&loaded.corpus, &loaded.root.folder);
+    let mut versions = crate::docs::version_files(&loaded.corpus, &loaded.root.folder);
+    versions.extend(request.also_sealed.iter().copied());
+    versions.sort();
+    versions.dedup();
+    let line = {
+        let local = version_line(loaded);
+        let start = crate::version::Version::parse(&loaded.root_control.version.start)
+            .unwrap_or(crate::version::Version::new(0, 1, 0));
+        let pending = docs
+            .iter()
+            .filter(|d| d.status.is_pending())
+            .map(|d| d.impact.unwrap_or(crate::version::Impact::Fix));
+        if request.also_sealed.is_empty() {
+            local
+        } else {
+            crate::version::derive_line(versions.iter().copied(), pending, start)
+        }
+    };
     let (due, plan_records, tombs) = crate::check::builtin::plans::seal_lifecycle(
         registry,
         &loaded.corpus,
@@ -2432,7 +2689,7 @@ pub fn plan_seal(
         options.as_of.0,
     );
     let seal_plan = crate::seal::plan(&crate::seal::SealInput {
-        line: version_line(loaded),
+        line,
         docs: &docs,
         gate_errors,
         secrets,
