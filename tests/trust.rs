@@ -205,3 +205,11 @@ fn r_chk_009__the_summary_says_when_an_error_does_not_fail_the_run() {
         "terse keeps its contract"
     );
 }
+
+#[test]
+fn r_cli_037__an_empty_approval_list_says_so() {
+    let repo = repo();
+    let run = repo.run(&["approve", "--list", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert_eq!(run.stdout, "no approvals recorded\n");
+}

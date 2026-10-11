@@ -113,10 +113,12 @@ pub fn retype_matches(typed: &str, prefix: &str) -> bool {
 }
 
 fn list_text(loaded: &fairlead_core::pipeline::Loaded) -> String {
-    loaded
-        .facts
-        .approvals
-        .approvals
+    let approvals = &loaded.facts.approvals.approvals;
+    // 0.2.1-T7 (D-62): an empty success read as "no approvals system", like `sync`'s `no changes`.
+    if approvals.is_empty() {
+        return "no approvals recorded\n".into();
+    }
+    approvals
         .iter()
         .map(|a| format!("{} {} {} {}\n", a.fp, a.target, a.approver, a.date))
         .collect()
