@@ -12,7 +12,7 @@ pub struct PathsCheck;
 const CODES: [DiagCode; 1] = [HN_M001];
 
 /// Only a glob whose first segment is literal can go dead; `**/*.css` may match nothing yet.
-fn anchored(g: &str) -> bool {
+pub(crate) fn anchored(g: &str) -> bool {
     let first = g.trim_start_matches("./").split('/').next().unwrap_or("");
     !first.is_empty() && !first.contains(['*', '?', '[', '{'])
 }

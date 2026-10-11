@@ -2505,7 +2505,89 @@ pub fn plan_new(
             as_of,
         );
     }
-    new_plan(request, registry, &loaded.facts, as_of)
+    let plan = new_plan(request, registry, &loaded.facts, as_of)?;
+    validate_control_writes(loaded, registry, &plan)?;
+    Ok(plan)
+}
+
+/// 0.2.1 T1 (D-62): `new` never writes a control file that `check` would reject. Each planned
+/// control-file write is applied in memory and parsed as `check` parses it; a failure refuses with
+/// the parser's own diagnostic, and so does a new rule's anchored glob that matches no file of its
+/// scope (the `HN-M001` test). Nothing is written in either case.
+fn validate_control_writes(loaded: &Loaded, registry: &Registry, plan: &Plan) -> Result<(), Error> {
+    use crate::write::WriteKind;
+    let refuse = |msg: String, hint: &str| Error::Usage(format!("{msg}\nnothing written; {hint}"));
+    for (path, w) in &plan.set.writes {
+        if path.file_name() != "control.toml" {
+            continue;
+        }
+        let abs = loaded.root.dir.join(path.as_str());
+        let old = std::fs::read(abs.as_std_path()).unwrap_or_default();
+        let new = match &w.kind {
+            WriteKind::AppendBlock { marker } if marker.is_empty() => {
+                crate::write::append_plain(&old, &String::from_utf8_lossy(&w.bytes))
+            }
+            WriteKind::AppendBlock { marker } => {
+                crate::write::splice_block(&old, marker, &String::from_utf8_lossy(&w.bytes))?
+            }
+            WriteKind::Delete => continue,
+            _ => w.bytes.clone(),
+        };
+        let is_root = path.as_str() == format!("{}/control.toml", loaded.root.folder);
+        let ctl = match crate::config::parse_control(path, &new, is_root) {
+            Ok(c) => c,
+            Err(f) => {
+                let first = f.diags.first().map_or_else(
+                    || "the file does not parse".to_owned(),
+                    |d| d.message.clone(),
+                );
+                return Err(refuse(
+                    format!("the planned {} would be invalid: {first}", path.as_str()),
+                    "fix the --field value it names",
+                ));
+            }
+        };
+        // New rules only: an existing dead glob is HN-M001's to report, not a reason to refuse.
+        let dir = path
+            .parent()
+            .and_then(|f| f.parent())
+            .map(|d| d.as_str().to_owned())
+            .unwrap_or_default();
+        let before: BTreeSet<&str> = registry
+            .scopes()
+            .find(|s| s.dir.as_str() == dir)
+            .and_then(|s| s.control.as_ref())
+            .map(|c| c.rules.keys().map(String::as_str).collect())
+            .unwrap_or_default();
+        let files: Vec<&str> = loaded
+            .corpus
+            .records
+            .keys()
+            .filter_map(|p| crate::extract::literals::rel_to(p.as_str(), &dir))
+            .collect();
+        for (name, rule) in ctl
+            .rules
+            .iter()
+            .filter(|(n, _)| !before.contains(n.as_str()))
+        {
+            for g in rule
+                .glob
+                .iter()
+                .filter(|g| crate::check::builtin::paths::anchored(g))
+            {
+                let Ok(m) = globset::Glob::new(g).map(|g| g.compile_matcher()) else {
+                    continue;
+                };
+                if !files.iter().any(|f| m.is_match(f)) {
+                    return Err(refuse(
+                        format!("glob {g} of rule.{name} matches no file"),
+                        "a glob names files, for example src/**/*.rs",
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 /// The version line of the loaded tree (R-VER-001 to R-VER-003): version files under the root's

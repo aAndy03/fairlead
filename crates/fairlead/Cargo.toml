@@ -46,6 +46,10 @@ name = "golden"
 path = "../../tests/golden.rs"
 
 [[test]]
+name = "trust"
+path = "../../tests/trust.rs"
+
+[[test]]
 name = "edition_goldens"
 path = "../../tests/edition_goldens.rs"
 
