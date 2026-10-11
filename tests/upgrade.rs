@@ -33,11 +33,10 @@ fn r_edn_012__refusal_has_exact_install_line() {
     let repo = repo_on(&[]);
     let run = repo.run_in(repo.path(), &["check", "--as-of", AS_OF], &ED2);
     assert_eq!(run.code, 4, "{}{}", run.stdout, run.stderr);
-    // Edition 1 is served by this release; the line names it exactly.
-    let line = format!(
-        "cargo install fairlead --version {} --locked",
-        env!("CARGO_PKG_VERSION")
-    );
+    // The line names the pin `init` wrote (`MAJOR.MINOR` of this binary) as an exact version.
+    let v = env!("CARGO_PKG_VERSION");
+    let minor = v.rsplit_once('.').map_or(v, |(mm, _)| mm);
+    let line = format!("cargo install fairlead --version {minor}.0 --locked");
     assert!(run.stderr.contains(&line), "{}", run.stderr);
 }
 
