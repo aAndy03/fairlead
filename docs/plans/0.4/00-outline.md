@@ -1,6 +1,6 @@
 # fairlead 0.4 outline: the content model
 
-> Decision [D-63](../../decisions.md). Status: outline, not a plan. It becomes a phased plan (like plans/0.3) after 0.3 ships and its freeze review is done. Built on the names 0.3 reserves (plans/0.3 P7-T9), so 0.4 adds behaviour within edition 1 and breaks nothing frozen (D-53).
+> Decision [D-63](../../decisions.md). Status: outline, not a plan. It becomes a phased plan (like plans/0.3) after 0.3 ships and its freeze review is done. The v1 API freeze is at the end of 0.4 (D-64), so 0.4 adds its surface before the freeze, within edition 1.
 
 ## The idea
 
@@ -21,7 +21,7 @@ Up to 0.3, fairlead sees mostly text: its own directives, globs, regex rules and
 6. **Restructuring by fairlead.** A rename or move of an ID, file or scope rewrites the references (lifting D-50's "no rewriting tool" limit, which covered 0.1 to 0.3), shows the plan first, and applies it as one transaction like every other writer.
 7. **More automatic follow-up.** After any writing command, fairlead runs the follow-up a person would: `sync` for generated files, reference rewriting after a move, and a short "what changed" note. Commands that write still show their plan, and `--dry-run` still writes nothing.
 
-## New surface (all names reserved in 0.3)
+## New surface
 
 | Name | What it does |
 |---|---|
@@ -59,8 +59,9 @@ Languages follow the repositories fairlead is used on: Rust, TypeScript and Java
 7. `config` (governed editing) and agent mode.
 8. Field test by an agent on a real repository, as for 0.2.
 
-## Open questions for the owner
+## Owner answers (D-64)
 
-- Q4-1: duplicated code. Report only, or also propose a shared object (as a plan, never automatic)? Leaning: report only in 0.4.
-- Q4-2: agent mode and CI. Fail `check --ci` on agent-mode approvals on the default branch by default? Leaning: no; it is a setting the owner turns on.
-- Q4-3: the order of languages after Rust. Leaning: TypeScript, then CSS, then the rest.
+- Q4-1: duplicated code is reported only in 0.4; no proposed merge.
+- Q4-2: `check --ci` does not fail on agent-mode approvals by default; failing on them is a setting.
+- Q4-3: languages after Rust: TypeScript, then CSS, then Markdown, TOML and JSON.
+- The v1 API freeze is at the end of 0.4: 0.4's last phase writes `docs/v1-api.md` and freezes it.

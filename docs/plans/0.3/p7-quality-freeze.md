@@ -32,7 +32,7 @@ Before the first bless, a reviewer agent reviews the expected outputs (agent pro
 
 **T6. Regression.** Exit criterion 6: every 0.1 and 0.2 suite passes unchanged, including the edition byte-stability fixtures. `PENDING_0_3` is empty.
 
-**T7. v1 API freeze.** D-53, R-ARCH-003:
+**T7. v1 API surface (draft; the freeze is at the end of 0.4, D-64).** D-53, R-ARCH-003. The snapshot test below is written now and fails on any change, so changes stay deliberate; until the 0.4 freeze a change only updates the snapshot with an errata entry:
 - Write `docs/v1-api.md` listing the frozen surface:
   - CLI verbs and documented flags;
   - exit codes;
@@ -56,11 +56,4 @@ Before the first bless, a reviewer agent reviews the expected outputs (agent pro
 | Owner: `fairlead approve` where a protocol needs it, and tagging `v0.3.0` | R-AGT-026 |
 | 1.0 preconditions stay time-based: edition 1 stable for two minors, one external repository for six months | R-REL-034 |
 
-**T9. Names reserved for the 0.4 content model (D-63).** Added 2026-10-11. The v1 freeze adds nothing within edition 1, so the names 0.4 needs are reserved before the freeze. Each is recognised and refused with `<name> arrives in 0.4` (exit 2), like the reserved verbs of R-CLI-001, and `docs/v1-api.md` lists them as reserved:
-- verbs `map` (the object graph of a scope or the tree) and `config` (governed config editing of D-62: re-glob or retire a rule, raise a pin, add a table, each as an approvable plan);
-- the built-in kind `const` (a declared constant, bound to the symbol below the directive);
-- rule check types `check = "query"` (a rule over content objects) and `check = "require"` (a positive check: something must exist);
-- root control tables `[content]` (languages to parse, object limits, cache) and `[agent-mode]` (scopes, version range, on or off);
-- the approval record value `approver = "agent-mode"`.
-
-A test asserts each reserved name gives the "arrives in 0.4" message and changes nothing on disk.
+**T9. Withdrawn (D-64).** The names the 0.4 content model needs no longer have to be reserved, because the freeze moved to the end of 0.4.

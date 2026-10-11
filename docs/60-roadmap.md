@@ -67,7 +67,7 @@ Not in 0.1: seal and versions, environments, maturity, lifecycle flags, graveyar
 
 ### 3.3a Path to 1.0 (D-53)
 
-The v1 API (CLI surface, directive grammar per edition, output formats) is frozen at the end of 0.3. Releases 0.4 to 0.9 close the gaps found after the freeze, without breaking the frozen surface except through an edition. 1.0 follows when the gap list is empty. Gaps that remain open in this specification until then are expected, not defects.
+The v1 API (CLI surface, directive grammar per edition, output formats) is frozen at the end of 0.4 (D-64; it was the end of 0.3 under D-53). Releases 0.5 to 0.9 close the gaps found after the freeze, without breaking the frozen surface except through an edition. 1.0 follows when the gap list is empty. Gaps that remain open in this specification until then are expected, not defects.
 
 ### 3.4 Rule counts by milestone
 

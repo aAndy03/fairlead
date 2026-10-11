@@ -1,6 +1,6 @@
 # fairlead 0.3 implementation plan (master)
 
-> Release 0.3, "hierarchy, variation, portability, retention". Scope: [60-roadmap.md](../../60-roadmap.md) section 3.3. Exit criteria: section 4.3. Rules: every rule tagged `[0.3]` (175 by the roadmap count, 190 tagged lines), mainly chapters 30 to 33. At the end of 0.3 the v1 API is frozen (D-53, R-ARCH-003).
+> Release 0.3, "hierarchy, variation, portability, retention". Scope: [60-roadmap.md](../../60-roadmap.md) section 3.3. Exit criteria: section 4.3. Rules: every rule tagged `[0.3]` (175 by the roadmap count, 190 tagged lines), mainly chapters 30 to 33. The v1 API freeze moved to the end of 0.4 (D-64); 0.3 writes the surface down (P7-T7) but does not freeze it.
 >
 > **Level of detail.** As for 0.2: tasks, interfaces, file formats and test names; the executor writes the code against the cited chapter. Chapters and [decisions.md](../../decisions.md) win over this plan, and differences go into `plans/0.3/errata.md`.
 
@@ -93,4 +93,4 @@ Also: `PENDING_0_3` is empty, the v1 API surface is written down and frozen (P7-
 | Retention rewrites history-bearing files. | Compaction runs only inside `seal`'s transaction, before the commit point. Finalised years are immutable; purge is the only rewrite and does not re-chain (R-RET-033). Determinism is tested on two platforms. |
 | Portability crosses repository boundaries. | No transaction spans two repositories (R-PORT-043). Everything imported is pinned and inert until approved (R-PORT-023, R-PORT-044). |
 | Fork detection false positives annoy users. | It ships off (R-VAR-084). Similarity measures are reserved and unspecified (R-VAR-081). |
-| The v1 freeze locks mistakes in. | P7 writes the surface down and runs a review checklist before tagging. Post-freeze gaps go to 0.4 to 0.9 (D-53). |
+| The v1 freeze locks mistakes in. | The freeze is at the end of 0.4 (D-64), after the content model; P7 writes the 0.3 surface down as its draft. |
