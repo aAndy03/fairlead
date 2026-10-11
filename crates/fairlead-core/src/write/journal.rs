@@ -41,7 +41,10 @@ impl Fs for RealFs {
         f.sync_all()
     }
     fn rename(&self, from: &Utf8Path, to: &Utf8Path) -> io::Result<()> {
-        std::fs::rename(from.as_std_path(), to.as_std_path())
+        std::fs::rename(from.as_std_path(), to.as_std_path())?;
+        #[cfg(feature = "test-edition")]
+        crash_hook();
+        Ok(())
     }
     fn remove_file(&self, p: &Utf8Path) -> io::Result<()> {
         match std::fs::remove_file(p.as_std_path()) {
@@ -63,6 +66,24 @@ impl Fs for RealFs {
     }
     fn pause(&self, ms: u64) {
         std::thread::sleep(Duration::from_millis(ms));
+    }
+}
+
+/// P7-T3: in a `test-edition` build, `FAIRLEAD_TEST_CRASH_AFTER=N` ends the process after the
+/// N-th completed rename (an abort), leaving a transaction interrupted for a later run to finish.
+#[cfg(feature = "test-edition")]
+fn crash_hook() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static DONE: AtomicUsize = AtomicUsize::new(0);
+    #[allow(clippy::disallowed_methods)] // reason: test-only crash injection, never in a release
+    let limit = std::env::var("FAIRLEAD_TEST_CRASH_AFTER")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok());
+    if let Some(n) = limit
+        && DONE.fetch_add(1, Ordering::SeqCst) + 1 >= n
+    {
+        // A crash, not an orderly exit (R-ARCH-100): nothing after this rename runs.
+        std::process::abort();
     }
 }
 
