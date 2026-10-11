@@ -252,7 +252,7 @@ Never cut: baseline, `check` core, the literal-leak check (D-43), `context`, `ov
 | R-REL-004 | The stability surface is: CLI verbs and documented flags, exit codes ([15-cli.md](15-cli.md) R-CLI-003), directive grammar per edition, diagnostic and rule IDs, JSON and SARIF output shapes, generated-file formats. The `fairlead-core` and `fairlead-syntax` library APIs are NOT part of it before 1.0. | [0.1] |
 | R-REL-005 | Rule IDs and diagnostic codes MUST NOT be reused after retirement. | [0.1] |
 | R-REL-006 | The MSRV floor is 1.88. It MAY rise only in a minor release, MUST be announced in the changelog, and MUST be tested in CI. It rises to 1.90 only when `tree-sitter` is adopted. A patch release MUST NOT raise it. | [0.1] |
-| R-REL-007 | The project and its fixtures MUST be licensed MIT OR Apache-2.0 (the Rust convention), with both licence texts in the repository before the first publish. | [0.1] |
+| R-REL-007 | The project and its fixtures MUST be licensed GPL-3.0-or-later from 0.2.0, with the full licence text in `LICENSE` (D-60). Release 0.1.0 was published under MIT and stays MIT. | [0.1] [0.2] |
 
 ### 9.2 Editions and deprecation
 
@@ -353,7 +353,7 @@ All questions were accepted by their stated leaning on 2026-10-09 (D-46).
 - Q-ROAD-3 (resolved 2026-10-09): the cut order of 8.1 stands; D-38 orders the build but nested scopes and `approve` records are not cut; see R-ROAD-021
 - Q-ROAD-4 (resolved 2026-10-09): the pilot includes at least one external repository before 0.2 is complete; see R-ROAD-019
 - Q-ROAD-5 (resolved 2026-10-09): the 0.1 thresholds, including R-ROAD-009's 80%, are final and pre-registered (Q-PROD-4); the 0.2 and 0.3 thresholds are reviewed once after the 0.1 ablation; see R-ROAD-014, R-ROAD-020
-- Q-ROAD-6 (resolved 2026-10-09): the project and its fixtures are MIT OR Apache-2.0; see R-REL-007
+- Q-ROAD-6 (resolved 2026-10-09; changed 2026-10-11 by D-60): the project and its fixtures are GPL-3.0-or-later from 0.2.0; 0.1.0 was MIT; see R-REL-007
 - Q-ROAD-7 (resolved 2026-10-09): rename first, to `fairlead` after the trademark check (D-47); see R-REL-040, R-REL-043
 - Q-PROD-3 (resolved 2026-10-09): the literal-leak check is part of 0.1 (D-43); see 3.1, R-ROAD-016
 - Q-PROD-4 (resolved 2026-10-09): the measurable 0.1 exit criteria are written before the test is built; see 4.1, R-ROAD-014
