@@ -1,0 +1,2 @@
+wrote fairlead/gen/alias
+wrote fairlead/gen/scope.lock

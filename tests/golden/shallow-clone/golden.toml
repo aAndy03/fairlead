@@ -1,0 +1,44 @@
+[golden]
+name = "shallow-clone"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+# P7-T1: depth 1, coverage unavailable, exit not 0.
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+stdout = "expected/check-full.terse.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.0"],
+]
+commit = "later work"
+
+[[case.edit]]
+path = "src/b.rs"
+append = '''
+fn b() {}
+'''
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+cwd = "shallow"
+exit = 5
+stdout = "expected/check-shallow.terse.txt"
+reuse = true
+git = [
+  ["clone", "-q", "--no-local", "--depth", "1", ".", "shallow"],
+]
+
+[[case]]
+args = ["context", "--as-of", "2026-10-10"]
+cwd = "shallow"
+exit = 0
+stdout = "expected/context-shallow.txt"
+reuse = true

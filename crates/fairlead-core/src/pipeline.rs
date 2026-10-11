@@ -922,14 +922,24 @@ pub fn plan_rename(
     })
 }
 
+/// What `seal --reseal`'s first step returns.
+#[derive(Debug)]
+pub struct Unseal {
+    pub plan: Plan,
+    /// The version undone.
+    pub own: crate::version::Version,
+    /// The versions sealed on the integration line.
+    pub theirs: Vec<crate::version::Version>,
+    /// The sealed change docs of the integration line, whose ordinals the reseal continues.
+    pub their_docs: Vec<crate::docs::ChangeDoc>,
+}
+
 /// `seal --reseal`, step 1 (R-GIT-031): undo the user's own unintegrated seal, the latest version
 /// file the integration branch does not have: its docs go back to `ready` under their draft
 /// names, its version file and its ledger records go. Returns the plan, the version undone and the
 /// versions sealed on the integration line, which the second step counts as sealed so the seal
 /// takes the next number. A version the integration line already has is never renumbered.
-pub fn plan_unseal(
-    loaded: &Loaded,
-) -> Result<(Plan, crate::version::Version, Vec<crate::version::Version>), Error> {
+pub fn plan_unseal(loaded: &Loaded) -> Result<Unseal, Error> {
     use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
     let refuse = |m: String, h: &str| {
         Error::Refused(crate::error::Refusal {
@@ -1051,6 +1061,12 @@ pub fn plan_unseal(
         class: crate::classify::FileClass::Authored,
         expect_prior: Some(crate::hash::hash_normalised(vtext.as_bytes())),
     })?;
+    lines.push(PlanLine {
+        action: PlanAction::Edit,
+        path: vf,
+        detail: "version file removed".into(),
+        diff: None,
+    });
     for (p, text) in &loaded.facts.ledgers {
         let Ok(mut y) = crate::hist::YearFile::parse(text) else {
             continue;
@@ -1083,7 +1099,42 @@ pub fn plan_unseal(
             diff: None,
         });
     }
-    Ok((Plan::new(set, lines, Vec::new()), own, theirs))
+    // The integration line's sealed docs, from each directory that holds a local change doc: the
+    // reseal's ordinals continue after theirs, so the merged line has no duplicate (R-VER-041).
+    let dirs: BTreeSet<String> = docs
+        .iter()
+        .filter_map(|d| d.path.parent().map(|p| p.as_str().to_owned()))
+        .collect();
+    let mut their_docs = Vec::new();
+    for dir in &dirs {
+        for name in repo.names_at(&tip, dir) {
+            let Ok(p) = RepoPath::new(&format!("{dir}/{name}")) else {
+                continue;
+            };
+            let Some(bytes) = repo.file_at(&tip, &p) else {
+                continue;
+            };
+            let text = String::from_utf8_lossy(&bytes).replace("\r\n", "\n");
+            let Some(t) = text
+                .strip_prefix("+++\n")
+                .and_then(|r| r.split_once("\n+++"))
+                .and_then(|(fm, _)| fm.parse::<toml::Table>().ok())
+            else {
+                continue;
+            };
+            if let Ok(Some(d)) = crate::docs::parse_change_doc(&p, &t)
+                && d.ordinal.is_some()
+            {
+                their_docs.push(d);
+            }
+        }
+    }
+    Ok(Unseal {
+        plan: Plan::new(set, lines, Vec::new()),
+        own,
+        theirs,
+        their_docs,
+    })
 }
 
 /// `new change <draft id or path> --reid` (R-VER-042): a colliding draft gets a new draft ID; its
@@ -2534,6 +2585,8 @@ pub struct SealRequest {
     pub also_sealed: Vec<crate::version::Version>,
     /// `--reseal`: the paths its undo step wrote, which are not a dirty tree.
     pub own_outputs: BTreeSet<RepoPath>,
+    /// `--reseal`: the integration line's sealed docs, counted for ordinals only.
+    pub also_docs: Vec<crate::docs::ChangeDoc>,
 }
 
 /// R-LC-031: every graveyard entry without a fingerprint gets one from its rejected material,
@@ -2698,6 +2751,7 @@ pub fn plan_seal(
         seal_anywhere: request.seal_anywhere || loaded.root_control.version.seal_anywhere,
         integration_branch: loaded.root_control.version.integration_branch.clone(),
         folder: loaded.root.folder.clone(),
+        also_docs: &request.also_docs,
         paths: &paths,
         sweep_after: usize::try_from(loaded.root_control.version.sweep_after).unwrap_or(3),
         sealed_versions: &versions,

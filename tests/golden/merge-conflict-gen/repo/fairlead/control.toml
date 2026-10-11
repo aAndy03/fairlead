@@ -1,0 +1,26 @@
+[fairlead]
+edition = 1
+root = true
+scope = "root"
+marker = "fairlead"
+
+[settings]
+folder = "fairlead"
+fairlead-version = "0.1"
+fairlead-range = ">=0.1, <0.2"
+# owners = ["@handle"]
+
+[scan]
+exclude = [".claude/worktrees/"]
+
+[agents]
+targets = ["AGENTS.md", "CLAUDE.md"]
+
+# Declare kinds before using them, for example:
+# [kinds.adr]
+# title = "decision"
+# shape = "doc"
+#
+# [kinds.tok]
+# title = "design token"
+# shape = "doc"

@@ -37,13 +37,19 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
         seal_anywhere: args.anywhere,
         also_sealed: Vec::new(),
         own_outputs: Default::default(),
+        also_docs: Vec::new(),
     };
     let mut loaded = loaded;
     let mut registry = registry;
     let mut unsealed = String::new();
     if args.reseal {
         // R-GIT-031: undo the own seal, then seal again after the integration line's numbers.
-        let (undo, own, theirs) = fairlead_core::pipeline::plan_unseal(&loaded)?;
+        let fairlead_core::pipeline::Unseal {
+            plan: undo,
+            own,
+            theirs,
+            their_docs,
+        } = fairlead_core::pipeline::plan_unseal(&loaded)?;
         if !args.yes || args.dry_run {
             let mut r = CommandResult::text(format!(
                 "reseal: {own} is unintegrated; it is renumbered after {}\n{}not applied; re-run with --yes\n",
@@ -64,6 +70,7 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
         loaded = load(&load_request(global, false, None)?)?;
         registry = resolve_loaded(&loaded, as_of(global));
         request.also_sealed = theirs;
+        request.also_docs = their_docs;
         request.seal_anywhere = true;
     }
     let (seal_plan, plan) = plan_seal(&loaded, &registry, &options, &request)?;

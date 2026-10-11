@@ -1,0 +1,71 @@
+[golden]
+name = "squash-merge"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+# P7-T1: change docs survive a squash; coverage by file.
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+stdout = "expected/check-feature.terse.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.0"],
+  ["checkout", "-q", "-b", "feature"],
+]
+commit = "feature"
+
+[[case.edit]]
+path = "lib/x.rs"
+append = '''
+fn x() {}
+'''
+
+[[case.edit]]
+path = "fairlead/docs/changes/d-pj06jv87-third-change.md"
+append = '''
++++
+id = "d-pj06jv87"
+kind = "change"
+status = "ready"
+impact = "add"
+scope = "root"
+title = "Third change"
+covers = ["lib/**"]
+created = "0.1.0"
++++
+
+# Third change
+
+Third change, for the golden history.
+'''
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+stdout = "expected/check-squashed.terse.txt"
+reuse = true
+git = [
+  ["checkout", "-q", "main"],
+  ["merge", "-q", "--squash", "feature"],
+  ["commit", "-q", "-m", "feature (squashed)"],
+]
+commit = "uncovered edit"
+
+[[case.edit]]
+path = "src/c.rs"
+append = '''
+fn c() {}
+'''
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/seal-0.1.1.txt"
+reuse = true

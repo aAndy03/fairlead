@@ -1,0 +1,83 @@
+[golden]
+name = "cherry-pick-seal"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+# P7-T1: a seal cherry-picked alone: prev continuity fails.
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+
+[[case]]
+args = ["seal", "--yes", "--anywhere", "--as-of", "2026-10-10"]
+exit = 0
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.0"],
+  ["checkout", "-q", "-b", "work"],
+]
+commit = "work change"
+
+[[case.edit]]
+path = "fairlead/docs/changes/d-ecpypy0b-work-change.md"
+append = '''
++++
+id = "d-ecpypy0b"
+kind = "change"
+status = "ready"
+impact = "add"
+scope = "root"
+title = "Work change"
+covers = ["src/**"]
+created = "0.1.0"
++++
+
+# Work change
+
+Work change, for the golden history.
+'''
+
+[[case]]
+args = ["seal", "--yes", "--anywhere", "--as-of", "2026-10-10"]
+exit = 0
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.1"],
+]
+commit = "second change"
+
+[[case.edit]]
+path = "fairlead/docs/changes/d-jp12t4e9-main-change.md"
+append = '''
++++
+id = "d-jp12t4e9"
+kind = "change"
+status = "ready"
+impact = "add"
+scope = "root"
+title = "Main change"
+covers = ["src/**"]
+created = "0.1.0"
++++
+
+# Main change
+
+Main change, for the golden history.
+'''
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 1
+stdout = "expected/check-cherry-picked.terse.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.2"],
+  ["checkout", "-q", "main"],
+  ["!", "cherry-pick", "work"],
+  ["add", "-A"],
+  ["-c", "core.editor=true", "cherry-pick", "--continue"],
+]

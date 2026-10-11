@@ -1,0 +1,65 @@
+[golden]
+name = "revert-seal"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+# P7-T1: a revert un-seals; O returns.
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/seal-0.1.1.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.0"],
+]
+commit = "work change"
+
+[[case.edit]]
+path = "fairlead/docs/changes/d-ecpypy0b-work-change.md"
+append = '''
++++
+id = "d-ecpypy0b"
+kind = "change"
+status = "ready"
+impact = "add"
+scope = "root"
+title = "Work change"
+covers = ["src/**"]
+created = "0.1.0"
++++
+
+# Work change
+
+Work change, for the golden history.
+'''
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+stdout = "expected/check-sealed.terse.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.1"],
+]
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+stdout = "expected/check-reverted.terse.txt"
+reuse = true
+git = [
+  ["revert", "--no-edit", "HEAD"],
+]
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/seal-again.txt"
+reuse = true

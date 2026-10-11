@@ -1,0 +1,6 @@
+fairlead check 0.1.0 edition=1 as-of=2026-10-10 scopes=1 files=12 rules=0
+errors 0 warn 0 info 1 | baselined 1 | waived 0 | observe 0 | accepted 0
+HN-B001 info fairlead/gen/baseline.txt baseline entry f6yrawt2de8b (fairlead/control.toml) is fixed | fix: prune with fairlead sync --baseline
+waivers: none | relaxations: none
+exceptions: +0
+codeowners: 1 managerial folders uncovered

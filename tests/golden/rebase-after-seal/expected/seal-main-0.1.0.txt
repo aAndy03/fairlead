@@ -1,0 +1,8 @@
+bump: none -> 0.1.0 (1 docs, 0 carried)
+wrote fairlead/docs/changes/0001-adds-a.md
+wrote fairlead/docs/changes/d-wwmf7pr7-adds-a.md
+wrote fairlead/gen/alias
+wrote fairlead/gen/scope.lock
+wrote fairlead/ledger/hist/2026.hl
+wrote fairlead/versions/0.1.0.md
+sealed 0.1.0; run: git add -A && git commit   (or re-run with --commit)

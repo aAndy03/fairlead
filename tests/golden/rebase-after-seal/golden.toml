@@ -1,0 +1,141 @@
+[golden]
+name = "rebase-after-seal"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+# P7-T1: a seal on a branch, then a rebase onto a newer seal of the integration line.
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/seal-main-0.1.0.txt"
+
+[[case]]
+args = ["seal", "--yes", "--anywhere", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/seal-work-0.1.1.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.0"],
+  ["checkout", "-q", "-b", "work"],
+]
+commit = "work change"
+
+[[case.edit]]
+path = "fairlead/docs/changes/d-ecpypy0b-work-change.md"
+append = '''
++++
+id = "d-ecpypy0b"
+kind = "change"
+status = "ready"
+impact = "add"
+scope = "root"
+title = "Work change"
+covers = ["src/**"]
+created = "0.1.0"
++++
+
+# Work change
+
+Work change, for the golden history.
+'''
+
+[[case]]
+args = ["seal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/seal-main-0.1.1.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.1 on work"],
+  ["checkout", "-q", "main"],
+]
+commit = "main change"
+
+[[case.edit]]
+path = "fairlead/docs/changes/d-jp12t4e9-main-change.md"
+append = '''
++++
+id = "d-jp12t4e9"
+kind = "change"
+status = "ready"
+impact = "add"
+scope = "root"
+title = "Main change"
+covers = ["src/**"]
+created = "0.1.0"
++++
+
+# Main change
+
+Main change, for the golden history.
+'''
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 2
+stdout = "expected/check-collision.terse.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "seal 0.1.1 on main"],
+  ["checkout", "-q", "work"],
+  ["!", "rebase", "main"],
+]
+
+[[case]]
+args = ["seal", "--reseal", "--as-of", "2026-10-10"]
+exit = 4
+stdout = "expected/reseal-plan.txt"
+reuse = true
+git = [
+  ["rebase", "--abort"],
+]
+
+[[case]]
+args = ["seal", "--reseal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/reseal.txt"
+reuse = true
+
+[[case]]
+args = ["sync", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/sync-mid-rebase.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "reseal"],
+  ["reset", "-q", "--soft", "HEAD~3"],
+  ["commit", "-q", "-m", "work change, sealed 0.1.2"],
+  ["!", "rebase", "-q", "main"],
+]
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 1
+stdout = "expected/check-after-rebase.terse.txt"
+reuse = true
+git_status_clean = true
+git = [
+  ["add", "-A"],
+  ["-c", "core.editor=true", "rebase", "--continue"],
+]
+
+[[case]]
+args = ["seal", "--reseal", "--yes", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/reseal-after-rebase.txt"
+reuse = true
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+stdout = "expected/check-resealed.terse.txt"
+reuse = true
+git_status_clean = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "reseal 0.1.2"],
+]

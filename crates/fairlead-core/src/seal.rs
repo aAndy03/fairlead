@@ -34,6 +34,8 @@ pub struct SealInput<'a> {
     pub integration_branch: String,
     /// The root managerial folder, to tell the seal's own write-set from other changes.
     pub folder: String,
+    /// `--reseal`: sealed docs of the integration line; their ordinals are taken (R-GIT-031).
+    pub also_docs: &'a [ChangeDoc],
     /// Every path in the tree, for the sweep report (R-VER-045).
     pub paths: &'a BTreeSet<RepoPath>,
     /// `version.sweep-after` (default 3).
@@ -223,6 +225,7 @@ pub fn plan(input: &SealInput<'_>) -> Result<SealPlan, SealRefusal> {
         .docs
         .iter()
         .filter(|d| d.status == Status::Sealed)
+        .chain(input.also_docs)
         .collect();
     let ordinals = assign_ordinals(&ready, &existing);
 
@@ -849,6 +852,7 @@ mod tests {
                 seal_anywhere: false,
                 integration_branch: "main".into(),
                 folder: "fairlead".into(),
+                also_docs: &[],
                 paths: &self.paths,
                 sweep_after: 3,
                 sealed_versions: &self.versions,

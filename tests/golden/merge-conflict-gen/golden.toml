@@ -1,0 +1,142 @@
+[golden]
+name = "merge-conflict-gen"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+# P7-T1: conflict markers in gen/: sync regenerates; an authored conflict is refused.
+
+[[case]]
+args = ["sync", "--as-of", "2026-10-10"]
+exit = 0
+commit = "kinds"
+
+[[case.edit]]
+path = "fairlead/control.toml"
+append = '''
+
+[kinds.cmp]
+title = "component"
+shape = "either"
+'''
+
+[[case.edit]]
+path = "fairlead/docs/c.md"
+append = '''
++++
+title = "a"
+directives = [
+  'def cmp.a sum="component a"',
+]
++++
+'''
+
+[[case]]
+args = ["sync", "--as-of", "2026-10-10"]
+exit = 0
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "sync"],
+  ["checkout", "-q", "-b", "side"],
+]
+commit = "add b"
+
+[[case.edit]]
+path = "fairlead/docs/b.md"
+append = '''
++++
+title = "b"
+directives = [
+  'def cmp.b sum="component b"',
+]
++++
+'''
+
+[[case]]
+args = ["sync", "--as-of", "2026-10-10"]
+exit = 0
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "sync b"],
+  ["checkout", "-q", "main"],
+]
+commit = "add d"
+
+[[case.edit]]
+path = "fairlead/docs/d.md"
+append = '''
++++
+title = "d"
+directives = [
+  'def cmp.d sum="component d"',
+]
++++
+'''
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 3
+stdout = "expected/check-gen-conflict.terse.txt"
+reuse = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "-m", "sync d"],
+  ["!", "merge", "-q", "side"],
+]
+
+[[case]]
+args = ["sync", "--as-of", "2026-10-10"]
+exit = 0
+stdout = "expected/sync-regenerates.txt"
+reuse = true
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+stdout = "expected/check-merged.terse.txt"
+reuse = true
+git_status_clean = true
+git = [
+  ["add", "-A"],
+  ["commit", "-q", "--no-edit"],
+]
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+reuse = true
+git = [
+  ["checkout", "-q", "-b", "other"],
+]
+commit = "other edit"
+
+[[case.edit]]
+path = "src/a.rs"
+append = '''
+fn other() {}
+'''
+
+[[case]]
+args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
+exit = 0
+reuse = true
+git = [
+  ["checkout", "-q", "main"],
+]
+commit = "main edit"
+
+[[case.edit]]
+path = "src/a.rs"
+append = '''
+fn main_side() {}
+'''
+
+[[case]]
+args = ["sync", "--as-of", "2026-10-10"]
+exit = 4
+stdout = "expected/sync-authored-conflict.txt"
+reuse = true
+git = [
+  ["!", "merge", "-q", "other"],
+]

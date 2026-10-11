@@ -1,0 +1,4 @@
+@root d=ww8eye6e ed=1
+exceptions: 0
+drift: new=1 baselined=2
+=d k7mk7pyt est=26 next: fairlead check

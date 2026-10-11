@@ -1,0 +1,3 @@
+**/fairlead/** text eol=lf
+**/fairlead/gen/** linguist-generated=true -diff
+**/fairlead/ledger/** merge=union

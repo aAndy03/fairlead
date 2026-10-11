@@ -38,9 +38,13 @@ pub struct Case {
     /// A-38: run in the copy the previous case of this golden left behind.
     #[serde(default)]
     pub reuse: bool,
-    /// A-38: git commands run in the copy before the edits.
+    /// A-38: git commands run in the copy before the edits. P7-T1: a command whose first word
+    /// is `!` may fail (a rebase that stops on a conflict).
     #[serde(default)]
     pub git: Vec<Vec<String>>,
+    /// P7-T1: after the edits, `git add -A` and a commit with this message.
+    #[serde(default)]
+    pub commit: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -80,7 +84,7 @@ pub fn materialise(dir: &Path, meta: &Meta, dest: &Path) -> io::Result<()> {
         std::fs::rename(&dot_git, dest.join(".git"))?;
     }
     if meta.needs_git && !dest.join(".git").exists() {
-        git(dest, &["init", "-q"])?;
+        git(dest, &["init", "-q", "-b", "main"])?;
         git(dest, &["add", "-A"])?;
         git(dest, &["commit", "-q", "--allow-empty", "-m", "golden"])?;
     }
@@ -132,7 +136,11 @@ fn git(dir: &Path, args: &[&str]) -> io::Result<()> {
             "user.email=golden@invalid",
         ])
         .args(["-c", "core.autocrlf=false", "-c", "commit.gpgsign=false"])
+        .args(["-c", "advice.detachedHead=false"])
         .args(args)
+        // P7-T1: fixed dates keep commit IDs, and any output naming them, reproducible.
+        .env("GIT_AUTHOR_DATE", "2026-10-10T12:00:00Z")
+        .env("GIT_COMMITTER_DATE", "2026-10-10T12:00:00Z")
         .output()?;
     if out.status.success() {
         Ok(())
@@ -175,10 +183,19 @@ pub fn apply_edit(root: &Path, e: &Edit) -> io::Result<()> {
 pub fn run_case(bin: &Path, root: &Path, case: &Case) -> io::Result<CaseRun> {
     for g in &case.git {
         let args: Vec<&str> = g.iter().map(String::as_str).collect();
-        git(root, &args)?;
+        match args.split_first() {
+            Some((&"!", rest)) => {
+                let _ = git(root, rest);
+            }
+            _ => git(root, &args)?,
+        }
     }
     for e in &case.edits {
         apply_edit(root, e)?;
+    }
+    if let Some(m) = &case.commit {
+        git(root, &["add", "-A"])?;
+        git(root, &["commit", "-q", "--allow-empty", "-m", m])?;
     }
     let out = Command::new(bin)
         .current_dir(root.join(&case.cwd))

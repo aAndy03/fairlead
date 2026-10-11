@@ -1,0 +1,6 @@
+fairlead check 0.1.0 edition=1 as-of=2026-10-10 scopes=1 files=13 rules=0
+errors 0 warn 1 info 0 | baselined 2 | waived 0 | observe 0 | accepted 0
+HN-D006 warn src/b.rs changed file is not covered by a draft or ready change doc | fix: fairlead new change "<title>" --field covers=<glob>, or add it to an open doc's covers
+waivers: none | relaxations: none
+exceptions: +0
+codeowners: 1 managerial folders uncovered

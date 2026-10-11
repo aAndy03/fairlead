@@ -1,0 +1,11 @@
+fairlead check 0.1.0 edition=1 as-of=2026-10-10 scopes=1 files=15 rules=0
+errors 6 warn 0 info 0 | baselined 2 | waived 0 | observe 0 | accepted 0
+HN-V007 error fairlead/docs/changes/0002-work-change.md:1:1 ordinal 0002 of kind change is also used by fairlead/docs/changes/0002-main-change.md | fix: reseal the later doc so it gets the next ordinal (fairlead seal --reseal)
+HN-G001 error fairlead/gen/alias generated file differs from sync output: -# scope root edition=1 body=sthj07a3n1dwnqgztsgq / +d-ecpypy0b kind=change ord=0002 / -======= | fix: run fairlead sync
+HN-G003 error fairlead/ledger/hist/2026.hl:1:1 ledger chain broken: checkpoint v=0.1.1 digest d=7ss22scp does not recompute | fix: a ledger is never edited by hand; reseal the later seal (fairlead seal --reseal) or restore the file
+HN-G003 error fairlead/ledger/hist/2026.hl:1:1 ledger chain broken: checkpoint v=0.1.1 does not ascend | fix: a ledger is never edited by hand; reseal the later seal (fairlead seal --reseal) or restore the file
+HN-V001 error fairlead/versions/0.1.1.md:1:1 version file 0.1.1 holds a merge conflict: two branches sealed 0.1.1 | fix: keep the integration line's seal; reseal the other branch (fairlead seal --reseal)
+HN-S004 error fairlead/versions/0.1.1.md:10:9 frontmatter is not valid TOML: key with no value, expected `=` | fix: frontmatter must be valid TOML and `directives` an array of strings
+waivers: none | relaxations: none
+exceptions: +0
+codeowners: 1 managerial folders uncovered
