@@ -399,6 +399,33 @@ fn r_file_043__foreign_lost_when_a_tool_strips_the_anchors() {
     );
 }
 
+#[test]
+fn r_file_043__prose_and_unscanned_files_are_not_foreign_lost() {
+    let repo = repo(&[
+        (
+            "notes.md",
+            "Wrap the region in a `def foreign.shadcn` anchor.\n",
+        ),
+        (
+            "docs/old.md",
+            "<!-- fairlead: def foreign.shadcn tool=shadcn +end -->\nx\n<!-- fairlead: end -->\n",
+        ),
+    ]);
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        text.replace("[scan]\n", "[scan]\nskip = [\"docs/**\"]\n"),
+    )
+    .unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("skip docs");
+    std::fs::write(repo.path().join("notes.md"), "Rewritten.\n").unwrap();
+    std::fs::write(repo.path().join("docs/old.md"), "x\n").unwrap();
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(!check.stdout.contains("HN-G006"), "{}", check.stdout);
+}
+
 fn three_items() -> TempRepo {
     let r = repo(&[(
         "fairlead/docs/cmp.md",

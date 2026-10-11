@@ -91,7 +91,11 @@ fn load_rest(
         .join()
         .map_err(|_| Error::Internal("the git status thread panicked".into()))?;
     let mut facts = collect_facts_with(&root, &walked, &controls, git)?;
-    facts.foreign_lost = foreign_lost(&root, &corpus);
+    let marker = controls
+        .root_control()
+        .and_then(|c| c.fairlead.marker.clone())
+        .unwrap_or_else(|| "fairlead".to_owned());
+    facts.foreign_lost = foreign_lost(&root, &corpus, &marker);
     let mut load_diags = walked.diags.clone();
     load_diags.extend(control_diagnostics(&controls));
     sort_diagnostics(&mut load_diags);
@@ -109,7 +113,7 @@ fn load_rest(
 
 /// R-FILE-043: a file changed against HEAD whose HEAD copy carried a `def foreign.<name>` anchor
 /// that the file no longer has (a tool rewrote it and dropped the comments).
-fn foreign_lost(root: &Root, corpus: &Corpus) -> Vec<(RepoPath, String, u32)> {
+fn foreign_lost(root: &Root, corpus: &Corpus, marker: &str) -> Vec<(RepoPath, String, u32)> {
     let Some(repo) = crate::git::GitRepo::open(root) else {
         return Vec::new();
     };
@@ -117,28 +121,33 @@ fn foreign_lost(root: &Root, corpus: &Corpus) -> Vec<(RepoPath, String, u32)> {
         return Vec::new();
     };
     let mut out = Vec::new();
+    let lead = format!("{marker}:");
     for p in &changed.0 {
+        // Only a file scanned now can have lost its anchors: an excluded, skipped or deleted
+        // file has no directives to compare.
+        let Some(ex) = corpus.records.get(p).and_then(|r| r.extraction.as_ref()) else {
+            continue;
+        };
         let Some(old) = repo.file_at("HEAD", p) else {
             continue;
         };
         let old = String::from_utf8_lossy(&old);
-        let now: Vec<String> = corpus
-            .records
-            .get(p)
-            .and_then(|r| r.extraction.as_ref())
-            .map(|x| {
-                x.directives
-                    .iter()
-                    .flat_map(|d| d.ids.iter())
-                    .map(|i| i.kind_name())
-                    .filter(|k| k.starts_with("foreign."))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let now: Vec<String> = ex
+            .directives
+            .iter()
+            .flat_map(|d| d.ids.iter())
+            .map(|i| i.kind_name())
+            .filter(|k| k.starts_with("foreign."))
+            .collect();
         for (i, line) in old.lines().enumerate() {
+            // A directive line names the marker before the anchor; prose that mentions
+            // `def foreign.` is not an anchor.
             let Some(at) = line.find("def foreign.") else {
                 continue;
             };
+            if !line.get(..at).is_some_and(|before| before.contains(&lead)) {
+                continue;
+            }
             let id: String = line[at + 4..]
                 .chars()
                 .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_'))

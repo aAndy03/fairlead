@@ -40,3 +40,15 @@ glob   = ["crates/*/Cargo.toml"]
 sev    = "error"
 stage  = "enforce"
 why    = "the 0.1 binary links no network stack"
+
+# 0.2 dogfood (R-EDN-050, R-REL-025): change docs from the first 0.2 commit; each release seals.
+[version]
+start = "0.2.0"
+integration-branch = "main"
+
+[docs-first]
+level = "warn"
+exempt = ["Cargo.lock", "docs/plans/**"]
+
+[changelog]
+file = "CHANGELOG.md"

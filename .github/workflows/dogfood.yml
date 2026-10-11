@@ -21,7 +21,7 @@ jobs:
       - name: Build in-tree fairlead
         run: cargo build -p fairlead --locked
       - name: Check the merge result (R-AGT-005)
-        run: target/debug/fairlead check --as-of "$(git log -1 --format=%cs HEAD)" --format terse --deny-warnings
+        run: target/debug/fairlead check --ci --as-of "$(git log -1 --format=%cs HEAD)" --format terse --deny-warnings
       - name: Check every commit of the pull request range (R-AGT-005)
         if: github.event_name == 'pull_request'
         run: |
