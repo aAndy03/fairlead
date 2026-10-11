@@ -217,26 +217,29 @@ fn branch(sim: &Sim, i: usize) -> Result<(), String> {
     Ok(())
 }
 
-pub fn run(root: &Path, o: &Options) -> Result<Report, String> {
-    let bin = match &o.bin {
-        Some(b) => b.clone(),
-        None => {
-            let status = Command::new("cargo")
-                .current_dir(root)
-                .args(["build", "-p", "fairlead", "--locked"])
-                .status()
-                .map_err(|e| e.to_string())?;
-            if !status.success() {
-                return Err("cargo build -p fairlead failed".into());
-            }
-            let exe = if cfg!(windows) {
-                "fairlead.exe"
-            } else {
-                "fairlead"
-            };
-            root.join("target/debug").join(exe)
-        }
+/// The fairlead binary to drive: `bin` when given, else a fresh debug build of the workspace.
+pub fn fairlead_bin(root: &Path, bin: Option<&PathBuf>) -> Result<PathBuf, String> {
+    if let Some(b) = bin {
+        return Ok(b.clone());
+    }
+    let status = Command::new("cargo")
+        .current_dir(root)
+        .args(["build", "-p", "fairlead", "--locked"])
+        .status()
+        .map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err("cargo build -p fairlead failed".into());
+    }
+    let exe = if cfg!(windows) {
+        "fairlead.exe"
+    } else {
+        "fairlead"
     };
+    Ok(root.join("target/debug").join(exe))
+}
+
+pub fn run(root: &Path, o: &Options) -> Result<Report, String> {
+    let bin = fairlead_bin(root, o.bin.as_ref())?;
     let tmp = tempfile::tempdir().map_err(|e| e.to_string())?;
     let sim = Sim {
         dir: tmp.path().join("repo"),

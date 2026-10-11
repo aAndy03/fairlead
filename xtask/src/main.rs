@@ -4,6 +4,7 @@
 
 mod ablation;
 mod bench;
+mod coverage_replay;
 mod docs;
 mod golden;
 mod merge_sim;
@@ -226,6 +227,75 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("coverage-replay") => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            let mut o = coverage_replay::Options {
+                repo: std::path::PathBuf::from("."),
+                commits: 100,
+                out: root.join("target/coverage-replay.csv"),
+                bin: None,
+            };
+            while let Some(a) = args.next() {
+                let v = args.next().unwrap_or_default();
+                match a.as_str() {
+                    "--repo" => o.repo = std::path::PathBuf::from(v),
+                    "--commits" => o.commits = v.parse().unwrap_or(100),
+                    "--out" => o.out = std::path::PathBuf::from(v),
+                    "--bin" => o.bin = Some(std::path::PathBuf::from(v)),
+                    _ => {
+                        eprintln!("xtask coverage-replay: unknown option {a}");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            match coverage_replay::run(root, &o) {
+                Ok(s) => {
+                    println!(
+                        "coverage-replay commits={} replayed={} skipped={} changed-files={} flagged={} csv={}",
+                        o.commits,
+                        s.replayed,
+                        s.skipped.len(),
+                        s.changed,
+                        s.flagged,
+                        o.out.display()
+                    );
+                    for k in &s.skipped {
+                        println!("  skipped {k}");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("xtask coverage-replay: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Some("coverage-score") => {
+            // Exit criterion 3: at most 5% of the labelled flags are wrong.
+            let path = args.next().unwrap_or_default();
+            match std::fs::read_to_string(&path) {
+                Ok(csv) => match coverage_replay::wrong_share(&csv) {
+                    Some(w) => {
+                        println!("coverage-score wrong-share={:.1}% (gate 5%)", w * 100.0);
+                        if w <= 0.05 {
+                            ExitCode::SUCCESS
+                        } else {
+                            ExitCode::from(1)
+                        }
+                    }
+                    None => {
+                        eprintln!("xtask coverage-score: no labelled row in {path}");
+                        ExitCode::from(1)
+                    }
+                },
+                Err(e) => {
+                    eprintln!("xtask coverage-score: {path}: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some("merge-sim") => {
             let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .parent()
@@ -293,7 +363,7 @@ fn main() -> ExitCode {
         }
         None => {
             eprintln!(
-                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | syntax-card-score DIR | sarif-validate | golden-bless NAME | merge-sim [--branches N] [--seed N] [--bin PATH]>"
+                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | syntax-card-score DIR | sarif-validate | golden-bless NAME | merge-sim [--branches N] [--seed N] [--bin PATH] | coverage-replay --repo PATH [--commits N] [--out CSV] | coverage-score CSV>"
             );
             ExitCode::from(2)
         }
