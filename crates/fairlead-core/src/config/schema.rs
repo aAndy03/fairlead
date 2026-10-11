@@ -257,6 +257,12 @@ impl Default for VersionConfig {
     }
 }
 
+/// `[changelog]` (R-VER-053): root only. `file` names the generated aggregate of the version files.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct ChangelogConfig {
+    pub file: Option<String>,
+}
+
 /// `[docs-first]` (R-VER-034 to R-VER-048). A child may raise `level`, never lower it.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct DocsFirstConfig {

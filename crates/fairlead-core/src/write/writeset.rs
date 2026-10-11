@@ -49,6 +49,9 @@ pub struct WriteSet {
     pub writes: BTreeMap<RepoPath, PlannedWrite>,
     /// Applied after every other write: seal's version file (R-VER-050 step 6, D-14).
     pub commit_point: Option<RepoPath>,
+    /// `changelog.file`: the one generated file a seal, sync or upgrade may write outside a
+    /// managerial folder (R-VER-053, R-VER-059).
+    pub changelog: Option<RepoPath>,
 }
 
 impl WriteSet {
@@ -57,6 +60,7 @@ impl WriteSet {
             kind,
             writes: BTreeMap::new(),
             commit_point: None,
+            changelog: None,
         }
     }
     pub fn is_empty(&self) -> bool {
@@ -78,7 +82,13 @@ impl WriteSet {
     /// Path allow-list per verb, LF-only bytes, secret scan (R-ARCH-141, R-ARCH-144, R-ARCH-112).
     pub fn validate(&self, root: &Root) -> Result<(), Error> {
         for w in self.writes.values() {
-            if !allowed(self.kind, w, &root.folder) {
+            let changelog = self.changelog.as_ref() == Some(&w.path)
+                && w.class == FileClass::Generated
+                && matches!(
+                    self.kind,
+                    WriteSetKind::Seal | WriteSetKind::Sync | WriteSetKind::Upgrade
+                );
+            if !changelog && !allowed(self.kind, w, &root.folder) {
                 return Err(Error::Internal(format!(
                     "{:?} may not write {}",
                     self.kind,

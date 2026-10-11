@@ -26,6 +26,8 @@ pub struct ClassifyRules {
     vendor: GlobSet,
     external: GlobSet,
     skip: GlobSet,
+    /// `changelog.file` of the root control file: generated outside a managerial folder.
+    changelog: Option<RepoPath>,
 }
 
 fn add_glob(b: &mut GlobSetBuilder, dir: &RepoPath, pattern: &str) {
@@ -81,12 +83,17 @@ impl ClassifyRules {
                 add_glob(&mut skip, &c.dir, s);
             }
         }
+        let changelog = controls
+            .root_control()
+            .and_then(|c| c.changelog.file.as_deref())
+            .and_then(|f| RepoPath::new(f).ok());
         Self {
             managerial,
             layout,
             vendor: finish(vendor),
             external: finish(external),
             skip: finish(skip),
+            changelog,
         }
     }
 
@@ -131,6 +138,9 @@ impl ClassifyRules {
 
 /// Pure. Class by location and declaration, never by content (R-FILE-001).
 pub fn classify(path: &RepoPath, rules: &ClassifyRules) -> FileClass {
+    if rules.changelog.as_ref() == Some(path) {
+        return FileClass::Generated;
+    }
     if let Some(m) = rules.managerial_of(path) {
         let rel = path
             .as_str()

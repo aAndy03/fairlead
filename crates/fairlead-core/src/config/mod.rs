@@ -68,6 +68,8 @@ pub struct ControlFile {
     pub eligibility: EligibilityConfig,
     pub version: VersionConfig,
     pub docs_first: DocsFirstConfig,
+    /// `[changelog]` (R-VER-053).
+    pub changelog: ChangelogConfig,
     pub vocab: VocabConfig,
     pub lc: LcConfig,
     pub authority: AuthorityConfig,
@@ -114,8 +116,9 @@ impl ControlFile {
 }
 
 /// Top-level tables a child may not hold (known 0.1 root-only tables).
-const ROOT_ONLY_TABLES: [&str; 18] = [
+const ROOT_ONLY_TABLES: [&str; 19] = [
     "version",
+    "changelog",
     "delegate",
     "env",
     "maturity",
@@ -270,6 +273,7 @@ pub fn parse_control(
     let eligibility = rules::parse_eligibility(&mut cx, &mut table);
     let version = rules::parse_version(&mut cx, &mut table);
     let docs_first = rules::parse_docs_first(&mut cx, &mut table);
+    let changelog = rules::parse_changelog(&mut cx, &mut table);
     let vocab = vocab::parse_vocab(&mut cx, &mut table);
     let lc = vocab::parse_lc(&mut cx, &mut table);
     let authority = vocab::parse_authority(&mut cx, &mut table);
@@ -326,6 +330,7 @@ pub fn parse_control(
         eligibility,
         version,
         docs_first,
+        changelog,
         vocab,
         lc,
         authority,

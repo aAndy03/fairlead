@@ -532,6 +532,27 @@ pub(crate) fn parse_version(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Version
     out
 }
 
+pub(crate) fn parse_changelog(
+    cx: &mut Ctx<'_>,
+    root: &mut toml::Table,
+) -> crate::config::ChangelogConfig {
+    let mut out = crate::config::ChangelogConfig::default();
+    if let Some(mut t) = take_table(cx, root, "", "changelog") {
+        if let Some(f) = take_string(cx, &mut t, "changelog", "file") {
+            if crate::path::RepoPath::new(&f).is_ok_and(|p| !p.is_root()) {
+                out.file = Some(f);
+            } else {
+                cx.error(
+                    "changelog.file",
+                    format!("`changelog.file` must be a repository-relative file path, not {f:?}"),
+                );
+            }
+        }
+        cx.unknown_in("changelog", &t);
+    }
+    out
+}
+
 pub(crate) fn parse_docs_first(cx: &mut Ctx<'_>, root: &mut toml::Table) -> DocsFirstConfig {
     let mut out = DocsFirstConfig::default();
     if let Some(mut t) = take_table(cx, root, "", "docs-first") {

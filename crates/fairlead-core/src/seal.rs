@@ -360,6 +360,10 @@ pub struct SealWriteCx<'a> {
     pub gen_dir: &'a str,
     /// Merkle digest of every scope (`merkle::scope_digests`), for the rollup records.
     pub digests: &'a BTreeMap<crate::registry::ScopeId, String>,
+    /// The version files on disk (`Facts::version_texts`), for the changelog aggregate.
+    pub version_texts: &'a BTreeMap<RepoPath, std::sync::Arc<str>>,
+    /// `changelog.file`, when set (R-VER-053).
+    pub changelog: Option<&'a str>,
 }
 
 /// The sealed text of a doc: `status`, `sealed`, `body-hash` and `ordinal` set in its
@@ -423,6 +427,7 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
     use crate::write::{PlannedWrite, WriteKind, WriteSet, WriteSetKind};
 
     let mut set = WriteSet::new(WriteSetKind::Seal);
+    set.changelog = cx.changelog.and_then(|f| RepoPath::new(f).ok());
     let mut add = |w: PlannedWrite| set.add(w).map_err(|e| e.to_string());
     let year: u32 = cx
         .sealed_at
@@ -765,6 +770,29 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
             d.scope.as_deref().unwrap_or("root"),
             d.id
         ));
+    }
+    if let Some(file) = cx.changelog {
+        let path = RepoPath::new(file).map_err(|e| format!("{e:?}"))?;
+        let versions = cx
+            .version_texts
+            .iter()
+            .filter_map(|(p, t)| {
+                crate::version::version_of_file_name(p.file_name()).map(|v| (v, &**t))
+            })
+            .chain(std::iter::once((plan.open, text.as_str())));
+        let g = GeneratedFile {
+            path: path.clone(),
+            scope: cx.reg.root_scope().clone(),
+            kind: GenKind::Changelog,
+            body: crate::generate::changelog_body(cx.folder, versions),
+        };
+        add(PlannedWrite {
+            path,
+            kind: WriteKind::Replace,
+            bytes: g.render(crate::discover::Edition(cx.edition)),
+            class: FileClass::Generated,
+            expect_prior: None,
+        })?;
     }
     add(PlannedWrite {
         path: version_path.clone(),

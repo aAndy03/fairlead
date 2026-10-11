@@ -43,7 +43,9 @@ fn own_facts(reg: &Registry, folder: &str, g: &GeneratedFile) -> Result<(), Erro
         .ok_or_else(|| Error::Internal(format!("{} names an unknown scope", g.path.as_str())))?;
     let prefix = under(sc.dir.as_str(), &format!("{folder}/"));
     let rest = g.path.as_str().strip_prefix(prefix.as_str());
-    if rest.is_some_and(|r| r.starts_with("gen/") || r == "vendored.lock") {
+    // The changelog aggregate is the root's, at the path its control file names (R-VER-053).
+    let changelog = g.kind == crate::generate::GenKind::Changelog && &g.scope == reg.root_scope();
+    if changelog || rest.is_some_and(|r| r.starts_with("gen/") || r == "vendored.lock") {
         Ok(())
     } else {
         Err(Error::Internal(format!(
@@ -182,6 +184,7 @@ pub fn sync_plan_from(
         }
     }
     let mut set = WriteSet::new(WriteSetKind::Sync);
+    set.changelog = generated.changelog_path();
     let mut lines = Vec::new();
     let apply_regular = hand_edited == 0 || req.force;
     for (w, l) in quarantined {

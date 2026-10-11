@@ -50,7 +50,21 @@ pub fn render_file(kind: &HeaderKind, edition: u32, body: &str) -> String {
     out
 }
 
+/// R-VER-053: a Markdown generated file (the changelog) carries its header line inside an HTML
+/// comment, so it does not render as a heading.
+pub fn render_markdown(kind: &HeaderKind, edition: u32, body: &str) -> String {
+    let text = render_file(kind, edition, body);
+    match text.split_once('\n') {
+        Some((head, rest)) => format!("<!-- {head} -->\n{rest}"),
+        None => text,
+    }
+}
+
 pub fn parse_header(line: &str) -> Option<Header> {
+    let line = line
+        .strip_prefix("<!-- ")
+        .and_then(|l| l.strip_suffix(" -->"))
+        .unwrap_or(line);
     let (kind, rest) = if let Some(r) = line.strip_prefix("# scope ") {
         let (id, rest) = r.split_once(' ')?;
         (HeaderKind::Scope(id.to_string()), rest)

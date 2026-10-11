@@ -1059,3 +1059,48 @@ fn r_ver_042__reid_gives_a_draft_a_new_id() {
     let t = std::fs::read_to_string(&renamed).unwrap();
     assert!(!t.contains(&id) && t.contains("id = \"d-"), "{t}");
 }
+
+#[test]
+fn r_ver_053__changelog_aggregate_is_generated_by_seal_and_sync() {
+    let repo = ready_repo();
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        format!("{text}\n[changelog]\nfile = \"CHANGELOG.md\"\n"),
+    )
+    .unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("changelog");
+    let seal = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(seal.code, 0, "{}{}", seal.stdout, seal.stderr);
+    assert!(seal.stdout.contains("CHANGELOG.md"), "{}", seal.stdout);
+    let log = std::fs::read_to_string(repo.path().join("CHANGELOG.md")).unwrap();
+    assert!(
+        log.starts_with("<!-- # scope root edition=1 body="),
+        "{log}"
+    );
+    assert!(
+        log.contains("\n# Changelog\n") && log.contains("\n## 0.1.0\n"),
+        "{log}"
+    );
+    assert!(log.contains("- add: Adds a (root, d-"), "{log}");
+    repo.git(&["add", "-A"]);
+    repo.git_commit("seal 0.1.0");
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert_eq!(check.code, 0, "{}{}", check.stdout, check.stderr);
+    let sync = repo.run(&["sync", "--yes", "--as-of", AS_OF]);
+    assert_eq!(sync.code, 0, "{}", sync.stderr);
+    assert!(
+        !sync.stdout.contains("CHANGELOG.md"),
+        "sync agrees with seal: {}",
+        sync.stdout
+    );
+    std::fs::write(repo.path().join("CHANGELOG.md"), format!("{log}extra\n")).unwrap();
+    let edited = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        edited.stdout.contains("HN-G002 error CHANGELOG.md"),
+        "{}",
+        edited.stdout
+    );
+}

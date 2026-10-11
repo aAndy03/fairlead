@@ -647,6 +647,7 @@ pub fn plan_upgrade(
         to,
     );
     let mut set = WriteSet::new(WriteSetKind::Upgrade);
+    set.changelog = generated.changelog_path();
     let mut lines = Vec::new();
     let mut edits = Vec::new();
     for (path, g) in &generated.files {
@@ -2797,6 +2798,8 @@ pub fn plan_seal(
             folder: &loaded.root.folder,
             gen_dir: &gen_dir,
             digests: &crate::merkle::scope_digests(registry, &loaded.corpus),
+            version_texts: &loaded.facts.version_texts,
+            changelog: loaded.root_control.changelog.file.as_deref(),
         },
     )
     .map_err(Error::Internal)?;
