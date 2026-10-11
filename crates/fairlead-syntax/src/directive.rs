@@ -678,10 +678,50 @@ fn check_flag_env_end(verb: Verb, p: &mut ParsedBody) -> Result<(), BodyError> {
 }
 
 const DEF_KEYS: &[&str] = &[
-    "st", "sum", "kw", "sym", "of", "policy", "value", "applies", "min-len", "home", "gen", "tool",
-    "in", "mat", "bind", "vis",
+    "st",
+    "sum",
+    "kw",
+    "sym",
+    "of",
+    "policy",
+    "value",
+    "applies",
+    "min-len",
+    "home",
+    "gen",
+    "tool",
+    "in",
+    "mat",
+    "bind",
+    "vis",
+    // 0.3, hierarchy (30-hierarchy "Declarations", R-HIER-060): new keys on a known verb stay in
+    // edition 1; an older binary warns and keeps them (R-EDN-021).
+    "layer",
+    "container",
+    "parent",
+    "path",
+    "see",
+    "steps",
+    "on-error",
+    "etype",
+    "unit",
+    "reaches",
+    "implements",
+    "spell",
+    "exposure",
+    "role",
+    "proto",
+    "dir",
+    "wire",
+    "ver",
+    "params",
+    "ts",
+    "rs",
+    "contract",
+    "side",
 ];
-const USE_KEYS: &[&str] = &["sym"];
+/// `dyn` (R-HIER-025) and `pin` (R-SYN-049) are 0.3.
+const USE_KEYS: &[&str] = &["sym", "dyn", "pin"];
 const OVR_KEYS: &[&str] = &["why", "owner", "exp", "until", "op", "base"];
 const FLAG_KEYS: &[&str] = &["to", "target", "by-date", "since"];
 
@@ -1140,7 +1180,13 @@ mod tests {
             known_keys(Verb::Def).contains(&"tool"),
             "def foreign tool= (R-SYN-014)"
         );
-        assert_eq!(known_keys(Verb::Use), &["sym"]);
+        assert_eq!(known_keys(Verb::Use), &["sym", "dyn", "pin"]);
+        assert!(
+            ["layer", "container", "parent", "path"]
+                .iter()
+                .all(|k| known_keys(Verb::Def).contains(k)),
+            "0.3 hierarchy keys (30-hierarchy, Declarations)"
+        );
         assert_eq!(
             known_keys(Verb::Ovr),
             &["why", "owner", "exp", "until", "op", "base"]

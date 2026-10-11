@@ -8,6 +8,7 @@ pub mod envs;
 pub mod exceptions;
 pub mod generated;
 pub mod grave;
+pub mod hier;
 pub mod leak;
 pub mod notices;
 pub mod paths;

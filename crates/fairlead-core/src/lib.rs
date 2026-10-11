@@ -31,6 +31,7 @@ pub mod generate;
 pub mod git;
 pub mod graveyard;
 pub mod hash;
+pub mod hier;
 pub mod hist;
 pub mod lifecycle;
 pub mod manifest;

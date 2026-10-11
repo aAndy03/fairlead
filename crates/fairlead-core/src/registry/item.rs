@@ -224,6 +224,8 @@ impl KindTable {
 
 #[derive(Clone, Debug)]
 pub(crate) struct Cand {
+    /// 0.3 (D-40): declared by a `def` in code; a doc or control declaration of the ID wins.
+    pub(crate) from_code: bool,
     pub(crate) kind: Kind,
     pub(crate) name: Name,
     pub(crate) origin: Origin,
@@ -358,6 +360,7 @@ fn control_cands(
             fields.insert("since".to_string(), FieldValue::Scalar(since.to_string()));
         }
         out.push(Cand {
+            from_code: false,
             policy: policy_for(root, "rule", id.name.as_str(), None, r.waivable),
             kind: id.kind,
             name: id.name,
@@ -388,6 +391,7 @@ fn control_cands(
             fields.insert("extends".to_string(), FieldValue::Scalar(e.clone()));
         }
         out.push(Cand {
+            from_code: false,
             policy: policy_for(root, id.kind.as_str(), id.name.as_str(), None, false),
             kind: id.kind,
             name: id.name,
@@ -669,6 +673,37 @@ fn parse_policy(s: &str) -> Option<Policy> {
     }
 }
 
+/// 0.3 (D-40, 30-hierarchy "Declarations"): a `def` in code declares its item, rather than only
+/// marking an implementation site, when its kind is code-shaped or lists `layers` (a unit kind), or
+/// when it carries a containment key (`layer`, `container`, `parent`, `path`). Otherwise a code
+/// `def` stays an implementation site of an item declared in a doc (R-SYN, 0.1).
+fn code_declares(kinds: &KindTable, table: &ScopeTable, scope: &ScopeId, d: &Directive) -> bool {
+    let Some(id) = d.ids.first() else {
+        return false;
+    };
+    if matches!(id.kind.as_str(), "foreign" | "rule" | "file" | "handoff") {
+        return false;
+    }
+    let by_kind = kinds
+        .decl(table, scope, id.kind.as_str())
+        .is_some_and(|k| matches!(k.shape, crate::config::KindShape::Code) || !k.layers.is_empty());
+    by_kind
+        || d.args
+            .iter()
+            .any(|a| matches!(a.key.as_str(), "layer" | "container" | "parent" | "path"))
+}
+
+/// A doc declaration visible from the scope (its own or an ancestor's) wins over a code one, and
+/// the first code `def` of an ID (by path and line) declares it; the others stay its sites.
+fn prefer_doc_decls(cands: &mut Vec<Cand>, docs: &BTreeSet<(String, String)>) {
+    cands.sort_by(|a, b| (a.loc.path.as_str(), a.loc.line).cmp(&(b.loc.path.as_str(), b.loc.line)));
+    let mut seen = BTreeSet::new();
+    cands.retain(|c| {
+        let key = (c.kind.as_str().to_owned(), c.name.as_str().to_owned());
+        !c.from_code || (!docs.contains(&key) && seen.insert(key))
+    });
+}
+
 pub(crate) fn doc_cands(
     table: &ScopeTable,
     kinds: &KindTable,
@@ -698,7 +733,11 @@ pub(crate) fn doc_cands(
             continue;
         }
         for d in &ex.directives {
-            if d.verb != Verb::Def || !is_decl_site(path, scope, folder, d) {
+            if d.verb != Verb::Def {
+                continue;
+            }
+            let from_code = !is_decl_site(path, scope, folder, d);
+            if from_code && !code_declares(kinds, table, sid, d) {
                 continue;
             }
             let Some(id) = d.ids.first() else { continue };
@@ -759,6 +798,7 @@ pub(crate) fn doc_cands(
                 }
             }
             out.entry(scope.id.clone()).or_default().push(Cand {
+                from_code,
                 policy: policy_for(root, id.kind.as_str(), id.name.as_str(), explicit, false),
                 kind: id.kind.clone(),
                 name: id.name.clone(),
@@ -775,6 +815,27 @@ pub(crate) fn doc_cands(
                 },
             });
         }
+    }
+    let own_docs: BTreeMap<ScopeId, BTreeSet<(String, String)>> = out
+        .iter()
+        .map(|(sid, cands)| {
+            let set = cands
+                .iter()
+                .filter(|c| !c.from_code)
+                .map(|c| (c.kind.as_str().to_owned(), c.name.as_str().to_owned()))
+                .collect();
+            (sid.clone(), set)
+        })
+        .collect();
+    for (sid, cands) in out.iter_mut() {
+        let visible: BTreeSet<(String, String)> = table
+            .chain_ids(sid)
+            .into_iter()
+            .filter_map(|s| own_docs.get(s))
+            .flatten()
+            .cloned()
+            .collect();
+        prefer_doc_decls(cands, &visible);
     }
     out
 }
