@@ -479,3 +479,44 @@ fn r_ctx_052__the_current_digest_marks_everything_unchanged() {
         run.stdout
     );
 }
+
+#[test]
+fn r_ver_047__context_lists_hotfix_debts_and_open_escalations() {
+    let repo = repo(&[
+        (
+            "web/fairlead/control.toml",
+            "[fairlead]\nscope = \"web\"\n\n[[req]]\nto = \"root\"\ntarget = \"rule.r\"\nset = \"warn\"\nwhy = \"migrating\"\nblocking = true\n",
+        ),
+        ("web/src/a.ts", "export const A = 1;\n"),
+    ]);
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        format!("{text}\n[docs-first]\nhotfix = true\n\n[rules.r]\ncheck = \"pattern\"\nforbid = \"ZZZ\"\nmsg = \"no\"\n"),
+    )
+    .unwrap();
+    let hot = repo.run(&[
+        "new",
+        "change",
+        "Urgent fix",
+        "--field",
+        "hotfix=true",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(hot.code, 0, "{}{}", hot.stdout, hot.stderr);
+    let root = repo.run(&["context", "--budget", "0", "--as-of", AS_OF]);
+    assert!(
+        root.stdout.contains("hotfix debt d-") && root.stdout.contains("due 2026-10-13"),
+        "{}",
+        root.stdout
+    );
+    let web = repo.run(&["context", "web/src/a.ts", "--budget", "0", "--as-of", AS_OF]);
+    assert!(
+        web.stdout
+            .contains("escalation open: rule.r to root (blocking)"),
+        "{}",
+        web.stdout
+    );
+}

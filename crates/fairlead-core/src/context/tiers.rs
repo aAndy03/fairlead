@@ -359,6 +359,64 @@ pub(crate) fn gather_handoff(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
     });
 }
 
+/// R-VER-047, R-VER-058: the scope's open work an agent must not miss: hotfix backfill debts with
+/// their deadline, and escalations its owners have not resolved.
+pub(crate) fn gather_open_work(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
+    let reg = scene.input.registry;
+    let w = &scene.input.config.sev_weight;
+    let mut push = |key: String, text: String| {
+        out.push(Candidate {
+            priority: Priority::P5Recent,
+            score: Score::new(w.warn, Relevance::ScopeWide, 0),
+            hint: 0,
+            key,
+            explain: "kinds".to_string(),
+            block: Block::Items,
+            entry: Entry::Note { text },
+        });
+    };
+    let window = reg
+        .scope(reg.root_scope())
+        .and_then(|s| s.control.as_ref())
+        .and_then(|c| c.docs_first.hotfix_window)
+        .unwrap_or(3);
+    let (docs, _) = crate::docs::collect_change_docs(scene.input.corpus);
+    for d in docs.iter().filter(|d| {
+        d.hotfix && d.status.is_pending() && reg.scope_of(&d.path) == Some(&scene.scope)
+    }) {
+        let due = d
+            .extra
+            .get("opened")
+            .and_then(|o| o.parse::<jiff::civil::Date>().ok())
+            .and_then(|o| {
+                o.checked_add(jiff::Span::new().days(i64::from(window)))
+                    .ok()
+            })
+            .map_or_else(|| "?".to_owned(), |x| x.to_string());
+        push(
+            format!("5hotfix-{}", d.id.as_str()),
+            format!(
+                "hotfix debt {} due {due}: backfill its change doc",
+                d.id.as_str()
+            ),
+        );
+    }
+    for r in reg.requests().iter().filter(|r| r.from == scene.scope) {
+        if crate::check::builtin::versions::escalation_resolved(reg, r) {
+            continue;
+        }
+        push(
+            format!("5req-{}", r.target),
+            format!(
+                "escalation open: {} to {}{}",
+                sanitize_data(&r.target, 80),
+                r.to.0.as_str(),
+                if r.blocking { " (blocking)" } else { "" }
+            ),
+        );
+    }
+}
+
 /// R-LC-034, R-LC-036, R-LC-037: the graveyard that applies here, its tripwires (how often a match
 /// was silenced with `revisits`), and abandoned change docs as graveyard candidates.
 pub(crate) fn gather_graveyard(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
