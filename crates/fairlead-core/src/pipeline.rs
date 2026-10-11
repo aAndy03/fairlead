@@ -3062,12 +3062,14 @@ pub fn plan_seal(
             crate::version::derive_line(versions.iter().copied(), pending, start)
         }
     };
-    let (due, plan_records, tombs) = crate::check::builtin::plans::seal_lifecycle(
+    let (due, mut plan_records, tombs) = crate::check::builtin::plans::seal_lifecycle(
         registry,
         &loaded.corpus,
         &loaded.facts.ledgers,
         options.as_of.0,
     );
+    // R-HIER-045: at hierarchy level 3, each seal records every bound unit's digest.
+    plan_records.extend(crate::hier::digest_records(registry, &loaded.corpus));
     let seal_plan = crate::seal::plan(&crate::seal::SealInput {
         line,
         docs: &docs,

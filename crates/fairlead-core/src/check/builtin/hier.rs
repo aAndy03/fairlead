@@ -12,9 +12,10 @@ pub struct HierCheck;
 
 /// A container edge: from, to, why (for the cycle report), and where it is written.
 type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
-const CODES: [DiagCode; 19] = [
+const CODES: [DiagCode; 22] = [
     HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H006, HN_H007, HN_H008, HN_H009, HN_H010,
-    HN_H011, HN_H012, HN_H013, HN_H014, HN_H015, HN_H017, HN_H018, HN_H023, HN_E004,
+    HN_H011, HN_H012, HN_H013, HN_H014, HN_H015, HN_H016, HN_H017, HN_H018, HN_H019, HN_H020,
+    HN_H023, HN_E004,
 ];
 
 fn at(
@@ -351,6 +352,7 @@ fn entries(
             }
         }
     }
+    let mut skip_stale = false;
     if all.is_empty() {
         // R-HIER-042: with zero entries declared, stale is skipped, once, at the root.
         if scope == reg.root_scope()
@@ -363,9 +365,23 @@ fn entries(
                     .build(),
             );
         }
-        return;
+        // Dormancy does not depend on entries; stale and forgotten do.
+        skip_stale = true;
     }
     let reached = m.reached(reg, &all, edges);
+    // R-HIER-043, R-HIER-045: dormant (digest unchanged for N seals, from the ledger) and
+    // forgotten (stale and dormant).
+    let history = crate::hier::digest_history(reg, &cx.facts.ledgers);
+    let n = usize::try_from(h.settings.dormant_seals)
+        .unwrap_or(usize::MAX)
+        .max(1);
+    let dormant = |u: &crate::hier::Unit| -> Option<(usize, String)> {
+        let past = history.get(&u.id)?;
+        let now = crate::hier::unit_digest(bound.get(&u.id)?, cx.corpus);
+        let same = past.iter().rev().take_while(|r| r.ud == now).count();
+        let since = past.iter().rev().nth(same.checked_sub(1)?)?.v.to_string();
+        (same >= n).then_some((same, since))
+    };
     // R-HIER-046: units named in `adds` or `touches` of an unsealed change doc are exempt.
     let (docs, _) = crate::docs::collect_change_docs(cx.corpus);
     let pending: std::collections::BTreeSet<String> = docs
@@ -387,7 +403,34 @@ fn entries(
     for u in m.units.values().filter(|u| u.id.scope == *scope) {
         let named =
             pending.contains(&bare_id(&u.id)) || pending.contains(&u.id.to_id().to_string());
-        if reached.contains(&u.id) || named || bound.get(&u.id).is_none_or(|b| b.is_empty()) {
+        let quiet = dormant(u);
+        if let Some((same, since)) = &quiet {
+            out.extend(at(
+                cx,
+                &u.id,
+                HN_H019,
+                format!(
+                    "{} is unchanged for {same} seals (since {since})",
+                    bare_id(&u.id)
+                ),
+                "information only: dormancy reads the seal ledger, never git (R-HIER-043)",
+            ));
+        }
+        if skip_stale
+            || reached.contains(&u.id)
+            || named
+            || bound.get(&u.id).is_none_or(|b| b.is_empty())
+        {
+            continue;
+        }
+        if let Some((same, since)) = &quiet {
+            out.extend(at(
+                cx,
+                &u.id,
+                HN_H020,
+                format!("{} is forgotten: reached by no entry and unchanged for {same} seals (since {since})", bare_id(&u.id)),
+                "retire it to the graveyard (fairlead flag remove, then seal), or reach it from an entry (R-HIER-043)",
+            ));
             continue;
         }
         out.extend(at(
@@ -902,13 +945,19 @@ impl Check for HierCheck {
             evidence(cx, &m, &files, scope, out);
             maturity(cx, &edges, scope, out);
             for sg in m
-                .suggestions(cx.registry, &edges, h)
+                .suggestions(
+                    cx.registry,
+                    &edges,
+                    h,
+                    &crate::hier::digest_history(cx.registry, &cx.facts.ledgers),
+                )
                 .iter()
                 .filter(|x| x.unit.scope == *scope)
             {
                 let code = match sg.word {
                     "promote" => HN_H013,
                     "demote" => HN_H014,
+                    "merge" => HN_H016,
                     _ => HN_H015,
                 };
                 let to = if sg.to.is_empty() {
@@ -1967,6 +2016,100 @@ directives = ['def grp.unnamed']
         assert_eq!(d.len(), 1, "{ds:#?}");
         assert_eq!(d[0].severity, fairlead_syntax::diag::Severity::Info);
         assert!(d[0].message.contains("no entries declared"));
+    }
+
+    #[test]
+    fn r_hier_045__dormancy_from_ledger_not_git() {
+        let root = format!(
+            "{}\n[kinds.ent]\nshape = \"code\"\n",
+            L2.replace("level = 2\n", "level = 3\ndormant-seals = 2\n")
+        );
+        let base = || {
+            World::new()
+                .root(&root)
+                .file(
+                    "src/a.rs",
+                    "// fairlead: def ctr.a\nfn d() {}\n// fairlead: def un.main layer=core.service container=ctr.a\nfn main_() {}\n// fairlead: def un.lonely layer=core.primitive container=ctr.a\nfn lonely() {}\n",
+                )
+                .file("src/main.rs", "// fairlead: def ent.run etype=cli unit=un.main\nfn run() {}\n")
+        };
+        let w0 = base().build();
+        let m = Model::build(&w0.registry);
+        let files: Vec<&crate::path::RepoPath> = w0.corpus.records.keys().collect();
+        let b = m.bindings(&w0.registry, &files);
+        let digest = |name: &str| {
+            let id = m.units.keys().find(|k| bare_id(k) == name).unwrap();
+            crate::hier::unit_digest(&b[id], &w0.corpus)
+        };
+        let (lonely, main) = (digest("un.lonely"), digest("un.main"));
+        let ledger = format!(
+            "# scope=root year=2026 prev=- edition=1\nun.lonely kind=ud ud={lonely} d=aaaaaaaa\nun.main kind=ud ud=changedbefore d=aaaaaaab\n# ckpt v=0.1.0 n=2 d=bbbbbbbb\nun.lonely kind=ud ud={lonely} d=aaaaaaaa\nun.main kind=ud ud={main} d=aaaaaaac\n# ckpt v=0.1.1 n=2 d=cccccccc\n"
+        );
+        let ds = base()
+            .facts(move |f| {
+                f.ledgers.insert(
+                    crate::path::RepoPath::new("fairlead/ledger/hist/2026.hl").unwrap(),
+                    ledger.into(),
+                );
+            })
+            .build()
+            .run_check(&HierCheck);
+        let dormant: Vec<String> = of(&ds, c::HN_H019)
+            .iter()
+            .map(|d| d.message.clone())
+            .collect();
+        assert_eq!(
+            dormant,
+            ["un.lonely is unchanged for 2 seals (since 0.1.0)"],
+            "un.main changed at 0.1.1: {ds:#?}"
+        );
+        let forgotten = of(&ds, c::HN_H020);
+        assert_eq!(forgotten.len(), 1, "{ds:#?}");
+        assert!(
+            forgotten[0].message.contains("un.lonely is forgotten")
+                && forgotten[0].hint.contains("graveyard")
+        );
+        assert!(
+            of(&ds, c::HN_H018).is_empty(),
+            "forgotten replaces stale for the same unit"
+        );
+    }
+
+    #[test]
+    fn r_hier_071__merge_and_one_consumer_demote_read_the_seal_records() {
+        let root = L2.replace(
+            "level = 2\n",
+            "level = 2\npromote = { single-consumer-seals = 2 }\n",
+        );
+        let ledger = "# scope=root year=2026 prev=- edition=1\nun.svc kind=ud ud=x users=1 ctr=ctr.solo d=aaaaaaaa\n# ckpt v=0.1.0 n=1 d=bbbbbbbb\nun.svc kind=ud ud=x users=1 ctr=ctr.solo d=aaaaaaaa\n# ckpt v=0.1.1 n=1 d=cccccccc\n";
+        let ds = World::new()
+            .root(&root)
+            .file(
+                "src/a.rs",
+                "// fairlead: def ctr.a\n// fairlead: def ctr.solo\nfn d() {}\n// fairlead: def un.main layer=core.service container=ctr.a\n// fairlead: use un.svc\nfn m() {}\n// fairlead: def un.svc layer=core.engine container=ctr.solo\nfn s() {}\n",
+            )
+            .facts(move |f| {
+                f.ledgers.insert(
+                    crate::path::RepoPath::new("fairlead/ledger/hist/2026.hl").unwrap(),
+                    ledger.into(),
+                );
+            })
+            .build()
+            .run_check(&HierCheck);
+        let merge = of(&ds, c::HN_H016);
+        assert_eq!(merge.len(), 1, "{ds:#?}");
+        assert!(
+            merge[0]
+                .message
+                .contains("suggest merge ctr.solo: at most one unit for 2 seals")
+        );
+        let demote = of(&ds, c::HN_H014);
+        assert!(
+            demote.iter().any(|d| d
+                .message
+                .contains("suggest demote un.svc to ctr.a: one consumer for 2 seals")),
+            "{demote:#?}"
+        );
     }
 
     #[test]

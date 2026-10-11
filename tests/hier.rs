@@ -262,3 +262,49 @@ fn r_hier_081__strict_coverage_baselines_no_orphan() {
         strict.stdout
     );
 }
+
+#[test]
+fn r_hier_045__seal_records_unit_digests_at_level_three() {
+    let repo = ladder_repo(&[
+        ("src/ctr.rs", "// fairlead: def cx.core\nfn d() {}\n"),
+        (
+            "src/u.rs",
+            "// fairlead: def un.eng layer=core.engine container=cx.core\nfn eng() {}\n",
+        ),
+    ]);
+    let ctl = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(&ctl, text.replace("level = 1\n", "level = 3\n")).unwrap();
+    let new = repo.run(&[
+        "new",
+        "change",
+        "Engine",
+        "--field",
+        "impact=add",
+        "--field",
+        "covers=src/**",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(new.code, 0, "{}", new.stderr);
+    for e in std::fs::read_dir(repo.path().join("fairlead/docs/changes")).unwrap() {
+        let p = e.unwrap().path();
+        let t = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(&p, t.replace("status = \"draft\"", "status = \"ready\"")).unwrap();
+    }
+    let seal = repo.run(&[
+        "seal",
+        "--yes",
+        "--anywhere",
+        "--allow-dirty",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(seal.code, 0, "{}{}", seal.stdout, seal.stderr);
+    let ledger = std::fs::read_to_string(repo.path().join("fairlead/ledger/hist/2026.hl")).unwrap();
+    assert!(ledger.contains("un.eng kind=ud ud="), "{ledger}");
+    assert!(
+        !ledger.contains("cx.core kind=ud"),
+        "containers have no digest"
+    );
+}

@@ -345,7 +345,12 @@ pub fn generate(
             let m = crate::hier::Model::build(reg);
             let paths: Vec<&RepoPath> = corpus.records.keys().collect();
             let edges = m.edges(reg, &paths);
-            m.suggestions(reg, &edges, h)
+            m.suggestions(
+                reg,
+                &edges,
+                h,
+                &crate::hier::digest_history(reg, &facts.ledgers),
+            )
         });
 
     for scope in reg.scopes() {

@@ -423,6 +423,145 @@ impl Model {
     }
 }
 
+/// R-HIER-045: a unit's digest, over the paths and content hashes of the files it binds.
+pub fn unit_digest(
+    files: &BTreeSet<crate::path::RepoPath>,
+    corpus: &crate::extract::Corpus,
+) -> String {
+    let mut text = String::new();
+    for f in files {
+        let h = corpus
+            .records
+            .get(f)
+            .map(|r| crate::hash::base32(&r.hash.0, 20))
+            .unwrap_or_default();
+        text.push_str(&format!("{} {h}\n", f.as_str()));
+    }
+    crate::hash::base32(&crate::hash::hash_raw(text.as_bytes()).0, 12)
+}
+
+/// R-HIER-045: the per-unit digest records a seal writes into each unit's scope ledger, as
+/// `(a path of the scope, record line)`; only at `[hier] level` 3, so other ledgers keep their
+/// bytes. Git history is never read.
+pub fn digest_records(
+    reg: &Registry,
+    corpus: &crate::extract::Corpus,
+) -> Vec<(crate::path::RepoPath, String)> {
+    if !config(reg).is_some_and(|h| h.settings.level.is_some_and(|l| l >= 3)) {
+        return Vec::new();
+    }
+    let m = Model::build(reg);
+    let files: Vec<&crate::path::RepoPath> = corpus.records.keys().collect();
+    let bound = m.bindings(reg, &files);
+    let edges = m.edges(reg, &files);
+    let mut out = Vec::new();
+    for u in m.units.values() {
+        let Some(fs) = bound.get(&u.id).filter(|f| !f.is_empty()) else {
+            continue;
+        };
+        let users = edges
+            .iter()
+            .filter(|e| e.to == u.id)
+            .map(|e| &e.from)
+            .collect::<BTreeSet<_>>()
+            .len();
+        let Some(home) = reg.item(&u.id).map(|it| match &it.origin {
+            crate::registry::Origin::ControlTable { control } => control.clone(),
+            crate::registry::Origin::DocDef { path, .. } => path.clone(),
+        }) else {
+            continue;
+        };
+        let line = crate::render::line::TerseLine::new(&format!(
+            "{}.{}",
+            u.id.kind.as_str(),
+            u.id.name.as_str()
+        ))
+        .with("kind", "ud")
+        .with("ud", &unit_digest(fs, corpus))
+        .with("users", &users.to_string());
+        // The container and the consumer count feed the seal-count suggestions (R-HIER-071).
+        let line = match &u.container {
+            Some(c) => line.with("ctr", &format!("{}.{}", c.kind.as_str(), c.name.as_str())),
+            None => line,
+        }
+        .render();
+        out.push((home, line));
+    }
+    out
+}
+
+/// One seal's record of a unit (R-HIER-045).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct UdRecord {
+    pub v: crate::version::Version,
+    pub ud: String,
+    /// `kind.name` of its container at that seal.
+    pub ctr: Option<String>,
+    /// How many units used it at that seal.
+    pub users: Option<u32>,
+}
+
+/// Each unit's seal records, oldest first.
+pub type History = BTreeMap<ItemId, Vec<UdRecord>>;
+
+/// R-HIER-045: each unit's recorded digests, one per seal that recorded it, oldest first, read
+/// from the scope ledgers (`kind=ud` records before each checkpoint).
+pub fn digest_history(
+    reg: &Registry,
+    ledgers: &BTreeMap<crate::path::RepoPath, std::sync::Arc<str>>,
+) -> History {
+    let mut files: Vec<(&crate::path::RepoPath, crate::hist::YearFile)> = ledgers
+        .iter()
+        .filter_map(|(p, t)| crate::hist::YearFile::parse(t).ok().map(|f| (p, f)))
+        .collect();
+    files.sort_by_key(|a| (a.0.parent(), a.1.year));
+    let mut out: History = BTreeMap::new();
+    for (p, f) in files {
+        let Some(scope) = reg.scope_of(p) else {
+            continue;
+        };
+        let mut pending: Vec<(ItemId, String, Option<String>, Option<u32>)> = Vec::new();
+        for l in &f.lines {
+            match l {
+                crate::hist::HistLine::Record { text, .. } => {
+                    let Ok(t) = crate::render::line::TerseLine::parse(text) else {
+                        continue;
+                    };
+                    if t.get("kind") != Some("ud") {
+                        continue;
+                    }
+                    let (Ok(id), Some(ud)) = (Id::parse(&t.id), t.get("ud")) else {
+                        continue;
+                    };
+                    let item = ItemId {
+                        scope: scope.clone(),
+                        kind: id.kind,
+                        name: id.name,
+                    };
+                    pending.push((
+                        item,
+                        ud.to_owned(),
+                        t.get("ctr").map(str::to_owned),
+                        t.get("users").and_then(|n| n.parse().ok()),
+                    ));
+                }
+                crate::hist::HistLine::Ckpt { v, .. } => {
+                    for (u, ud, ctr, users) in pending.drain(..) {
+                        out.entry(u).or_default().push(UdRecord {
+                            v: *v,
+                            ud,
+                            ctr,
+                            users,
+                        });
+                    }
+                }
+                crate::hist::HistLine::End { .. } => {}
+            }
+        }
+    }
+    out
+}
+
 /// A refactor suggestion (R-HIER-071, R-HIER-072): info, never a failing finding.
 #[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
 pub struct Suggestion {
@@ -445,6 +584,7 @@ impl Model {
         reg: &Registry,
         edges: &[UnitEdge],
         h: &HierConfig,
+        history: &History,
     ) -> Vec<Suggestion> {
         let k = usize::try_from(h.settings.promote.fan_in_containers)
             .unwrap_or(usize::MAX)
@@ -530,6 +670,76 @@ impl Model {
                         unit: u.id.clone(),
                         to: implied,
                         why: format!("declared {declared}, more than one layer above what it uses"),
+                    });
+                }
+            }
+        }
+        // The seal-count forms (R-HIER-071), from the per-seal records of R-HIER-045.
+        let n = usize::try_from(h.settings.promote.single_consumer_seals)
+            .unwrap_or(usize::MAX)
+            .max(1);
+        let mut versions: Vec<crate::version::Version> =
+            history.values().flatten().map(|r| r.v).collect();
+        versions.sort();
+        versions.dedup();
+        let last: Vec<crate::version::Version> = versions.iter().rev().take(n).copied().collect();
+        let in_ctr = |v: &crate::version::Version, name: &str| {
+            history
+                .values()
+                .flatten()
+                .filter(|r| r.v == *v && r.ctr.as_deref() == Some(name))
+                .count()
+        };
+        if last.len() == n {
+            for u in self.units.values() {
+                let exported = field(&u.id, "vis").as_deref() == Some("public")
+                    || field(&u.id, "etype").as_deref() == Some("export");
+                let users: BTreeSet<&ItemId> = edges
+                    .iter()
+                    .filter(|e| e.to == u.id)
+                    .map(|e| &e.from)
+                    .collect();
+                let high = u.layer.as_deref().and_then(|l| {
+                    let (ladder, r) = h.rank(l)?;
+                    Some(h.ladders.get(ladder)?.values().any(|x| *x < r))
+                });
+                let recs = history.get(&u.id).map(Vec::as_slice).unwrap_or_default();
+                let one_each = last
+                    .iter()
+                    .all(|v| recs.iter().any(|r| r.v == *v && r.users == Some(1)));
+                if !exported && users.len() == 1 && high == Some(true) && one_each {
+                    let to = users
+                        .iter()
+                        .next()
+                        .and_then(|c| ctr(c))
+                        .map(|c| format!("{}.{}", c.kind.as_str(), c.name.as_str()))
+                        .unwrap_or_default();
+                    out.push(Suggestion {
+                        word: "demote",
+                        unit: u.id.clone(),
+                        to,
+                        why: format!("one consumer for {n} seals"),
+                    });
+                }
+            }
+            for c in self.containers.values() {
+                let name = format!("{}.{}", c.id.kind.as_str(), c.id.name.as_str());
+                let now = self
+                    .units
+                    .values()
+                    .filter(|u| u.container.as_ref() == Some(&c.id))
+                    .count();
+                let small = last.iter().all(|v| (1..=1).contains(&in_ctr(v, &name)));
+                if now <= 1 && small && !parents.contains(&c.id) {
+                    out.push(Suggestion {
+                        word: "merge",
+                        unit: c.id.clone(),
+                        to: c
+                            .parent
+                            .as_ref()
+                            .map(|p| format!("{}.{}", p.kind.as_str(), p.name.as_str()))
+                            .unwrap_or_default(),
+                        why: format!("at most one unit for {n} seals"),
                     });
                 }
             }
