@@ -57,6 +57,20 @@ pub enum ContextArgError {
     OutsideRoot,
 }
 
+/// `context --since` (R-CTX-023, R-CTX-051 to R-CTX-054).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Since {
+    /// A version or git revision: the objects whose generated lines changed since then.
+    Changed {
+        label: String,
+        ids: std::collections::BTreeSet<String>,
+    },
+    /// A digest equal to the current one: nothing changed.
+    Same { label: String },
+    /// A digest this machine cannot place: the full slice, marked `since=unknown`.
+    Unknown,
+}
+
 #[derive(Clone, Debug)]
 pub struct ContextRequest {
     pub target: ContextTarget,
@@ -67,6 +81,7 @@ pub struct ContextRequest {
     pub digest_only: bool,
     pub exact_tokens: bool,
     pub as_of: AsOf,
+    pub since: Option<Since>,
 }
 
 pub struct ContextInput<'a> {

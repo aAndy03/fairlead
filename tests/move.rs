@@ -398,3 +398,84 @@ fn r_file_043__foreign_lost_when_a_tool_strips_the_anchors() {
         check.stdout
     );
 }
+
+fn three_items() -> TempRepo {
+    let r = repo(&[(
+        "fairlead/docs/cmp.md",
+        "+++\ndirectives = ['def cmp.a sum=\"A\"', 'def cmp.b sum=\"B\"']\n+++\n# C\n",
+    )]);
+    let control = r.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(&control, format!("{text}\n[kinds.cmp]\nimpl = 1\n")).unwrap();
+    assert_eq!(r.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    r.git(&["add", "-A"]);
+    r.git_commit("base");
+    std::fs::write(
+        r.path().join("fairlead/docs/cmp.md"),
+        "+++\ndirectives = ['def cmp.a sum=\"A\"', 'def cmp.b sum=\"B\"', 'def cmp.c sum=\"C\"']\n+++\n# C\n",
+    )
+    .unwrap();
+    assert_eq!(r.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    r
+}
+
+#[test]
+fn r_ctx_051__since_a_revision_elides_unchanged_objects() {
+    let repo = three_items();
+    let args = [
+        "context",
+        "fairlead/docs/cmp.md",
+        "--budget",
+        "0",
+        "--as-of",
+        AS_OF,
+    ];
+    let full = repo.run(&args);
+    assert!(
+        full.stdout.contains("declares: cmp.a cmp.b cmp.c"),
+        "{}",
+        full.stdout
+    );
+    let since = repo.run(&[&args[..], &["--since", "HEAD"]].concat());
+    assert_eq!(since.code, 0, "{}", since.stderr);
+    assert!(since.stdout.contains("since=HEAD"), "{}", since.stdout);
+    assert!(
+        since.stdout.contains("declares: cmp.c\n"),
+        "{}",
+        since.stdout
+    );
+}
+
+#[test]
+fn r_ctx_053__unknown_digest_is_the_full_slice_never_an_error() {
+    let repo = three_items();
+    let run = repo.run(&["context", "--since", "zzzzzzzz", "--as-of", AS_OF]);
+    assert_eq!(run.code, 0, "{}", run.stderr);
+    assert!(run.stdout.contains("since=unknown"), "{}", run.stdout);
+    assert!(
+        run.stdout.contains("items: cmp=3"),
+        "the full slice: {}",
+        run.stdout
+    );
+}
+
+#[test]
+fn r_ctx_052__the_current_digest_marks_everything_unchanged() {
+    let repo = three_items();
+    let digest = repo.run(&["context", "--digest", "--as-of", AS_OF]);
+    let d = digest
+        .stdout
+        .trim()
+        .rsplit(' ')
+        .next()
+        .unwrap()
+        .trim_start_matches("d=")
+        .to_owned();
+    let run = repo.run(&["context", "--since", &d, "--as-of", AS_OF]);
+    assert!(run.stdout.contains(&format!("since={d}")), "{}", run.stdout);
+    assert!(
+        run.stdout.contains("objects unchanged since"),
+        "{}",
+        run.stdout
+    );
+}

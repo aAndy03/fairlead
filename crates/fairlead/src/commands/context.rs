@@ -40,8 +40,19 @@ fn context(global: &GlobalArgs, args: &ContextArgs) -> Result<CommandResult, Err
         digest_only: args.digest,
         exact_tokens: args.exact_tokens,
         as_of: as_of(global),
+        since: None,
     };
-    let output = context_loaded(&loaded, &registry, &report, &request)?;
+    let mut output = context_loaded(&loaded, &registry, &report, &request)?;
+    if let Some(arg) = &args.since {
+        // R-CTX-051: the delta is recomputed on the current tree against the given point.
+        let since =
+            fairlead_core::pipeline::context_since(&loaded, &output.brief.header.digest, arg)?;
+        let request = ContextRequest {
+            since: Some(since),
+            ..request
+        };
+        output = context_loaded(&loaded, &registry, &report, &request)?;
+    }
     let format = context_format(global.format, stdout_is_tty());
     let stdout = renderer(format)
         .context(&output)

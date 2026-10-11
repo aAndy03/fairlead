@@ -516,6 +516,49 @@ pub fn against(loaded: &Loaded, rev: &str) -> Result<Vec<String>, Error> {
     Ok(out)
 }
 
+/// `context --since` (R-CTX-051 to R-CTX-054): a sealed version (its version file's adding commit)
+/// or a git revision gives the IDs whose generated registry lines differ between then and the
+/// tree now; the current effective digest gives "unchanged"; anything else is unknown, the full
+/// slice, never an error.
+pub fn context_since(
+    loaded: &Loaded,
+    current: &str,
+    arg: &str,
+) -> Result<crate::context::Since, Error> {
+    use crate::context::Since;
+    let label = arg.to_owned();
+    let repo = crate::git::GitRepo::open(&loaded.root);
+    let base = repo.as_ref().and_then(|r| {
+        let version_file = format!("{}/versions/{arg}.md", loaded.root.folder);
+        crate::version::Version::parse(arg)
+            .and_then(|_| r.commit_adding(&version_file).ok().flatten())
+            .or_else(|| r.resolve(arg).ok())
+    });
+    let (Some(repo), Some(base)) = (repo, base) else {
+        return Ok(if current == arg {
+            Since::Same { label }
+        } else {
+            Since::Unknown
+        });
+    };
+    let mut ids = BTreeSet::new();
+    for (p, now) in &loaded.facts.generated_on_disk {
+        if !p.as_str().ends_with(".reg") {
+            continue;
+        }
+        let then = repo.file_at(&base, p).unwrap_or_default();
+        let (a, b) = (String::from_utf8_lossy(&then), String::from_utf8_lossy(now));
+        let old: BTreeSet<&str> = a.lines().filter(|l| !l.starts_with('#')).collect();
+        let new: BTreeSet<&str> = b.lines().filter(|l| !l.starts_with('#')).collect();
+        for l in old.symmetric_difference(&new) {
+            if let Some(id) = l.split_whitespace().next() {
+                ids.insert(id.to_owned());
+            }
+        }
+    }
+    Ok(Since::Changed { label, ids })
+}
+
 /// R-GIT-064, R-GIT-011: during a merge or rebase (unmerged paths), `sync` regenerates conflicted
 /// generated files but refuses while an authored file is unmerged, listing them; every other
 /// writer of authored files refuses outright.

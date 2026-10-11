@@ -89,6 +89,10 @@ pub struct BriefHeader {
     pub digest_only: bool,
     pub ignored: bool,
     pub compact: bool,
+    /// `--since`: the label, or `unknown` (R-CTX-053). Absent from JSON without `--since`, so the
+    /// 0.1 output stays byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub since: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -230,6 +234,9 @@ pub fn header_line(h: &BriefHeader) -> String {
     }
     if h.ignored {
         s.push_str(" ignored=1");
+    }
+    if let Some(x) = &h.since {
+        s.push_str(&format!(" since={x}"));
     }
     s
 }
@@ -878,6 +885,7 @@ mod tests {
             digest_only: false,
             ignored: false,
             compact: false,
+            since: None,
         }
     }
 

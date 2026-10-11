@@ -262,6 +262,9 @@ pub struct ContextArgs {
     /// Count with the configured tokenizer; exit 2 if none (R-CTX-043).
     #[arg(long = "exact-tokens")]
     pub exact_tokens: bool,
+    /// Only what changed since a version, a git revision or a digest (R-CTX-051).
+    #[arg(long, value_name = "VERSION|REV|DIGEST")]
+    pub since: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]

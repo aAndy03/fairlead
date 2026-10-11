@@ -6,6 +6,7 @@ pub mod digest;
 pub mod estimate;
 pub mod priority;
 pub mod request;
+pub use request::Since;
 pub mod tiers;
 
 pub use brief::{ContextBrief, ContextOutput, ContextStatus};
@@ -20,7 +21,7 @@ pub use tiers::Tier;
 
 use crate::check::RuleSet;
 use crate::config::Stage;
-use crate::context::brief::{BriefFooter, BriefHeader, ChainLink, Entry, Omission};
+use crate::context::brief::{Block, BriefFooter, BriefHeader, ChainLink, Entry, Omission};
 use crate::context::brief::{CAP_TEXT, CAP_TITLE, fence};
 use crate::context::budget::{merge_omissions, pack};
 use crate::context::estimate::estimate_text;
@@ -133,6 +134,11 @@ impl<'s> Scene<'s> {
             digest_only: self.input.request.digest_only,
             ignored: shape.ignored,
             compact: false,
+            since: match &self.input.request.since {
+                None => None,
+                Some(Since::Changed { label, .. } | Since::Same { label }) => Some(label.clone()),
+                Some(Since::Unknown) => Some("unknown".into()),
+            },
         }
     }
 
@@ -290,6 +296,34 @@ pub fn build(input: &ContextInput<'_>) -> ContextOutput {
     };
     if !req.digest_only {
         gather(&scene, &mut cands, &mut pre, &mut shape);
+        // R-CTX-023: with --since, unchanged objects are elided; drift is the current state and
+        // always stays. An unknown digest keeps the full slice (R-CTX-053).
+        match &req.since {
+            Some(Since::Changed { ids, .. }) => cands.retain(|c| {
+                c.block == Block::Drift
+                    || ids
+                        .iter()
+                        .any(|i| c.explain == *i || c.key.contains(i.as_str()))
+            }),
+            Some(Since::Same { label }) => {
+                let n = cands.iter().filter(|c| c.block != Block::Drift).count();
+                cands.retain(|c| c.block == Block::Drift);
+                if n > 0 {
+                    cands.push(Candidate {
+                        priority: priority::Priority::P5Recent,
+                        score: priority::Score::new(1, priority::Relevance::ScopeWide, 0),
+                        hint: 0,
+                        key: "9since".into(),
+                        explain: "kinds".into(),
+                        block: Block::Items,
+                        entry: Entry::Note {
+                            text: format!("~ {n} objects unchanged since {label}"),
+                        },
+                    });
+                }
+            }
+            _ => {}
+        }
         if matches!(req.target, ContextTarget::SessionStart) {
             let (card, rest): (Vec<Candidate>, Vec<Candidate>) =
                 cands.into_iter().partition(|c| c.entry.tag() != "handoff");
