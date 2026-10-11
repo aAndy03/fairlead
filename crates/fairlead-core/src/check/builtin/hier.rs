@@ -12,10 +12,10 @@ pub struct HierCheck;
 
 /// A container edge: from, to, why (for the cycle report), and where it is written.
 type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
-const CODES: [DiagCode; 26] = [
+const CODES: [DiagCode; 27] = [
     HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H006, HN_H007, HN_H008, HN_H009, HN_H010,
     HN_H011, HN_H012, HN_H013, HN_H014, HN_H015, HN_H016, HN_H017, HN_H018, HN_H019, HN_H020,
-    HN_H021, HN_H022, HN_H023, HN_H024, HN_H025, HN_E004,
+    HN_H021, HN_H022, HN_H023, HN_H024, HN_H025, HN_E004, HN_D004,
 ];
 
 fn at(
@@ -459,6 +459,23 @@ fn bridges(cx: &CheckCx<'_>, m: &Model, scope: &ScopeId, out: &mut Vec<Diagnosti
             .map(|x| x.directives.clone())
             .unwrap_or_default()
     };
+    let contracts = crate::hier::contract_history(reg, &cx.facts.ledgers);
+    let (docs, _) = crate::docs::collect_change_docs(cx.corpus);
+    let touched: std::collections::BTreeSet<String> = docs
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.status,
+                crate::docs::Status::Draft | crate::docs::Status::Ready
+            )
+        })
+        .flat_map(|d| {
+            d.extra
+                .get("touches")
+                .map(|v| crate::lifecycle::doc_ids(v))
+                .unwrap_or_default()
+        })
+        .collect();
     for b in m.bridges(reg).iter().filter(|b| b.id.scope == *scope) {
         let id = bare_id(&b.id);
         let missing: Vec<&str> = crate::hier::BRIDGE_KEYS
@@ -575,6 +592,53 @@ fn bridges(cx: &CheckCx<'_>, m: &Model, scope: &ScopeId, out: &mut Vec<Diagnosti
                         0,
                     )),
                 }
+            }
+        }
+        // R-HIER-064, R-HIER-066: a contract changed since the last seal needs a pending change
+        // doc that touches the bridge, and the files generated from it must have changed too.
+        if let Some((cpath, ch, gh)) = crate::hier::contract_hashes(reg, cx.corpus, b) {
+            match (&ch, contracts.get(&b.id)) {
+                (None, _) => out.extend(at(
+                    cx,
+                    &b.id,
+                    HN_H021,
+                    format!("bridge {id}: contract {} does not exist", cpath.as_str()),
+                    "fix contract=, or restore the file (R-HIER-064)",
+                )),
+                (Some(now), Some((v, was, gen_was))) if now != was => {
+                    let qualified = b.id.to_id().to_string();
+                    if !touched.contains(&id) && !touched.contains(&qualified) {
+                        out.push(
+                            DiagB::new(
+                                HN_D004,
+                                &cpath,
+                                0,
+                                0,
+                                format!("the contract of bridge {id} changed since {v}, and no draft or ready change doc touches it"),
+                            )
+                            .hint("add the bridge to touches of a change doc that covers both ends (R-HIER-064)")
+                            .related(id.clone())
+                            .text(id.clone())
+                            .build(),
+                        );
+                    }
+                    if !gh.is_empty() && gen_was.as_deref() == Some(gh.as_str()) {
+                        out.push(
+                            DiagB::new(
+                                HN_H022,
+                                &cpath,
+                                0,
+                                0,
+                                format!("bridge {id}: the files generated from its contract were not regenerated after it changed"),
+                            )
+                            .hint("rerun the binding generator (R-HIER-066)")
+                            .related(id.clone())
+                            .text(id.clone())
+                            .build(),
+                        );
+                    }
+                }
+                _ => {}
             }
         }
         // R-SYN-049: a consumer's `use <bridge> pin=<N>` must equal the declared ver.
@@ -1028,8 +1092,42 @@ impl Check for HierCheck {
             .filter_map(|g| matcher(g))
             .collect();
         if !governed.is_empty() {
-            let any_bound: std::collections::BTreeSet<&crate::path::RepoPath> =
+            let mut any_bound: std::collections::BTreeSet<&crate::path::RepoPath> =
                 bound.values().flatten().collect();
+            // R-HIER-068: an external build input (`def ext.<name> role=input path=...`) is
+            // vendor-owned for scanning, so its files are never orphans.
+            let inputs: Vec<(String, Vec<globset::GlobMatcher>)> = cx
+                .registry
+                .items()
+                .filter(|it| crate::check::builtin::field_str(it, "role") == Some("input"))
+                .map(|it| {
+                    let dir = cx
+                        .registry
+                        .scope(&it.id.scope)
+                        .map(|s| s.dir.as_str().trim_matches('/').to_owned())
+                        .unwrap_or_default();
+                    let globs = crate::check::builtin::field_list(it, "path")
+                        .iter()
+                        .filter_map(|g| matcher(g))
+                        .collect();
+                    (dir, globs)
+                })
+                .collect();
+            for f in &files {
+                let hit = inputs.iter().any(|(dir, ms)| {
+                    let rel = if dir.is_empty() {
+                        Some(f.as_str())
+                    } else {
+                        f.as_str()
+                            .strip_prefix(dir.as_str())
+                            .and_then(|r| r.strip_prefix('/'))
+                    };
+                    rel.is_some_and(|r| ms.iter().any(|m| m.is_match(r)))
+                });
+                if hit {
+                    any_bound.insert(f);
+                }
+            }
             for f in files
                 .iter()
                 .filter(|f| cx.registry.scope_of(f) == Some(scope))
@@ -2379,6 +2477,124 @@ directives = ['def grp.unnamed']
             x.message
                 .contains("use brg.run pin=0, but the bridge is ver=1")
         }));
+    }
+
+    #[test]
+    fn r_hier_064__contract_change_needs_doc_on_both_sides() {
+        let decl = BRG.replace(" ts=", " contract=\"docs/c.md\" ts=");
+        let binding = "// fairlead: def foreign.specta tool=specta gen=brg.run +end\nexport type X = 1;\n// fairlead: end\n";
+        let run = |ledger: String, extra: &[(&str, &str)]| {
+            let root = format!(
+                "{}\n[kinds.brg]\nshape = \"code\"\n",
+                L2.replace("level = 2\n", "level = 3\n")
+            );
+            let mut w = World::new()
+                .root(&root)
+                .file("src/decl.rs", &decl)
+                .file("app/api.ts", TS_END)
+                .file("core/cmds.rs", RS_END)
+                .file("docs/c.md", "# Contract v2\n")
+                .file("app/gen.ts", binding);
+            for (p, t) in extra {
+                w = w.file(p, t);
+            }
+            w.facts(move |f| {
+                f.ledgers.insert(
+                    crate::path::RepoPath::new("fairlead/ledger/hist/2026.hl").unwrap(),
+                    ledger.into(),
+                );
+            })
+            .build()
+            .run_check(&HierCheck)
+        };
+        // The generated-files hash as it is now, recorded at the last seal: not regenerated.
+        let w0 = World::new()
+            .root(&format!(
+                "{}\n[kinds.brg]\nshape = \"code\"\n",
+                L2.replace("level = 2\n", "level = 3\n")
+            ))
+            .file("src/decl.rs", &decl)
+            .file("app/gen.ts", binding)
+            .file("docs/c.md", "# Contract v2\n")
+            .build();
+        let m = Model::build(&w0.registry);
+        let b = m.bridges(&w0.registry).into_iter().next().unwrap();
+        let (_, _, gh) = crate::hier::contract_hashes(&w0.registry, &w0.corpus, &b).unwrap();
+        let ledger = format!(
+            "# scope=root year=2026 prev=- edition=1\nbrg.run kind=contract ch=oldcontract1 gh={gh} d=aaaaaaaa\n# ckpt v=0.1.0 n=1 d=bbbbbbbb\n"
+        );
+        let ds = run(ledger.clone(), &[]);
+        let d = of(&ds, c::HN_D004);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(
+            d[0].message
+                .contains("contract of bridge brg.run changed since 0.1.0")
+        );
+        let doc = "+++\nkind = \"change\"\nid = \"d-00000001\"\nstatus = \"draft\"\nimpact = \"fix\"\ncovers = [\"app/**\", \"core/**\"]\ntouches = [\"brg.run\"]\n+++\n# Contract v2\n";
+        let ds = run(ledger, &[("fairlead/docs/changes/d-00000001-c.md", doc)]);
+        assert!(
+            of(&ds, c::HN_D004).is_empty(),
+            "a draft doc touches it: {ds:#?}"
+        );
+    }
+
+    #[test]
+    fn r_hier_066__generated_binding_stale_on_contract_change() {
+        let decl = BRG.replace(" ts=", " contract=\"docs/c.md\" ts=");
+        let binding = "// fairlead: def foreign.specta tool=specta gen=brg.run +end\nexport type X = 1;\n// fairlead: end\n";
+        let root = format!(
+            "{}\n[kinds.brg]\nshape = \"code\"\n",
+            L2.replace("level = 2\n", "level = 3\n")
+        );
+        let base = || {
+            World::new()
+                .root(&root)
+                .file("src/decl.rs", &decl)
+                .file("app/api.ts", TS_END)
+                .file("core/cmds.rs", RS_END)
+                .file("docs/c.md", "# Contract v2\n")
+                .file("app/gen.ts", binding)
+        };
+        let w0 = base().build();
+        let m = Model::build(&w0.registry);
+        let b = m.bridges(&w0.registry).into_iter().next().unwrap();
+        let (_, _, gh) = crate::hier::contract_hashes(&w0.registry, &w0.corpus, &b).unwrap();
+        let ledger = format!(
+            "# scope=root year=2026 prev=- edition=1\nbrg.run kind=contract ch=oldcontract1 gh={gh} d=aaaaaaaa\n# ckpt v=0.1.0 n=1 d=bbbbbbbb\n"
+        );
+        let ds = base()
+            .facts(move |f| {
+                f.ledgers.insert(
+                    crate::path::RepoPath::new("fairlead/ledger/hist/2026.hl").unwrap(),
+                    ledger.into(),
+                );
+            })
+            .build()
+            .run_check(&HierCheck);
+        let d: Vec<_> = of(&ds, c::HN_H022)
+            .into_iter()
+            .filter(|x| x.message.contains("not regenerated"))
+            .collect();
+        assert_eq!(d.len(), 1, "{ds:#?}");
+    }
+
+    #[test]
+    fn r_hier_068__an_external_input_is_never_an_orphan() {
+        let root = format!("{}governed = [\"dist/**\", \"src/**\"]\n", L2);
+        let ds = World::new()
+            .root(&root)
+            .file(
+                "src/ext.rs",
+                "// fairlead: def ctr.a path=\"src/**\"\nfn d() {}\n",
+            )
+            .file(
+                "fairlead/docs/ext.md",
+                "+++\ndirectives = ['def ext.web role=input path=\"dist/**\"']\n+++\n# Ext\n",
+            )
+            .file("dist/index.html", "<html></html>\n")
+            .build()
+            .run_check(&HierCheck);
+        assert!(of(&ds, c::HN_H003).is_empty(), "{ds:#?}");
     }
 
     #[test]

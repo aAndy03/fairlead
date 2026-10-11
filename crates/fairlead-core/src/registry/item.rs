@@ -85,7 +85,8 @@ pub enum Lookup {
     Missing { nearest: Vec<Id> },
 }
 
-pub const BUILTIN_KINDS: [&str; 4] = ["rule", "handoff", "foreign", "file"];
+/// `ext` (R-SYN-014, R-HIER-068, 0.3): an external build input, `def ext.<name> role=input`.
+pub const BUILTIN_KINDS: [&str; 5] = ["rule", "handoff", "foreign", "file", "ext"];
 
 pub(crate) fn levenshtein(a: &str, b: &str) -> usize {
     let b: Vec<char> = b.chars().collect();

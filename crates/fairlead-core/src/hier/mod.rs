@@ -347,6 +347,52 @@ impl Bridge {
     }
 }
 
+/// R-HIER-064: a bridge's contract file and the files generated from it (`gen=<bridge>` on an
+/// item or a foreign region, R-HIER-066), hashed for the seal record.
+pub fn contract_hashes(
+    reg: &Registry,
+    corpus: &crate::extract::Corpus,
+    b: &Bridge,
+) -> Option<(crate::path::RepoPath, Option<String>, String)> {
+    let raw = b.get("contract")?;
+    let dir = reg
+        .scope(&b.id.scope)
+        .map(|s| s.dir.as_str().trim_matches('/').to_owned())
+        .unwrap_or_default();
+    let rel = raw.trim_start_matches("./");
+    let path = crate::path::RepoPath::new(&if dir.is_empty() {
+        rel.to_owned()
+    } else {
+        format!("{dir}/{rel}")
+    })
+    .ok()?;
+    let ch = corpus
+        .records
+        .get(&path)
+        .map(|r| crate::hash::base32(&r.hash.0, 12));
+    let id = format!("{}.{}", b.id.kind.as_str(), b.id.name.as_str());
+    let generated: BTreeSet<crate::path::RepoPath> = corpus
+        .records
+        .iter()
+        .filter(|(_, r)| {
+            r.extraction.as_ref().is_some_and(|x| {
+                x.directives.iter().any(|d| {
+                    d.args.iter().any(|a| {
+                        a.key == "gen" && crate::registry::item::arg_scalar(&a.value) == id
+                    })
+                })
+            })
+        })
+        .map(|(p, _)| p.clone())
+        .collect();
+    let gh = if generated.is_empty() {
+        String::new()
+    } else {
+        unit_digest(&generated, corpus)
+    };
+    Some((path, ch, gh))
+}
+
 /// R-HIER-060: the keys every bridge declares.
 pub const BRIDGE_KEYS: [&str; 7] = ["proto", "dir", "wire", "ver", "params", "ts", "rs"];
 
@@ -534,6 +580,83 @@ pub fn digest_records(
         }
         .render();
         out.push((home, line));
+    }
+    // R-HIER-064: each bridge's contract hash, and the hash of what was generated from it.
+    for b in m.bridges(reg) {
+        let Some((_, Some(ch), gh)) = contract_hashes(reg, corpus, &b) else {
+            continue;
+        };
+        let Some(home) = reg.item(&b.id).map(|it| match &it.origin {
+            crate::registry::Origin::ControlTable { control } => control.clone(),
+            crate::registry::Origin::DocDef { path, .. } => path.clone(),
+        }) else {
+            continue;
+        };
+        let line = crate::render::line::TerseLine::new(&format!(
+            "{}.{}",
+            b.id.kind.as_str(),
+            b.id.name.as_str()
+        ))
+        .with("kind", "contract")
+        .with("ch", &ch);
+        let line = if gh.is_empty() {
+            line
+        } else {
+            line.with("gh", &gh)
+        }
+        .render();
+        out.push((home, line));
+    }
+    out
+}
+
+/// R-HIER-064: each bridge's last recorded contract hash and generated-files hash, with the
+/// version that recorded them.
+pub fn contract_history(
+    reg: &Registry,
+    ledgers: &BTreeMap<crate::path::RepoPath, std::sync::Arc<str>>,
+) -> BTreeMap<ItemId, (crate::version::Version, String, Option<String>)> {
+    let mut out = BTreeMap::new();
+    let mut files: Vec<(&crate::path::RepoPath, crate::hist::YearFile)> = ledgers
+        .iter()
+        .filter_map(|(p, t)| crate::hist::YearFile::parse(t).ok().map(|f| (p, f)))
+        .collect();
+    files.sort_by_key(|a| (a.0.parent(), a.1.year));
+    for (p, f) in files {
+        let Some(scope) = reg.scope_of(p) else {
+            continue;
+        };
+        let mut pending = Vec::new();
+        for l in &f.lines {
+            match l {
+                crate::hist::HistLine::Record { text, .. } => {
+                    let Ok(t) = crate::render::line::TerseLine::parse(text) else {
+                        continue;
+                    };
+                    if t.get("kind") != Some("contract") {
+                        continue;
+                    }
+                    let (Ok(id), Some(ch)) = (Id::parse(&t.id), t.get("ch")) else {
+                        continue;
+                    };
+                    pending.push((
+                        ItemId {
+                            scope: scope.clone(),
+                            kind: id.kind,
+                            name: id.name,
+                        },
+                        ch.to_owned(),
+                        t.get("gh").map(str::to_owned),
+                    ));
+                }
+                crate::hist::HistLine::Ckpt { v, .. } => {
+                    for (b, ch, gh) in pending.drain(..) {
+                        out.insert(b, (*v, ch, gh));
+                    }
+                }
+                crate::hist::HistLine::End { .. } => {}
+            }
+        }
     }
     out
 }
