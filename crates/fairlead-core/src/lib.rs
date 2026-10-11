@@ -48,6 +48,7 @@ pub mod restructure;
 pub mod seal;
 pub mod secrets;
 pub mod time;
+pub mod tokens;
 pub mod upgrade;
 pub mod version;
 pub mod walk;

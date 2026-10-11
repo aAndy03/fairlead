@@ -15,7 +15,7 @@ use fairlead_syntax::{diag::DiagCode, ids::Id};
 use std::collections::{BTreeMap, BTreeSet};
 
 pub struct TokensCheck;
-const CODES: [DiagCode; 4] = [HN_T002, HN_T003, HN_T004, HN_T005];
+const CODES: [DiagCode; 5] = [HN_T002, HN_T003, HN_T004, HN_T005, HN_T007];
 
 fn bare(s: &str) -> &str {
     s.trim_start_matches('-')
@@ -117,6 +117,48 @@ impl Check for TokensCheck {
                         .build(),
                     );
                 }
+            }
+            // T007 (R-VAR-098): a contract token whose `var()` chain is deeper than one level is
+            // recorded unresolved and never compared by HN-T001.
+            for s in rec
+                .css_tokens
+                .iter()
+                .filter(|s| !s.in_foreign && visible.contains_key(bare(&s.name)))
+            {
+                let Some(next) = super::leak::var_target(&s.value) else {
+                    continue;
+                };
+                let nexts: Vec<&crate::extract::CssTokenSite> = cx
+                    .corpus
+                    .records
+                    .values()
+                    .flat_map(|r| r.css_tokens.iter())
+                    .filter(|x| bare(&x.name) == next && !x.in_foreign)
+                    .collect();
+                if nexts.is_empty()
+                    || nexts
+                        .iter()
+                        .any(|x| super::leak::var_target(&x.value).is_none())
+                {
+                    continue;
+                }
+                let chain = format!(
+                    "--{} -> --{next} -> {}",
+                    bare(&s.name),
+                    nexts.first().map_or("", |x| x.value.trim())
+                );
+                out.push(
+                    DiagB::new(
+                        HN_T007,
+                        path,
+                        s.span.line,
+                        s.span.col,
+                        format!("token value unresolved: {chain}; only one level of var() is followed"),
+                    )
+                    .hint("point the token at a value one var() away, or accept that literals are not compared to it")
+                    .text(s.name.clone())
+                    .build(),
+                );
             }
             // T002: value differs from the base (home scope, same selector) without an ovr in between
             for (name, (iid, _)) in visible.iter().filter(|(_, (i, _))| i.scope != *scope) {
@@ -268,5 +310,23 @@ mod tests {
         assert_eq!((t.len(), t[0].location.line), (1, 2));
         let good = format!("{head}.dark {{ --background: #000; --sidebar: var(--background); }}");
         assert!(of(&world(&good).build().run_check(&TokensCheck), c::HN_T005).is_empty());
+    }
+
+    #[test]
+    fn r_var_098__a_deeper_var_chain_is_unresolved_info() {
+        let css = ":root { --primary: #2563eb; --card: #fff; --base: #fafafa; --background: var(--base); --sidebar: var(--background); }\n";
+        let ds = world(css).build().run_check(&TokensCheck);
+        let t = of(&ds, c::HN_T007);
+        assert_eq!(t.len(), 1, "{ds:#?}");
+        assert!(
+            t[0].message
+                .contains("--sidebar -> --background -> var(--base)")
+        );
+        assert_eq!(t[0].severity, fairlead_syntax::diag::Severity::Info);
+        let one = ":root { --primary: #2563eb; --card: #fff; --background: #fff; --sidebar: var(--background); }\n";
+        assert!(
+            of(&world(one).build().run_check(&TokensCheck), c::HN_T007).is_empty(),
+            "one level resolves"
+        );
     }
 }

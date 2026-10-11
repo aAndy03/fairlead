@@ -189,6 +189,7 @@ impl WorldBuilder {
             env_scan: false,
             grave_scan: false,
             hier_evidence: false,
+            tailwind: Vec::new(),
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),

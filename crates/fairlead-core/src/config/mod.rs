@@ -4,8 +4,10 @@ pub use approvals::{Approval, ApprovalsFile, parse_approvals};
 pub mod header;
 pub mod hier;
 pub use hier::HierConfig;
+pub use variation::{ForkDetect, TokensConfig, VariationConfig};
 pub mod rules;
 pub mod schema;
+pub mod variation;
 pub mod vocab;
 pub use vocab::*;
 
@@ -55,6 +57,10 @@ pub struct ControlFile {
     pub kinds: BTreeMap<String, KindDecl>,
     /// Hierarchy vocabulary (R-HIER-001; 0.3): ladders, free layers, flows, `[hier]`.
     pub hier: HierConfig,
+    /// `[variation]` (0.3, R-VAR-020).
+    pub variation: VariationConfig,
+    /// `[tokens]` (0.3, R-VAR-093).
+    pub tokens: TokensConfig,
     pub file_kinds: BTreeMap<String, FileKindDecl>,
     pub layout: Layout,
     pub files: Vec<FileItemDecl>,
@@ -120,7 +126,9 @@ impl ControlFile {
 }
 
 /// Top-level tables a child may not hold (known 0.1 root-only tables).
-const ROOT_ONLY_TABLES: [&str; 24] = [
+const ROOT_ONLY_TABLES: [&str; 26] = [
+    "variation",
+    "tokens",
     "layers",
     "free",
     "flow",
@@ -267,6 +275,8 @@ pub fn parse_control(
     let kinds = schema::parse_kinds(&mut cx, &mut table);
     let hier = hier::parse_hier(&mut cx, &mut table);
     hier::check_kind_layers(&mut cx, &hier, &kinds);
+    let variation = variation::parse_variation(&mut cx, &mut table);
+    let tokens = variation::parse_tokens(&mut cx, &mut table);
     let file_kinds = schema::parse_file_kinds(&mut cx, &mut table);
     let layout = schema::parse_layout(&mut cx, &mut table);
     let files = schema::parse_files(&mut cx, &mut table);
@@ -325,6 +335,8 @@ pub fn parse_control(
         agents,
         kinds,
         hier,
+        variation,
+        tokens,
         file_kinds,
         layout,
         files,

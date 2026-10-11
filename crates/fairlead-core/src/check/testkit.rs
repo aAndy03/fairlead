@@ -37,14 +37,6 @@ folder = "fairlead"
 fairlead-version = "0.1"
 owners = ["@platform"]
 "#;
-const LEAK_PROPS: [&str; 6] = [
-    "color",
-    "background-color",
-    "border-color",
-    "fill",
-    "stroke",
-    "padding",
-];
 
 pub(crate) fn control_path(dir: &str) -> RepoPath {
     let p = if dir.is_empty() {
@@ -183,7 +175,10 @@ impl World {
             },
             classify: ClassifyRules::from_controls(&root, &controls),
             styles: StyleKinds::default(), // Verify: StyleKinds::default() exists (P3)
-            leak_properties: LEAK_PROPS.iter().map(|s| (*s).to_string()).collect(),
+            leak_properties: crate::extract::LEAK_PROPERTIES
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect(),
             pattern_rules: probes,
             env_scan: controls
                 .root_control()
@@ -194,6 +189,16 @@ impl World {
             hier_evidence: controls
                 .root_control()
                 .is_some_and(|c| c.hier.settings.level.is_some_and(|l| l >= 2)),
+            tailwind: controls
+                .root_control()
+                .map(|c| {
+                    c.tokens
+                        .tailwind
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect()
+                })
+                .unwrap_or_default(),
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),

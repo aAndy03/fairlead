@@ -239,6 +239,7 @@ struct Sink<'a> {
     text: &'a str,
     lines: &'a Lines,
     props: &'a BTreeSet<&'a str>,
+    tailwind: &'a [(String, String)],
     out: Vec<LiteralSite>,
 }
 impl Sink<'_> {
@@ -310,6 +311,83 @@ fn kebab(key: &str) -> String {
     s
 }
 
+/// Properties where a unitless number in a JS style object is pixels (R-VAR-093).
+const UNITLESS_PX: &[&str] = &[
+    "padding",
+    "padding-top",
+    "padding-right",
+    "padding-bottom",
+    "padding-left",
+    "margin",
+    "margin-top",
+    "margin-right",
+    "margin-bottom",
+    "margin-left",
+    "gap",
+    "row-gap",
+    "column-gap",
+    "width",
+    "height",
+    "min-width",
+    "min-height",
+    "max-width",
+    "max-height",
+    "font-size",
+    "border-radius",
+    "border-width",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "inset",
+];
+
+static NUM_KEYED: LazyLock<Regex> = LazyLock::new(|| {
+    re(r"(?m)(?P<key>[A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*(?P<num>-?\d+(?:\.\d+)?)\s*(?:[,}]|$)")
+});
+
+/// 0.3 (R-VAR-093): `key: 16` in a JS style object, a length in pixels (hint `js-px`).
+fn scan_numbers(clean: &str, sink: &mut Sink<'_>) {
+    for m in NUM_KEYED.captures_iter(clean) {
+        let (Some(key), Some(n)) = (m.name("key"), m.name("num")) else {
+            continue;
+        };
+        let prop = kebab(key.as_str());
+        if UNITLESS_PX.contains(&prop.as_str()) {
+            sink.value(&prop, n.as_str(), n.start(), "js-px");
+        }
+    }
+}
+
+static STRINGS: LazyLock<Regex> =
+    LazyLock::new(|| re(r#""(?P<dq>[^"\n]{8,})"|'(?P<sq>[^'\n]{8,})'|`(?P<bq>[^`\n$]{8,})`"#));
+
+/// 0.3 (R-VAR-096): string literals of 8 or more characters, as `property = ""` sites whose
+/// `value_norm` is `str:<hash>` of the exact text, for tokens that declare `match=`.
+fn scan_strings(clean: &str, sink: &mut Sink<'_>) {
+    for m in STRINGS.captures_iter(clean) {
+        let Some(v) = m
+            .name("dq")
+            .or_else(|| m.name("sq"))
+            .or_else(|| m.name("bq"))
+        else {
+            continue;
+        };
+        sink.out.push(LiteralSite {
+            property: String::new(),
+            value_norm: string_key(v.as_str()),
+            raw: String::new(),
+            span: sink.lines.span(sink.text, v.start(), v.end()),
+            projection_hint: None,
+        });
+    }
+}
+
+/// The `value_norm` of a string site with this exact text (R-VAR-096).
+pub fn string_key(text: &str) -> String {
+    format!("str:{:016x}", crate::extract::idents::ident_hash(text))
+}
+
 /// `key: "value"` / `key="value"` (object keys and JSX or SVG attributes).
 fn scan_keyed(clean: &str, hint: &str, sink: &mut Sink<'_>) {
     for m in KEYED.captures_iter(clean) {
@@ -326,7 +404,7 @@ fn scan_keyed(clean: &str, hint: &str, sink: &mut Sink<'_>) {
 }
 
 fn tw_property(prefix: &str, val: &str) -> Option<&'static str> {
-    let colour = is_colour(val);
+    let colour = is_colour(val) || val.starts_with("hsl") || val.starts_with("oklch");
     Some(match (prefix, colour) {
         ("bg", true) => "background-color",
         ("text", true) => "color",
@@ -336,8 +414,18 @@ fn tw_property(prefix: &str, val: &str) -> Option<&'static str> {
         ("stroke", true) => "stroke",
         ("text", false) => "font-size",
         ("border", false) => "border-width",
-        ("p", _) => "padding",
-        ("m", _) => "margin",
+        ("p" | "px" | "py", _) => "padding",
+        ("pt", _) => "padding-top",
+        ("pr", _) => "padding-right",
+        ("pb", _) => "padding-bottom",
+        ("pl", _) => "padding-left",
+        ("m" | "mx" | "my", _) => "margin",
+        ("mt", _) => "margin-top",
+        ("mr", _) => "margin-right",
+        ("mb", _) => "margin-bottom",
+        ("ml", _) => "margin-left",
+        ("gap-x", _) => "column-gap",
+        ("gap-y", _) => "row-gap",
         ("w", _) => "width",
         ("h", _) => "height",
         ("gap", _) => "gap",
@@ -352,15 +440,40 @@ fn scan_tailwind(clean: &str, sink: &mut Sink<'_>) {
             continue;
         };
         let val = v.as_str().replace('_', " "); // Tailwind writes spaces as underscores; same byte length
-        let Some(prop) = tw_property(pre.as_str(), &val) else {
+        // 0.3 (R-VAR-092): `[tokens.tailwind]` rows of the control file come first.
+        let declared = sink
+            .tailwind
+            .iter()
+            .find(|(p, _)| p == pre.as_str())
+            .map(|(_, prop)| prop.clone());
+        let Some(prop) = declared.or_else(|| tw_property(pre.as_str(), &val).map(str::to_owned))
+        else {
             continue;
         };
-        sink.value(prop, &val, v.start(), &format!("tw:{}", pre.as_str()));
+        sink.value(&prop, &val, v.start(), &format!("tw:{}", pre.as_str()));
     }
 }
 
 /// R-CHK-019. `properties` are canonical kebab-case names; nothing is reported for an unlisted property.
 pub fn scan_literals(text: &str, ext: &str, properties: &[String]) -> Vec<LiteralSite> {
+    scan_literals_with(text, ext, properties, &LitOpts::default())
+}
+
+/// The 0.3 additions to the literal scan (R-VAR-092, R-VAR-096).
+#[derive(Default)]
+pub struct LitOpts<'a> {
+    /// `[tokens.tailwind]` prefix-to-property rows.
+    pub tailwind: &'a [(String, String)],
+    /// Record string literals for `match=` tokens.
+    pub strings: bool,
+}
+
+pub fn scan_literals_with(
+    text: &str,
+    ext: &str,
+    properties: &[String],
+    opts: &LitOpts<'_>,
+) -> Vec<LiteralSite> {
     let Some((fl, line_comments)) = flavour(ext) else {
         return Vec::new();
     };
@@ -374,14 +487,21 @@ pub fn scan_literals(text: &str, ext: &str, properties: &[String]) -> Vec<Litera
         text,
         lines: &lines,
         props: &props,
+        tailwind: opts.tailwind,
         out: Vec::new(),
     };
     match fl {
         Flavour::Css => scan_css(&clean, &mut sink),
-        Flavour::Script => scan_keyed(&clean, "js", &mut sink),
+        Flavour::Script => {
+            scan_keyed(&clean, "js", &mut sink);
+            scan_numbers(&clean, &mut sink);
+        }
         Flavour::Markup => scan_keyed(&clean, "svg", &mut sink),
     }
     scan_tailwind(&clean, &mut sink);
+    if opts.strings {
+        scan_strings(&clean, &mut sink);
+    }
     let mut out = sink.out;
     out.sort_by(|a, b| {
         a.span
@@ -494,6 +614,34 @@ pub const LEAK_PROPERTIES: &[&str] = &[
     "outline-color",
     "stroke",
     "text-decoration-color",
+    // 0.3 (R-VAR-093): lengths, compared unit-aware.
+    "border-radius",
+    "border-width",
+    "bottom",
+    "column-gap",
+    "font-size",
+    "gap",
+    "height",
+    "inset",
+    "left",
+    "margin",
+    "margin-bottom",
+    "margin-left",
+    "margin-right",
+    "margin-top",
+    "max-height",
+    "max-width",
+    "min-height",
+    "min-width",
+    "padding",
+    "padding-bottom",
+    "padding-left",
+    "padding-right",
+    "padding-top",
+    "right",
+    "row-gap",
+    "top",
+    "width",
 ];
 
 #[cfg(test)]

@@ -127,6 +127,8 @@ pub struct ExtractPlan {
     pub grave_scan: bool,
     /// The root's `[hier] level` is 2 or more: identifier hashes for `sym=` evidence (R-HIER-031).
     pub hier_evidence: bool,
+    /// `[tokens.tailwind]` rows (R-VAR-092), sorted by prefix.
+    pub tailwind: Vec<(String, String)>,
 }
 
 impl ExtractPlan {
@@ -208,6 +210,12 @@ impl ExtractPlan {
             env_scan: rc.lifecycle_declared(),
             grave_scan: rc.graveyard.declared,
             hier_evidence: rc.hier.settings.level.is_some_and(|l| l >= 2),
+            tailwind: rc
+                .tokens
+                .tailwind
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
         })
     }
 
@@ -219,6 +227,15 @@ impl ExtractPlan {
         for p in &self.leak_properties {
             h.update(p.as_bytes());
             h.update(&[0]);
+        }
+        if !self.leak_properties.is_empty() {
+            h.update(b"literals-0.3\0");
+            for (k, v) in &self.tailwind {
+                h.update(k.as_bytes());
+                h.update(&[1]);
+                h.update(v.as_bytes());
+                h.update(&[0]);
+            }
         }
         if self.grave_scan {
             h.update(b"grave\0");
@@ -284,7 +301,15 @@ fn compute_extras(
         out.css = Some(cssscan::scan_css(text));
     }
     if scanned && class == FileClass::Authored && !plan.leak_properties.is_empty() {
-        out.literals = scan_literals(text, &ext, &plan.leak_properties);
+        out.literals = literals::scan_literals_with(
+            text,
+            &ext,
+            &plan.leak_properties,
+            &literals::LitOpts {
+                tailwind: &plan.tailwind,
+                strings: true,
+            },
+        );
     }
     if scanned && class == FileClass::Authored && !plan.pattern_rules.is_empty() {
         out.pattern_hits = scan_patterns(text, path, &plan.pattern_rules);

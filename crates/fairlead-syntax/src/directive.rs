@@ -719,10 +719,31 @@ const DEF_KEYS: &[&str] = &[
     "rs",
     "contract",
     "side",
+    // 0.3, variation and tokens (31-variation-protocol, R-SYN-015).
+    "css",
+    "use-css",
+    "use-tw",
+    "match",
+    "variant-of",
+    "axis",
+    "values",
+    "default",
+    "native",
+    "request",
+    "extends",
+    "wraps",
+    "adapter",
+    "rejected-by",
+    "import-as",
+    "imports",
+    "vendor",
 ];
 /// `dyn` (R-HIER-025) and `pin` (R-SYN-049) are 0.3.
 const USE_KEYS: &[&str] = &["sym", "dyn", "pin"];
-const OVR_KEYS: &[&str] = &["why", "owner", "exp", "until", "op", "base"];
+/// `of`, `dismiss` and `pair` are 0.3 (`ovr rule.var-fork`, R-VAR-080, R-VAR-082).
+const OVR_KEYS: &[&str] = &[
+    "why", "owner", "exp", "until", "op", "base", "of", "dismiss", "pair",
+];
 const FLAG_KEYS: &[&str] = &["to", "target", "by-date", "since"];
 
 /// R-SYN-015, R-SYN-013, R-SYN-048: built-in keys of edition 1 (kind-declared keys and `x-` keys are extra).
@@ -1189,7 +1210,23 @@ mod tests {
         );
         assert_eq!(
             known_keys(Verb::Ovr),
-            &["why", "owner", "exp", "until", "op", "base"]
+            &[
+                "why", "owner", "exp", "until", "op", "base", "of", "dismiss", "pair"
+            ]
+        );
+        assert!(
+            [
+                "native",
+                "import-as",
+                "adapter",
+                "wraps",
+                "rejected-by",
+                "variant-of",
+                "match"
+            ]
+            .iter()
+            .all(|k| known_keys(Verb::Def).contains(k)),
+            "0.3 variation keys (31-variation-protocol, R-SYN-015)"
         );
         assert_eq!(
             known_keys(Verb::Flag),
