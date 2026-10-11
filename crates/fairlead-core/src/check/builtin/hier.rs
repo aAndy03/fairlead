@@ -5,11 +5,13 @@ use fairlead_syntax::diag::DiagCode;
 use crate::check::builtin::{bare_id, origin_loc};
 use crate::check::{CheckCx, finding::DiagB, rules::Check};
 use crate::diag::{Diagnostic, codes::*};
-use crate::hier::{Model, literal_prefix, prefixes_overlap};
+use crate::hier::{Model, literal_prefix, matcher, prefixes_overlap};
 use crate::registry::{ItemId, ScopeId};
 
 pub struct HierCheck;
-const CODES: [DiagCode; 4] = [HN_H001, HN_H002, HN_H007, HN_H023];
+const CODES: [DiagCode; 7] = [
+    HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H007, HN_H023,
+];
 
 fn at(
     cx: &CheckCx<'_>,
@@ -66,6 +68,42 @@ impl Check for HierCheck {
             return; // no [hier]: hierarchy is off (R-HIER-080)
         };
         let m = Model::build(cx.registry);
+        let files: Vec<&crate::path::RepoPath> = cx.corpus.records.keys().collect();
+        let bound = m.bindings(cx.registry, &files);
+        // L0: a governed file bound to nothing (R-HIER-051); `unbound-ok` globs are exempt.
+        let governed: Vec<_> = h
+            .settings
+            .governed
+            .iter()
+            .filter_map(|g| matcher(g))
+            .collect();
+        let exempt: Vec<_> = h
+            .settings
+            .unbound_ok
+            .iter()
+            .filter_map(|g| matcher(g))
+            .collect();
+        if !governed.is_empty() {
+            let any_bound: std::collections::BTreeSet<&crate::path::RepoPath> =
+                bound.values().flatten().collect();
+            for f in files
+                .iter()
+                .filter(|f| cx.registry.scope_of(f) == Some(scope))
+            {
+                let p = f.as_str();
+                if governed.iter().any(|g| g.is_match(p))
+                    && !exempt.iter().any(|g| g.is_match(p))
+                    && !any_bound.contains(f)
+                {
+                    out.push(
+                        DiagB::new(HN_H003, f, 0, 0, format!("{p} is governed but bound to no container or unit"))
+                            .hint("cover it with a container's path= claim or a unit's def, or list it in [hier] unbound-ok (R-HIER-051)")
+                            .text(p.to_owned())
+                            .build(),
+                    );
+                }
+            }
+        }
         // L0: containment of containers.
         for c in m.containers.values().filter(|c| c.id.scope == *scope) {
             if c.paths.iter().any(|g| g.split('/').any(|s| s == "..")) {
@@ -118,6 +156,40 @@ impl Check for HierCheck {
         }
         // L1: a unit's layer, its single container and its single binding.
         for u in m.units.values().filter(|u| u.id.scope == *scope) {
+            match (u.container_raw.as_slice(), &u.container) {
+                ([], _) => out.extend(at(
+                    cx,
+                    &u.id,
+                    HN_H004,
+                    format!("{} has no container", bare_id(&u.id)),
+                    "add container=<ctr id> to its def (R-HIER-050)",
+                )),
+                ([raw], None) => out.extend(at(
+                    cx,
+                    &u.id,
+                    HN_H004,
+                    format!(
+                        "{} names container {raw}, which does not exist",
+                        bare_id(&u.id)
+                    ),
+                    "declare the container, or name an existing one (R-HIER-050)",
+                )),
+                _ => {}
+            }
+            let proposed = cx
+                .registry
+                .item(&u.id)
+                .and_then(|it| crate::check::builtin::field_str(it, "st"))
+                == Some("proposed");
+            if !proposed && bound.get(&u.id).is_none_or(|b| b.is_empty()) {
+                out.extend(at(
+                    cx,
+                    &u.id,
+                    HN_H005,
+                    format!("{} binds no file", bare_id(&u.id)),
+                    "bind it with a code def next to its symbol or a path= that matches files, or mark it st=proposed (R-HIER-052)",
+                ));
+            }
             if u.container_raw.len() > 1 {
                 out.extend(at(
                     cx,
@@ -315,6 +387,81 @@ mod tests {
             d.iter()
                 .any(|x| x.message.contains("kind eng allows core.engine"))
         );
+    }
+
+    #[test]
+    fn r_hier_050__a_unit_needs_an_existing_container() {
+        let ds = run("// fairlead: def ctr.a
+// fairlead: def eng.x layer=core.engine
+fn x() {}
+// fairlead: def eng.y layer=core.engine container=ctr.gone
+fn y() {}
+");
+        let d = of(&ds, c::HN_H004);
+        assert_eq!(d.len(), 2, "{ds:#?}");
+        assert!(d.iter().any(|x| x.message.contains("has no container")));
+        assert!(
+            d.iter()
+                .any(|x| x.message.contains("ctr.gone, which does not exist"))
+        );
+    }
+
+    #[test]
+    fn r_hier_051__a_governed_file_bound_to_nothing_is_an_orphan() {
+        let w = |extra: &str| {
+            World::new()
+                .root(&format!(
+                    "{LADDER}governed = [\"src/**\"]
+unbound-ok = [\"src/tests/**\"]
+{extra}"
+                ))
+                .file(
+                    "src/a.rs",
+                    "// fairlead: def ctr.a path=\"src/a.rs\"
+fn a() {}
+",
+                )
+                .file(
+                    "src/b.rs",
+                    "fn b() {}
+",
+                )
+                .file(
+                    "src/tests/t.rs",
+                    "fn t() {}
+",
+                )
+                .file(
+                    "docs/x.md",
+                    "# x
+",
+                )
+                .build()
+                .run_check(&HierCheck)
+        };
+        let ds = w("");
+        let d = of(&ds, c::HN_H003);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert_eq!(d[0].location.path.as_str(), "src/b.rs");
+    }
+
+    #[test]
+    fn r_hier_052__a_unit_that_binds_no_file_is_hollow_unless_proposed() {
+        let w = World::new()
+            .root(LADDER)
+            .file(
+                "fairlead/docs/eng.md",
+                "+++
+directives = ['def eng.x layer=core.engine container=ctr.a', 'def eng.y layer=core.engine container=ctr.a st=proposed', 'def ctr.a']
++++
+# E
+",
+            )
+            .build()
+            .run_check(&HierCheck);
+        let d = of(&w, c::HN_H005);
+        assert_eq!(d.len(), 1, "{w:#?}");
+        assert!(d[0].message.contains("eng.x"));
     }
 
     #[test]

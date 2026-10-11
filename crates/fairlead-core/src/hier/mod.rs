@@ -173,6 +173,60 @@ impl Model {
     }
 }
 
+/// A glob matcher with `*` stopping at `/`, as the registry matches globs.
+pub fn matcher(glob: &str) -> Option<globset::GlobMatcher> {
+    globset::GlobBuilder::new(glob.trim_start_matches("./"))
+        .literal_separator(true)
+        .build()
+        .ok()
+        .map(|g| g.compile_matcher())
+}
+
+impl Model {
+    /// The files each unit and container binds (R-HIER-014): the files its scope-relative `path=`
+    /// claims match, and for a unit the files of its code `def` sites.
+    pub fn bindings(
+        &self,
+        reg: &Registry,
+        files: &[&crate::path::RepoPath],
+    ) -> BTreeMap<ItemId, BTreeSet<crate::path::RepoPath>> {
+        let claim = |id: &ItemId, globs: &[String]| -> BTreeSet<crate::path::RepoPath> {
+            let dir = reg
+                .scope(&id.scope)
+                .map(|s| s.dir.as_str().trim_matches('/').to_owned())
+                .unwrap_or_default();
+            let ms: Vec<globset::GlobMatcher> = globs.iter().filter_map(|g| matcher(g)).collect();
+            if ms.is_empty() {
+                return BTreeSet::new();
+            }
+            files
+                .iter()
+                .filter(|f| {
+                    let rel = if dir.is_empty() {
+                        Some(f.as_str())
+                    } else {
+                        f.as_str()
+                            .strip_prefix(dir.as_str())
+                            .and_then(|r| r.strip_prefix('/'))
+                    };
+                    rel.is_some_and(|r| ms.iter().any(|m| m.is_match(r)))
+                })
+                .map(|f| (*f).clone())
+                .collect()
+        };
+        let mut out: BTreeMap<ItemId, BTreeSet<crate::path::RepoPath>> = BTreeMap::new();
+        for c in self.containers.values() {
+            out.insert(c.id.clone(), claim(&c.id, &c.paths));
+        }
+        for u in self.units.values() {
+            let mut set = claim(&u.id, u.path.as_slice());
+            set.extend(reg.sites_of(&u.id).iter().map(|s| s.path.clone()));
+            out.insert(u.id.clone(), set);
+        }
+        out
+    }
+}
+
 /// The literal directory prefix of a glob (the segments before the first wildcard).
 pub fn literal_prefix(glob: &str) -> String {
     glob.trim_start_matches("./")
