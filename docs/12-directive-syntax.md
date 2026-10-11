@@ -206,7 +206,7 @@ Every TOML table and key family used anywhere in the drafts, with the chapter th
 | `[authority]` | root `control.toml` | `signed-records` | 21 R-LC-040 | 0.2 |
 | `[retain]`, `[retain.<kind>]` | root `control.toml` | `min-age`, `roll-after`; `hot`, `ttl`, `keep-rejected`, `bind`, `max` | 33 R-RET-010 to R-RET-026 | 0.3 |
 | `[layers.<ladder>]`, `[free.<name>]`, `[[flow]]` | root `control.toml` | layer to rank; `of`, `may-use`, `usable-by`; `from`, `to`, `via` | 30 R-HIER-001, R-HIER-002, R-HIER-005 | 0.3 |
-| `[hier]` | root `control.toml` | `level`, `same-rank`, `unbound-ok`, `promote`; `governed` globs | 30 R-HIER-080, R-HIER-051 | 0.3 |
+| `[hier]` | root `control.toml` | `level`, `same-rank`, `unbound-ok`, `promote`; `governed` globs; `etypes` (entry types beyond the shipped five, R-HIER-040) | 30 R-HIER-080, R-HIER-051 | 0.3 |
 | `[variation]`, `[tokens]` | root `control.toml` | `request-layers`, `stale-seals`, `fork-detect`, `similarity`; `root-px`, `near`, property table | 31 R-VAR-020, R-VAR-032, R-VAR-081, R-VAR-084, R-VAR-093, R-VAR-095 | 0.3 |
 | `[layer-policy."<ladder>.<layer>"]` | root `control.toml` | `used-by` | 30 R-HIER-006 | 0.3 |
 | `[scope]` | any scope `control.toml` | `portable`, `provides`, `requires`; `accepts`, `layer-alias`, `strict-coverage` (30 R-HIER-004, R-HIER-081, D-65) (no `id`: identity is `[fairlead] scope`, R-SYN-051) | 32 R-PORT-020, R-PORT-022 | 0.3 |

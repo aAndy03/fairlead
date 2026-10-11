@@ -319,6 +319,110 @@ impl Model {
     }
 }
 
+/// R-HIER-040: the shipped entry types; `[hier] etypes` adds more.
+pub const SHIPPED_ETYPES: [&str; 5] = ["user-action", "cli", "export", "test", "registered"];
+
+/// What an entry declares it reaches (R-HIER-044).
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Reach {
+    /// No `reaches=`: whatever its unit reaches.
+    Any,
+    /// `reaches=none`: a local-only entry.
+    Local,
+    /// `reaches=<id>`, resolved when it names a unit.
+    To(String, Option<ItemId>),
+}
+
+/// An entry (R-HIER-040): an item with `etype=`, the start of reachability.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct Entry {
+    pub id: ItemId,
+    pub etype: String,
+    pub unit_raw: Option<String>,
+    pub unit: Option<ItemId>,
+    pub reaches: Reach,
+}
+
+/// R-HIER-040: tests, stories and benchmarks are auto-entries of type `test`.
+pub fn is_auto_entry_file(path: &str) -> bool {
+    let name = path.rsplit('/').next().unwrap_or(path);
+    path.split('/')
+        .any(|s| matches!(s, "tests" | "test" | "__tests__" | "benches" | "stories"))
+        || [".test.", ".spec.", ".stories.", ".bench."]
+            .iter()
+            .any(|m| name.contains(m))
+        || name.ends_with("_test.rs")
+        || name.ends_with("_tests.rs")
+}
+
+impl Model {
+    /// Every declared entry, ordered by ID.
+    pub fn entries(&self, reg: &Registry) -> Vec<Entry> {
+        let mut out: Vec<Entry> = reg
+            .items()
+            .filter(|it| !self.units.contains_key(&it.id) && it.fields.contains_key("etype"))
+            .map(|it| {
+                let unit_raw = scalar(it, "unit");
+                let unit = unit_raw
+                    .as_deref()
+                    .and_then(|u| resolve(reg, &it.id, u))
+                    .filter(|u| self.units.contains_key(u));
+                let reaches = match scalar(it, "reaches").as_deref() {
+                    None => Reach::Any,
+                    Some("none") => Reach::Local,
+                    Some(r) => Reach::To(r.to_owned(), resolve(reg, &it.id, r)),
+                };
+                Entry {
+                    id: it.id.clone(),
+                    etype: scalar(it, "etype").unwrap_or_default(),
+                    unit_raw,
+                    unit,
+                    reaches,
+                }
+            })
+            .collect();
+        out.sort_by(|a, b| a.id.cmp(&b.id));
+        out
+    }
+
+    /// The units reachable from `starts` along the unit edges (breadth first, ordered).
+    pub fn reach_from(&self, starts: &BTreeSet<ItemId>, edges: &[UnitEdge]) -> BTreeSet<ItemId> {
+        let mut next: BTreeMap<&ItemId, Vec<&ItemId>> = BTreeMap::new();
+        for e in edges {
+            next.entry(&e.from).or_default().push(&e.to);
+        }
+        let mut seen: BTreeSet<ItemId> = starts.clone();
+        let mut queue: Vec<ItemId> = starts.iter().cloned().collect();
+        while let Some(u) = queue.pop() {
+            for t in next.get(&u).into_iter().flatten() {
+                if seen.insert((*t).clone()) {
+                    queue.push((*t).clone());
+                }
+            }
+        }
+        seen
+    }
+
+    /// R-HIER-041: the units some entry reaches: each declared entry's `unit=`, and every unit a
+    /// test, story or benchmark file uses (auto-entries), then everything their edges reach.
+    pub fn reached(
+        &self,
+        reg: &Registry,
+        entries: &[Entry],
+        edges: &[UnitEdge],
+    ) -> BTreeSet<ItemId> {
+        let mut starts: BTreeSet<ItemId> = entries.iter().filter_map(|e| e.unit.clone()).collect();
+        starts.extend(
+            reg.edges()
+                .iter()
+                .filter(|e| is_auto_entry_file(e.from.path.as_str()))
+                .filter_map(|e| e.resolved.clone())
+                .filter(|u| self.units.contains_key(u)),
+        );
+        self.reach_from(&starts, edges)
+    }
+}
+
 /// A refactor suggestion (R-HIER-071, R-HIER-072): info, never a failing finding.
 #[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
 pub struct Suggestion {

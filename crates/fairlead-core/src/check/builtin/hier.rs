@@ -12,9 +12,9 @@ pub struct HierCheck;
 
 /// A container edge: from, to, why (for the cycle report), and where it is written.
 type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
-const CODES: [DiagCode; 17] = [
+const CODES: [DiagCode; 19] = [
     HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H006, HN_H007, HN_H008, HN_H009, HN_H010,
-    HN_H011, HN_H012, HN_H013, HN_H014, HN_H015, HN_H017, HN_H023,
+    HN_H011, HN_H012, HN_H013, HN_H014, HN_H015, HN_H017, HN_H018, HN_H023, HN_E004,
 ];
 
 fn at(
@@ -288,6 +288,115 @@ fn cargo_rank(
                 .build(),
             );
         }
+    }
+}
+
+/// R-HIER-040 to R-HIER-046 (level 3): entries, reachability and `hier.stale`.
+fn entries(
+    cx: &CheckCx<'_>,
+    h: &crate::config::HierConfig,
+    m: &Model,
+    edges: &[crate::hier::UnitEdge],
+    bound: &std::collections::BTreeMap<ItemId, std::collections::BTreeSet<crate::path::RepoPath>>,
+    scope: &ScopeId,
+    out: &mut Vec<Diagnostic>,
+) {
+    use crate::hier::{Reach, SHIPPED_ETYPES};
+    let reg = cx.registry;
+    let all = m.entries(reg);
+    for e in all.iter().filter(|e| e.id.scope == *scope) {
+        if !SHIPPED_ETYPES.contains(&e.etype.as_str()) && !h.settings.etypes.contains(&e.etype) {
+            out.extend(at(
+                cx,
+                &e.id,
+                HN_E004,
+                format!("entry {} has etype {:?}, which is not declared", bare_id(&e.id), e.etype),
+                "use user-action, cli, export, test or registered, or add the word to [hier] etypes (R-HIER-040)",
+            ));
+        }
+        match (&e.unit_raw, &e.unit) {
+            (Some(raw), None) => out.extend(at(
+                cx,
+                &e.id,
+                HN_H004,
+                format!(
+                    "entry {} names unit {raw}, which is not a declared unit",
+                    bare_id(&e.id)
+                ),
+                "name the unit the entry starts at with unit=<id> (R-HIER-040)",
+            )),
+            (None, _) => out.extend(at(
+                cx,
+                &e.id,
+                HN_H004,
+                format!("entry {} names no unit", bare_id(&e.id)),
+                "add unit=<id>: the unit the entry starts at (R-HIER-040)",
+            )),
+            _ => {}
+        }
+        if let (Reach::To(raw, target), Some(u)) = (&e.reaches, &e.unit) {
+            let chain = m.reach_from(&std::collections::BTreeSet::from([u.clone()]), edges);
+            if target.as_ref().is_none_or(|t| !chain.contains(t)) {
+                out.extend(at(
+                    cx,
+                    &e.id,
+                    HN_H018,
+                    format!(
+                        "entry {} declares reaches={raw}, but its chain from {} does not reach it",
+                        bare_id(&e.id),
+                        bare_id(u)
+                    ),
+                    "fix reaches=, or declare the missing use edges (R-HIER-044)",
+                ));
+            }
+        }
+    }
+    if all.is_empty() {
+        // R-HIER-042: with zero entries declared, stale is skipped, once, at the root.
+        if scope == reg.root_scope()
+            && let Some(cp) = crate::check::builtin::control_path(reg, scope)
+        {
+            out.push(
+                DiagB::new(HN_H018, &cp, 0, 0, "no entries declared: hier.stale is skipped")
+                    .severity(fairlead_syntax::diag::Severity::Info)
+                    .hint("declare entries with def <kind>.<name> etype=<word> unit=<id> (R-HIER-040, R-HIER-042)")
+                    .build(),
+            );
+        }
+        return;
+    }
+    let reached = m.reached(reg, &all, edges);
+    // R-HIER-046: units named in `adds` or `touches` of an unsealed change doc are exempt.
+    let (docs, _) = crate::docs::collect_change_docs(cx.corpus);
+    let pending: std::collections::BTreeSet<String> = docs
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.status,
+                crate::docs::Status::Draft | crate::docs::Status::Ready
+            )
+        })
+        .flat_map(|d| {
+            ["adds", "touches"]
+                .iter()
+                .filter_map(|k| d.extra.get(*k))
+                .flat_map(|v| crate::lifecycle::doc_ids(v))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    for u in m.units.values().filter(|u| u.id.scope == *scope) {
+        let named =
+            pending.contains(&bare_id(&u.id)) || pending.contains(&u.id.to_id().to_string());
+        if reached.contains(&u.id) || named || bound.get(&u.id).is_none_or(|b| b.is_empty()) {
+            continue;
+        }
+        out.extend(at(
+            cx,
+            &u.id,
+            HN_H018,
+            format!("{} is reached by no entry", bare_id(&u.id)),
+            &format!("declare an entry that reaches it, use it from a reached unit, or retire it (R-HIER-041); {LOWER_BOUND}"),
+        ));
     }
 }
 
@@ -775,8 +884,16 @@ impl Check for HierCheck {
         if level < 1 {
             return;
         }
+        // Built once: the unit edges every level-2 and level-3 check reads.
+        let edges = if level >= 2 {
+            m.edges(cx.registry, &files)
+        } else {
+            Vec::new()
+        };
+        if level >= 3 {
+            entries(cx, h, &m, &edges, &bound, scope, out);
+        }
         if level >= 2 {
-            let edges = m.edges(cx.registry, &files);
             rank_edges(h, &m, &edges, scope, out);
             let cargo = cargo_edges(cx, &m);
             cargo_rank(h, &m, &cargo, scope, out);
@@ -1728,6 +1845,128 @@ directives = ['def grp.unnamed']
         let m = Model::build(&w.registry);
         let names: Vec<String> = m.containers.keys().map(bare_id).collect();
         assert!(names.contains(&"grp.unnamed".to_string()), "{names:?}");
+    }
+
+    fn l3(extra_files: &[(&str, &str)]) -> Vec<Diagnostic> {
+        let root = format!(
+            "{}\n[kinds.ent]\nshape = \"code\"\n",
+            L2.replace("level = 2\n", "level = 3\n")
+        );
+        let mut w = World::new().root(&root).file(
+            "src/a.rs",
+            "// fairlead: def ctr.a\nfn d() {}\n// fairlead: def un.main layer=core.service container=ctr.a\n// fairlead: use un.eng\nfn main_() {}\n// fairlead: def un.eng layer=core.engine container=ctr.a\nfn eng() {}\n// fairlead: def un.lonely layer=core.primitive container=ctr.a\nfn lonely() {}\n",
+        );
+        for (p, t) in extra_files {
+            w = w.file(p, t);
+        }
+        w.build().run_check(&HierCheck)
+    }
+    const ENTRY: (&str, &str) = (
+        "src/main.rs",
+        "// fairlead: def ent.run etype=cli unit=un.main reaches=un.eng\nfn run() {}\n",
+    );
+
+    #[test]
+    fn r_hier_041__an_unreached_bound_unit_is_stale() {
+        let ds = l3(&[ENTRY]);
+        let d = of(&ds, c::HN_H018);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(
+            d[0].message.contains("un.lonely is reached by no entry")
+                && d[0].hint.contains("lower bound")
+        );
+    }
+
+    #[test]
+    fn r_hier_040__etype_must_be_declared() {
+        let ds = l3(&[
+            ENTRY,
+            (
+                "src/b.rs",
+                "// fairlead: def ent.odd etype=wizard unit=un.main\nfn odd() {}\n",
+            ),
+        ]);
+        let d = of(&ds, c::HN_E004);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(d[0].message.contains("\"wizard\""));
+        let root = format!(
+            "{}\n[kinds.ent]\nshape = \"code\"\n",
+            L2.replace("level = 2\n", "level = 3\netypes = [\"wizard\"]\n")
+        );
+        let ok = World::new()
+            .root(&root)
+            .file("src/a.rs", "// fairlead: def ctr.a\nfn d() {}\n// fairlead: def un.main layer=core.service container=ctr.a\nfn m() {}\n")
+            .file("src/b.rs", "// fairlead: def ent.odd etype=wizard unit=un.main\nfn odd() {}\n")
+            .build()
+            .run_check(&HierCheck);
+        assert!(
+            of(&ok, c::HN_E004).is_empty(),
+            "[hier] etypes adds words: {ok:#?}"
+        );
+    }
+
+    #[test]
+    fn r_hier_044__reaches_checked_against_chain() {
+        let ds = l3(&[
+            ENTRY,
+            (
+                "src/b.rs",
+                "// fairlead: def ent.miss etype=cli unit=un.main reaches=un.lonely\n// fairlead: def ent.local etype=cli unit=un.eng reaches=none\nfn b() {}\n",
+            ),
+        ]);
+        let d: Vec<_> = of(&ds, c::HN_H018)
+            .into_iter()
+            .filter(|x| x.message.contains("declares reaches"))
+            .collect();
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(d[0].message.contains("ent.miss declares reaches=un.lonely"));
+    }
+
+    #[test]
+    fn r_hier_040__tests_are_auto_entries() {
+        let ds = l3(&[
+            ENTRY,
+            ("tests/lonely.rs", "// fairlead: use un.lonely\nfn t() {}\n"),
+        ]);
+        assert!(of(&ds, c::HN_H018).is_empty(), "a test reaches it: {ds:#?}");
+    }
+
+    #[test]
+    fn r_hier_041__dev_only_unit_not_stale_in_prod() {
+        let ds = l3(&[
+            ENTRY,
+            (
+                "src/dev.rs",
+                "// fairlead: def ent.dev etype=cli unit=un.lonely in=dev\nfn dev() {}\n",
+            ),
+        ]);
+        assert!(
+            of(&ds, c::HN_H018).is_empty(),
+            "reached by a dev entry: {ds:#?}"
+        );
+    }
+
+    #[test]
+    fn r_hier_046__draft_adds_exempts_until_sealed() {
+        let doc = "+++\nkind = \"change\"\nid = \"d-00000001\"\nstatus = \"draft\"\nimpact = \"add\"\ncovers = [\"src/**\"]\nadds = [\"un.lonely\"]\n+++\n# New\n";
+        let ds = l3(&[ENTRY, ("fairlead/docs/changes/d-00000001-new.md", doc)]);
+        assert!(of(&ds, c::HN_H018).is_empty(), "{ds:#?}");
+        let sealed = doc.replace("status = \"draft\"", "status = \"abandoned\"");
+        let ds = l3(&[ENTRY, ("fairlead/docs/changes/d-00000001-new.md", &sealed)]);
+        assert_eq!(
+            of(&ds, c::HN_H018).len(),
+            1,
+            "an abandoned doc exempts nothing"
+        );
+    }
+
+    #[test]
+    fn r_hier_042__zero_entries_skips_stale() {
+        let ds = l3(&[]);
+        let d = of(&ds, c::HN_H018);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert_eq!(d[0].severity, fairlead_syntax::diag::Severity::Info);
+        assert!(d[0].message.contains("no entries declared"));
     }
 
     #[test]

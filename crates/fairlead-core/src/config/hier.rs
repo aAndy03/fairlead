@@ -60,6 +60,8 @@ pub struct HierSettings {
     pub unbound_ok: Vec<String>,
     pub governed: Vec<String>,
     pub promote: Promote,
+    /// Entry types beyond the shipped five (R-HIER-040: "an `etype` from the control file").
+    pub etypes: Vec<String>,
 }
 
 /// The hierarchy tables of one control file (root only, R-HIER-001).
@@ -259,6 +261,7 @@ pub(crate) fn parse_hier(cx: &mut Ctx<'_>, root: &mut toml::Table) -> HierConfig
         }
         s.unbound_ok = take_string_list(cx, &mut t, "hier", "unbound-ok").unwrap_or_default();
         s.governed = take_string_list(cx, &mut t, "hier", "governed").unwrap_or_default();
+        s.etypes = take_string_list(cx, &mut t, "hier", "etypes").unwrap_or_default();
         if let Some(mut p) = take_table(cx, &mut t, "hier", "promote") {
             if let Some(n) = take_u32(cx, &mut p, "hier.promote", "fan-in-containers") {
                 s.promote.fan_in_containers = n;
