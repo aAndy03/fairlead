@@ -1016,6 +1016,7 @@ fn r_git_031__reseal_renumbers_the_own_unintegrated_seal() {
     repo.git(&["checkout", "-q", "-b", "work"]);
     ready_change(&repo, "Work change");
     seal(&repo, &[]); // 0.1.1 on work
+    repo.git(&["tag", "-a", "fairlead/0.1.1", "-m", "fairlead 0.1.1"]); // as seal --tag would
     repo.git(&["checkout", "-q", "main"]);
     ready_change(&repo, "Main change");
     seal(&repo, &[]); // 0.1.1 on main too: a collision by number
@@ -1027,9 +1028,13 @@ fn r_git_031__reseal_renumbers_the_own_unintegrated_seal() {
         "{}",
         plan.stdout
     );
+    // 0.2.2-T4: the tag left on the undone seal is named, with the command that deletes it.
+    let tag = "tag fairlead/0.1.1 still points at the undone seal; delete it with: git tag -d fairlead/0.1.1";
+    assert!(plan.stdout.contains(tag), "{}", plan.stdout);
     let run = repo.run(&["seal", "--reseal", "--yes", "--as-of", AS_OF]);
     assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
     assert!(run.stdout.contains("unsealed 0.1.1"), "{}", run.stdout);
+    assert!(run.stdout.contains(tag), "{}", run.stdout);
     assert!(run.stdout.contains("-> 0.1.2"), "{}", run.stdout);
     assert!(repo.path().join("fairlead/versions/0.1.2.md").exists());
     let changes = repo.path().join("fairlead/docs/changes");

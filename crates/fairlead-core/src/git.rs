@@ -130,6 +130,13 @@ impl GitRepo {
         run_git(root, &["tag", "-a", &name, "-m", &msg]).map(|_| ())
     }
 
+    /// 0.2.2-T4: whether the tag `fairlead/<version>` exists (a reseal leaves it on the undone
+    /// seal). False when git cannot answer.
+    pub fn tag_exists(root: &Root, version: &str) -> bool {
+        let r = format!("refs/tags/fairlead/{version}");
+        run_git(root, &["rev-parse", "-q", "--verify", &r]).is_ok()
+    }
+
     /// R-VER-014: the newest commit (first-parent walk from HEAD, at most 5,000 commits) whose
     /// tree changes `path`, as `(short id, YYYY-MM-DD)`. `None` without history or past the cap.
     pub fn last_commit_touching(&self, path: &RepoPath) -> Option<(String, String)> {

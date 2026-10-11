@@ -50,9 +50,18 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
             theirs,
             their_docs,
         } = fairlead_core::pipeline::plan_unseal(&loaded)?;
+        // 0.2.2-T4: the tag of the undone seal is left in place (deleting a tag is the owner's
+        // call); the field test found it pointing at the undone seal.
+        let tag_note = if GitRepo::tag_exists(&loaded.root, &own.to_string()) {
+            format!(
+                "note: tag fairlead/{own} still points at the undone seal; delete it with: git tag -d fairlead/{own}   (and on a remote that has it: git push --delete origin fairlead/{own})\n"
+            )
+        } else {
+            String::new()
+        };
         if !args.yes || args.dry_run {
             let mut r = CommandResult::text(format!(
-                "reseal: {own} is unintegrated; it is renumbered after {}\n{}not applied; re-run with --yes\n",
+                "reseal: {own} is unintegrated; it is renumbered after {}\n{}{tag_note}not applied; re-run with --yes\n",
                 theirs
                     .iter()
                     .max()
@@ -66,7 +75,7 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
         }
         let undone = commit_plan(&session, undo)?;
         request.own_outputs = undone.report.written.iter().cloned().collect();
-        unsealed = format!("unsealed {own}\n");
+        unsealed = format!("unsealed {own}\n{tag_note}");
         loaded = load(&load_request(global, false, None)?)?;
         registry = resolve_loaded(&loaded, as_of(global));
         request.also_sealed = theirs;
