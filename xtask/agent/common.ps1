@@ -63,23 +63,49 @@ function Invoke-Sample {
         [Parameter(Mandatory)][string]$WorkDir,
         [Parameter(Mandatory)][string]$OutFile,
         [string[]]$Files = @(),
-        [switch]$Auto
+        [switch]$Auto,
+        [int]$TimeoutMinutes = 6,
+        [int]$Attempts = 3
     )
     if (-not (Test-Path $WorkDir)) { New-Item -ItemType Directory -Force $WorkDir | Out-Null }
     $a = @('run', '-m', $Model, '--format', 'json', '--file', $PromptFile)
     foreach ($f in $Files) { $a += @('--file', $f) }
     if ($Auto) { $a += '--auto' }
     $a += 'Follow the instructions in the attached prompt file. The other attached files are your context.'
-    # A sample takes a minute or more; say so, so a quiet terminal is not mistaken for a hang.
-    Write-Host ("[{0}] asking the model ({1})..." -f (Get-Date -Format 'HH:mm:ss'), (Split-Path -Leaf $OutFile))
-    Push-Location $WorkDir
-    try {
-        $out = & opencode @a | Out-String
-    } finally {
-        Pop-Location
+    # A failed inference can leave `opencode run` waiting forever (seen 2026-10-11), so every
+    # attempt has a time limit and is retried; the last attempt's output is kept either way.
+    $line = ($a | ForEach-Object { if ($_ -match '[\s"]') { '"' + ($_ -replace '"', '\"') + '"' } else { $_ } }) -join ' '
+    $out = ''
+    for ($try = 1; $try -le $Attempts; $try++) {
+        # A sample takes a minute or more; say so, so a quiet terminal is not mistaken for a hang.
+        Write-Host ("[{0}] asking the model ({1}), attempt {2} of {3}..." -f (Get-Date -Format 'HH:mm:ss'), (Split-Path -Leaf $OutFile), $try, $Attempts)
+        $tmp = "$OutFile.part"
+        $p = Start-Process -FilePath (Get-OpencodeExe) -ArgumentList $line -WorkingDirectory $WorkDir `
+            -NoNewWindow -PassThru -RedirectStandardOutput $tmp -RedirectStandardError "$tmp.err"
+        if ($p.WaitForExit($TimeoutMinutes * 60 * 1000)) {
+            $out = [System.IO.File]::ReadAllText($tmp)
+            if ($out -match '"type":"text"') { break }
+            Write-Host '  no answer in the output; retrying'
+        } else {
+            Write-Host "  no answer after $TimeoutMinutes minutes; stopping that attempt"
+            & taskkill /T /F /PID $p.Id 2>$null | Out-Null
+            if (Test-Path $tmp) { $out = [System.IO.File]::ReadAllText($tmp) }
+        }
     }
+    Remove-Item -ErrorAction SilentlyContinue $tmp, "$tmp.err"
     Write-Utf8 $OutFile $out
     $out
+}
+
+# The real opencode executable: the npm wrapper (`opencode.cmd`) cannot be timed out and stopped
+# as one process.
+function Get-OpencodeExe {
+    $cmd = (Get-Command opencode.cmd -ErrorAction SilentlyContinue).Source
+    if ($cmd) {
+        $exe = Join-Path (Split-Path -Parent $cmd) 'node_modules\@opencode\cli\bin\opencode.exe'
+        if (Test-Path $exe) { return $exe }
+    }
+    (Get-Command opencode -CommandType Application | Select-Object -First 1).Source
 }
 
 # The last `LABEL: <word>` line of an answer, lower-cased; `unparsed` when absent or not allowed.
