@@ -89,3 +89,27 @@ jobs:
           name: bench-${{ matrix.os }}
           path: target/bench/results.toml
           if-no-files-found: ignore
+
+  # 0.2 P7-T5, exit criterion 8 (R-VER-016): 20 seals across 50 scopes on the 100,000-file corpus.
+  # Fails unless a one-file change re-reads exactly that file.
+  merkle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build release binary
+        run: cargo build --release -p fairlead --locked
+      - name: Corpus with 50 scopes and a 20-seal history
+        run: |
+          cargo run -p xtask --locked -- bench-corpus generate --files 100000 --out target/bench/merkle
+          cargo run -p xtask --locked -- bench-corpus scopes --files 100000 --scopes 50 --corpus target/bench/merkle
+          cargo run -p xtask --locked -- bench-corpus history --files 100000 --scopes 50 --seals 20 --corpus target/bench/merkle --bin target/release/fairlead
+      - name: Measure
+        run: cargo run -p xtask --locked -- bench-corpus merkle --corpus target/bench/merkle --bin target/release/fairlead | tee target/bench/merkle.toml
+      - name: Keep results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-merkle
+          path: target/bench/merkle.toml
+          if-no-files-found: ignore

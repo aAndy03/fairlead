@@ -14,7 +14,9 @@ use fairlead_core::outcome::ExitCode;
 fn main() -> std::process::ExitCode {
     // The default hook is silenced; the boundary prints the single line R-ARCH-101 asks for.
     panic::set_hook(Box::new(|_| {}));
-    exit::to_process_exit(run_guarded(cli::run_from_env))
+    let code = run_guarded(cli::run_from_env);
+    commands::print_stats();
+    exit::to_process_exit(code)
 }
 
 /// Runs one invocation. A panic becomes exit 5; success is never reported after a panic (R-ARCH-101).

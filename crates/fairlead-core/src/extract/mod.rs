@@ -286,23 +286,36 @@ fn compute_extras(
 }
 
 /// Pure per file (R-ARCH-030). `bytes` are already read.
-pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> FileRecord {
-    let class = classify(&entry.path, &plan.classify);
-    let mut ext = entry.path.extension().to_ascii_lowercase();
+/// The comment-syntax key of a path: its lower-case extension, or `codeowners` for `CODEOWNERS`.
+fn syntax_ext(path: &RepoPath) -> String {
+    let ext = path.extension().to_ascii_lowercase();
     // `CODEOWNERS` has no extension; its `#` comments are keyed by its name (it names the
     // managerial folders, so it always mentions the marker).
-    if ext.is_empty() && entry.path.file_name().eq_ignore_ascii_case("codeowners") {
-        ext = "codeowners".to_string();
+    if ext.is_empty() && path.file_name().eq_ignore_ascii_case("codeowners") {
+        "codeowners".to_string()
+    } else {
+        ext
     }
+}
+
+/// Whether a file's directives are scanned. The fresh path and the cached path must agree, or a
+/// cached file is never served from the cache (0.2 P7-T5).
+fn is_scanned(path: &RepoPath, class: FileClass, plan: &ExtractPlan) -> bool {
     // fairlead's own generated files (`gen/members`, `*.reg`) have no comment syntax, so they
     // cannot carry a directive; scanning them only raised HN-I002 about fairlead itself (E-45).
     let own_format = matches!(class, FileClass::Generated | FileClass::Ledger)
         && plan
             .syntax
             .comments
-            .leaders_for(ext.trim_start_matches('.'))
+            .leaders_for(syntax_ext(path).trim_start_matches('.'))
             .is_none();
-    let scanned = scans_directives(class) && !own_format && !plan.classify.skips(&entry.path);
+    scans_directives(class) && !own_format && !plan.classify.skips(path)
+}
+
+pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> FileRecord {
+    let class = classify(&entry.path, &plan.classify);
+    let ext = syntax_ext(&entry.path);
+    let scanned = is_scanned(&entry.path, class, plan);
     let extraction = scanned.then(|| Arc::new(syntax_extract(bytes, &ext, &plan.syntax)));
     let skip = extraction.as_deref().and_then(skip_of);
     let extras = if skip.is_none() {
@@ -453,7 +466,7 @@ fn from_cache(
     cache: &Cache,
     fp: &str,
 ) -> Option<FileRecord> {
-    let scanned = scans_directives(class) && !plan.classify.skips(&e.path);
+    let scanned = is_scanned(&e.path, class, plan);
     let extraction = if scanned {
         Some(cache.get_extraction(&row.hash)?)
     } else {
@@ -484,6 +497,14 @@ fn from_cache(
 
 type Processed = Option<(FileRecord, Option<(RepoPath, FileRow)>)>;
 
+/// Files this process read from disk: not served by the cache's size and mtime match, nor skipped
+/// as over-size (R-VER-016 benchmark, 0.2 P7-T5).
+static FILES_READ: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+pub fn files_read() -> usize {
+    FILES_READ.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 fn process(
     e: &WalkEntry,
     root: &Root,
@@ -507,6 +528,7 @@ fn process(
         return Ok(Some((rec, None)));
     }
     let abs = root.dir.join(e.path.as_str());
+    FILES_READ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     match read_probing(&abs, &e.path)? {
         None => Ok(None),
         Some(Read::Binary) => Ok(Some((
@@ -863,6 +885,16 @@ mod tests {
             ":root { --a: 1; }\n.dark { --a: 2; }\n",
         );
         write_file(&dir, "tests/fixtures/f.rs", "// fairlead: def cmp.f\n");
+        write_file(
+            &dir,
+            "fairlead/gen/members",
+            "# scope root edition=1 body=x\n",
+        );
+        write_file(
+            &dir,
+            "fairlead/ledger/hist/2026.hl",
+            "# scope=root year=2026\n",
+        );
         let root = test_root(&dir);
         let walked = walk(
             &root,
@@ -944,6 +976,23 @@ mod tests {
                 .contains_key(&RepoPath::new("src/a.rs").unwrap()),
             "a vanished file is dropped, not an error"
         );
+    }
+
+    #[test]
+    fn r_ver_016__a_warm_run_serves_generated_and_ledger_files_from_the_cache() {
+        // P7-T5: the cached path once demanded an extraction these files never get, so every
+        // run re-read all of them.
+        let f = fixture();
+        let cold = extract_files(&f.walked, &f.root, &f.plan, &cache_for(&f, true), None).unwrap();
+        for p in ["fairlead/gen/members", "fairlead/ledger/hist/2026.hl"] {
+            std::fs::remove_file(f.dir.join(p).as_std_path()).unwrap();
+        }
+        let warm = extract_files(&f.walked, &f.root, &f.plan, &cache_for(&f, true), None).unwrap();
+        for p in ["fairlead/gen/members", "fairlead/ledger/hist/2026.hl"] {
+            let k = RepoPath::new(p).unwrap();
+            assert!(warm.records.contains_key(&k), "{p} was re-read, not served");
+            assert_eq!(warm.records.get(&k), cold.records.get(&k));
+        }
     }
 
     #[test]

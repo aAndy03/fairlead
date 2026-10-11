@@ -94,6 +94,20 @@ pub fn env_root_from(value: Option<OsString>) -> Result<Option<Utf8PathBuf>, Err
     }
 }
 
+/// `FAIRLEAD_STATS` (non-empty): one stderr line with the files this run read from disk, for the
+/// Merkle benchmark (0.2 P7-T5). Not part of any output contract.
+pub fn print_stats() {
+    #[allow(clippy::disallowed_methods)]
+    // reason: the bin reads the environment (P8 Global Constraint 9)
+    let on = std::env::var_os("FAIRLEAD_STATS").is_some_and(|v| !v.is_empty());
+    if on {
+        #[allow(clippy::print_stderr)] // reason: a diagnostic line outside the output contract
+        {
+            eprintln!("stats: files-read={}", fairlead_core::extract::files_read());
+        }
+    }
+}
+
 /// The edition this binary writes; a `test-edition` build honours `FAIRLEAD_TEST_EDITION` (Q-1).
 pub fn current_edition() -> fairlead_core::discover::Edition {
     #[allow(clippy::disallowed_methods)]

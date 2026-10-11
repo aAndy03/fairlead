@@ -122,7 +122,7 @@ Counted by grep of rule tags in chapters 10 to 40 on 2026-10-09 (unique rule IDs
 | 5 | Shallow clone, rebase, squash, cherry-pick and revert each have a passing golden scenario ([23-git-integration.md](23-git-integration.md)). |
 | 6 | An eight-week pilot on at least two real repositories, at least one of them external, ends with at most 30% of recorded exceptions stale or expired (kill assumption 3). |
 | 7 | All 0.1 criteria still hold. |
-| 8 | The Merkle scope digest and the ledger shard layout are benchmarked on a 100,000-file fixture before the 0.2 freeze ([20-versions-and-seal.md](20-versions-and-seal.md) R-VER-016); the result is recorded here. |
+| 8 | The Merkle scope digest and the ledger shard layout are benchmarked on a 100,000-file fixture before the 0.2 freeze ([20-versions-and-seal.md](20-versions-and-seal.md) R-VER-016); the result is recorded here. Result (2026-10-11, `cargo xtask bench-corpus merkle`, 100,000 files, 50 scopes, 20 seals, a debug build on Windows): after a one-file change the check reads 1 file, a warm check reads 0; the 51 ledger files hold 14,910 bytes; a check that recomputes every scope digest and verifies the ledger chain takes 15.7 s warm and 16.4 s after the change, in the debug build. The weekly `bench.yml` job `merkle` repeats it with a release build and fails unless the change reads exactly 1 file. |
 | 9 | After 50 simulated `merge=union` merges of ledger files, the checkpoint continuity check passes or reports a repairable break ([33-retention-and-compaction.md](33-retention-and-compaction.md) R-RET-036). |
 
 ### 4.3 Release 0.3 (thresholds provisional until R-ROAD-020)

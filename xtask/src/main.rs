@@ -4,6 +4,7 @@
 
 mod ablation;
 mod bench;
+mod bench_history;
 mod coverage_replay;
 mod docs;
 mod golden;
@@ -114,7 +115,45 @@ fn bench_corpus(args: &[String]) -> ExitCode {
                     .and_then(|b| bench::check(&r, &b))
             })
         }
-        _ => Err("usage: bench-corpus generate|check".into()),
+        // 0.2 P7-T5: child scopes, a seal history, and the Merkle and ledger measurement.
+        Some("scopes") => {
+            let files = flag("--files")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(100_000);
+            let scopes = flag("--scopes").and_then(|n| n.parse().ok()).unwrap_or(50);
+            let dir = flag("--corpus").unwrap_or_else(|| "target/bench/corpus".into());
+            bench_history::add_scopes(std::path::Path::new(&dir), files, scopes)
+                .map_err(|e| e.to_string())
+        }
+        Some("history") => {
+            let files = flag("--files")
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(100_000);
+            let scopes = flag("--scopes").and_then(|n| n.parse().ok()).unwrap_or(50);
+            let seals = flag("--seals").and_then(|n| n.parse().ok()).unwrap_or(20);
+            let dir = flag("--corpus").unwrap_or_else(|| "target/bench/corpus".into());
+            match flag("--bin") {
+                Some(bin) => bench_history::history(
+                    std::path::Path::new(&dir),
+                    std::path::Path::new(&bin),
+                    files,
+                    scopes,
+                    seals,
+                ),
+                None => Err("history needs --bin PATH".into()),
+            }
+        }
+        Some("merkle") => {
+            let dir = flag("--corpus").unwrap_or_else(|| "target/bench/corpus".into());
+            match flag("--bin") {
+                Some(bin) => {
+                    bench_history::merkle(std::path::Path::new(&dir), std::path::Path::new(&bin))
+                        .map(|toml| print!("{toml}"))
+                }
+                None => Err("merkle needs --bin PATH".into()),
+            }
+        }
+        _ => Err("usage: bench-corpus generate|check|scopes|history|merkle".into()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
