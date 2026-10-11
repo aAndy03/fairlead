@@ -1,4 +1,4 @@
-﻿# Agent protocol runners (0.2)
+# Agent protocol runners (0.2)
 
 Runners for the agent protocols of [docs/plans/agent-runbook.md](../../docs/plans/agent-runbook.md)
 (decision D-59). Windows PowerShell 5.1 or later, `opencode` on the PATH. Each sample is a fresh
