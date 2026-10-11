@@ -25,7 +25,7 @@ const CODES: [DiagCode; 7] = [
 
 /// R-SCOPE-029: an item a sibling may name: listed in its scope's `[scope] provides`
 /// (`kind.name` or `kind.*`) or declared `vis=public`.
-fn provided(reg: &Registry, item: &ItemId) -> bool {
+pub(crate) fn provided(reg: &Registry, item: &ItemId) -> bool {
     let name = format!("{}.{}", item.kind.as_str(), item.name.as_str());
     let public = reg
         .item(item)

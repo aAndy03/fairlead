@@ -9,8 +9,8 @@ use crate::hier::{Model, literal_prefix, matcher, prefixes_overlap};
 use crate::registry::{ItemId, ScopeId};
 
 pub struct HierCheck;
-const CODES: [DiagCode; 9] = [
-    HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H007, HN_H008, HN_H009, HN_H023,
+const CODES: [DiagCode; 10] = [
+    HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H007, HN_H008, HN_H009, HN_H010, HN_H023,
 ];
 
 fn at(
@@ -195,6 +195,58 @@ fn cycle_edges(
     }
 }
 
+/// R-HIER-026, R-HIER-028, R-VAR-010, R-VAR-011: a reference to a unit from outside its
+/// visibility (`subtree`, the default: the home scope and its descendants; `public`: anywhere).
+/// Independent of rank. A qualified sideways reference to an item its scope does not provide is
+/// already `HN-R008` and is not reported twice.
+fn visibility(cx: &CheckCx<'_>, m: &Model, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    let reg = cx.registry;
+    let chain = reg.chain(scope);
+    for e in reg.edges().iter().filter(|e| e.from.scope == *scope) {
+        let Some(t) = e.resolved.as_ref().filter(|t| m.units.contains_key(*t)) else {
+            continue;
+        };
+        let vis = reg
+            .item(t)
+            .and_then(|it| crate::check::builtin::field_str(it, "vis"))
+            .unwrap_or("subtree");
+        if vis == "public" || chain.contains(&&t.scope) {
+            continue;
+        }
+        if matches!(e.to.qualifier, fairlead_syntax::ids::IdQualifier::Scope(_))
+            && !crate::check::builtin::refs::provided(reg, t)
+        {
+            continue; // HN-R008
+        }
+        let home = reg.chain(&t.scope);
+        let lca = chain
+            .iter()
+            .rev()
+            .find(|s| home.contains(s))
+            .map_or("root", |s| s.0.as_str());
+        out.push(
+            DiagB::new(
+                HN_H010,
+                &e.from.path,
+                e.from.span.line,
+                e.from.span.col,
+                format!(
+                    "scope {} uses {}, which is vis={vis} in scope {}",
+                    scope.0.as_str(),
+                    bare_id(t),
+                    t.scope.0.as_str()
+                ),
+            )
+            .hint(format!(
+                "promote to the lowest common ancestor scope {lca}, or mark vis=public (R-VAR-010)"
+            ))
+            .related(bare_id(t))
+            .text(bare_id(t))
+            .build(),
+        );
+    }
+}
+
 /// Why an edge from layer `ls` to layer `lt` breaks the ladder rules, if it does.
 fn edge_problem(
     h: &crate::config::HierConfig,
@@ -359,6 +411,7 @@ impl Check for HierCheck {
             let edges = m.edges(cx.registry, &files);
             rank_edges(h, &m, &edges, scope, out);
             cycle_edges(&m, &edges, scope, out);
+            visibility(cx, &m, scope, out);
         }
         // L1: a unit's layer, its single container and its single binding.
         for u in m.units.values().filter(|u| u.id.scope == *scope) {
@@ -816,6 +869,101 @@ level = 2
                 && d[0].message.contains("un.b -> un.c"),
             "{}",
             d[0].message
+        );
+    }
+
+    fn siblings(vis: &str) -> Vec<Diagnostic> {
+        siblings_with(
+            vis,
+            "[scope]
+provides = [\"un.core\"]
+",
+        )
+    }
+
+    fn siblings_with(vis: &str, lib_extra: &str) -> Vec<Diagnostic> {
+        World::new()
+            .root(L2)
+            .scope(
+                "lib",
+                &format!(
+                    "[fairlead]
+scope = \"lib\"
+{lib_extra}"
+                ),
+            )
+            .scope(
+                "app",
+                "[fairlead]
+scope = \"app\"
+",
+            )
+            .file(
+                "lib/src/a.rs",
+                &format!(
+                    "// fairlead: def ctr.l
+fn d() {{}}
+// fairlead: def un.core layer=core.engine container=ctr.l{vis}
+fn core() {{}}
+"
+                ),
+            )
+            .file(
+                "app/src/b.rs",
+                "// fairlead: def ctr.p
+fn d() {}
+// fairlead: def un.svc layer=core.service container=ctr.p
+// fairlead: use lib:un.core
+fn svc() {}
+",
+            )
+            .build()
+            .run_check(&HierCheck)
+    }
+
+    #[test]
+    fn r_hier_026__sibling_use_of_subtree_unit_flagged() {
+        let ds = siblings("");
+        let d = of(&ds, c::HN_H010);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(
+            d[0].message.contains("vis=subtree") && d[0].hint.contains("scope root"),
+            "{d:#?}"
+        );
+        assert!(of(&siblings(" vis=public"), c::HN_H010).is_empty());
+        let unprovided = siblings_with("", "");
+        assert!(
+            of(&unprovided, c::HN_H010).is_empty(),
+            "not provided at all is HN-R008, not reported twice"
+        );
+    }
+
+    #[test]
+    fn r_hier_028__passing_one_never_exempts_the_other() {
+        // Public, so visible; but a service using an engine upward is still an upward edge only
+        // when the ranks say so: here the service (50) uses an engine (30), which is fine, and a
+        // public engine using a service would still be hier.rank.
+        let ds = siblings(" vis=public");
+        assert!(of(&ds, c::HN_H010).is_empty() && of(&ds, c::HN_H007).is_empty());
+        let up = World::new()
+            .root(L2)
+            .file(
+                "src/a.rs",
+                "// fairlead: def ctr.a
+fn d() {}
+// fairlead: def un.svc layer=core.service container=ctr.a vis=public
+fn s() {}
+// fairlead: def un.eng layer=core.engine container=ctr.a
+// fairlead: use un.svc
+fn e() {}
+",
+            )
+            .build()
+            .run_check(&HierCheck);
+        assert_eq!(
+            of(&up, c::HN_H007).len(),
+            1,
+            "visible, still upward: {up:#?}"
         );
     }
 
