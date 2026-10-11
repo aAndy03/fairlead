@@ -12,10 +12,10 @@ pub struct HierCheck;
 
 /// A container edge: from, to, why (for the cycle report), and where it is written.
 type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
-const CODES: [DiagCode; 27] = [
+const CODES: [DiagCode; 28] = [
     HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H006, HN_H007, HN_H008, HN_H009, HN_H010,
     HN_H011, HN_H012, HN_H013, HN_H014, HN_H015, HN_H016, HN_H017, HN_H018, HN_H019, HN_H020,
-    HN_H021, HN_H022, HN_H023, HN_H024, HN_H025, HN_E004, HN_D004,
+    HN_H021, HN_H022, HN_H023, HN_H024, HN_H025, HN_E004, HN_D004, HN_D005,
 ];
 
 fn at(
@@ -678,6 +678,128 @@ fn bridges(cx: &CheckCx<'_>, m: &Model, scope: &ScopeId, out: &mut Vec<Diagnosti
     }
 }
 
+/// R-HIER-090 (level 1 and up, on the docs-first ramp): a pending change doc listing an ID that
+/// does not exist is `HN-D005`; at level 3, once a seal has recorded the hierarchy, a unit,
+/// container or bridge new since then that no pending doc lists in `adds` or `touches` is
+/// `HN-D004`.
+fn docs_first(cx: &CheckCx<'_>, m: &Model, level: u8, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    let reg = cx.registry;
+    let (stage, _) = crate::check::builtin::coverage::scope_policy(cx, scope);
+    let severity = match stage {
+        crate::config::Stage::Enforce => fairlead_syntax::diag::Severity::Error,
+        _ => fairlead_syntax::diag::Severity::Warn,
+    };
+    let (docs, _) = crate::docs::collect_change_docs(cx.corpus);
+    let pending: Vec<&crate::docs::ChangeDoc> = docs
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.status,
+                crate::docs::Status::Draft | crate::docs::Status::Ready
+            )
+        })
+        .collect();
+    let listed = |d: &crate::docs::ChangeDoc| -> Vec<String> {
+        let mut v: Vec<String> = ["adds", "touches"]
+            .iter()
+            .filter_map(|k| d.extra.get(*k))
+            .flat_map(|x| crate::lifecycle::doc_ids(x))
+            .collect();
+        v.extend(d.covers.iter().cloned());
+        v.into_iter()
+            .filter(|x| fairlead_syntax::ids::Id::parse(x).is_ok())
+            .collect()
+    };
+    for d in pending
+        .iter()
+        .filter(|d| reg.scope_of(&d.path) == Some(scope))
+    {
+        for raw in listed(d) {
+            let Ok(id) = fairlead_syntax::ids::Id::parse(&raw) else {
+                continue;
+            };
+            let found = matches!(
+                reg.lookup(scope, &id),
+                crate::registry::Lookup::Found(_) | crate::registry::Lookup::Ambiguous(_)
+            );
+            if found || reg.tomb_for(scope, &id).is_some() {
+                continue;
+            }
+            out.push(
+                DiagB::new(
+                    HN_D005,
+                    &d.path,
+                    1,
+                    1,
+                    format!(
+                        "change doc {} lists {raw}, which does not exist",
+                        d.id.as_str()
+                    ),
+                )
+                .hint("fix the ID, or drop it from adds, touches or covers (R-HIER-090)")
+                .severity(severity)
+                .stage(stage)
+                .related(raw.clone())
+                .text(raw)
+                .build(),
+            );
+        }
+    }
+    if level < 3 {
+        return;
+    }
+    let recorded = crate::hier::recorded_ids(reg, &cx.facts.ledgers);
+    if recorded.is_empty() {
+        return; // nothing sealed at level 3 yet: the first seal records the hierarchy
+    }
+    let in_docs: std::collections::BTreeSet<String> = pending
+        .iter()
+        .flat_map(|d| {
+            ["adds", "touches"]
+                .iter()
+                .filter_map(|k| d.extra.get(*k))
+                .flat_map(|x| crate::lifecycle::doc_ids(x))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let bridges: Vec<ItemId> = m.bridges(reg).into_iter().map(|b| b.id).collect();
+    let ids = m
+        .units
+        .keys()
+        .chain(m.containers.keys())
+        .chain(bridges.iter())
+        .filter(|i| i.scope == *scope);
+    for i in ids {
+        let name = bare_id(i);
+        if recorded.contains(&(i.scope.clone(), name.clone()))
+            || in_docs.contains(&name)
+            || in_docs.contains(&i.to_id().to_string())
+        {
+            continue;
+        }
+        if let Some(it) = reg.item(i) {
+            let (p, l, c) = origin_loc(it);
+            out.push(
+                DiagB::new(
+                    HN_D004,
+                    &p,
+                    l,
+                    c,
+                    format!(
+                        "{name} is new and no draft or ready change doc lists it in adds or touches"
+                    ),
+                )
+                .hint("add it to adds (new) or touches (changed) of a change doc (R-HIER-090)")
+                .severity(severity)
+                .stage(stage)
+                .related(name.clone())
+                .text(name)
+                .build(),
+            );
+        }
+    }
+}
+
 /// R-HIER-030: the units whose `sym` is usable as evidence (at least 6 characters, unique across
 /// the declared syms), and the ambiguous ones.
 /// Units with their `sym`.
@@ -1245,6 +1367,7 @@ impl Check for HierCheck {
             }
         }
         sym_ambiguous(cx, &m, scope, out);
+        docs_first(cx, &m, level, scope, out);
         // L1: a unit's layer, its single container and its single binding.
         for u in m.units.values().filter(|u| u.id.scope == *scope) {
             match (u.container_raw.as_slice(), &u.container) {
@@ -2636,6 +2759,82 @@ directives = ['def grp.unnamed']
         assert!(
             of(&run(" implements=un.eng"), c::HN_H007).is_empty(),
             "inverted bridges are exempt"
+        );
+    }
+
+    fn doc_with(extra: &str) -> String {
+        format!(
+            "+++\nkind = \"change\"\nid = \"d-00000001\"\nstatus = \"draft\"\nimpact = \"add\"\ncovers = [\"src/**\"]\n{extra}\n+++\n# Doc\n"
+        )
+    }
+
+    #[test]
+    fn r_hier_090__a_doc_listing_a_missing_id_is_dangling() {
+        let w = |doc: String| {
+            World::new()
+                .root(L2)
+                .file("src/a.rs", "// fairlead: def ctr.a\nfn d() {}\n// fairlead: def un.x layer=core.engine container=ctr.a\nfn x() {}\n")
+                .file("fairlead/docs/changes/d-00000001-doc.md", &doc)
+                .facts(|f| {
+                    f.tombstones.insert(
+                        crate::path::RepoPath::new("fairlead/tombstones/2026.toml").unwrap(),
+                        "[[tomb]]\nid = \"un.gone\"\nremoved = \"0.1.0\"\nwhy = \"merged\"\n".into(),
+                    );
+                })
+                .build()
+                .run_check(&HierCheck)
+        };
+        let ds = w(doc_with("touches = [\"un.x\", \"un.nope\", \"un.gone\"]"));
+        let d = of(&ds, c::HN_D005);
+        assert_eq!(d.len(), 1, "a removed ID is not dangling: {ds:#?}");
+        assert!(d[0].message.contains("lists un.nope, which does not exist"));
+        assert_eq!(
+            d[0].severity,
+            fairlead_syntax::diag::Severity::Warn,
+            "docs-first ramp, warn by default"
+        );
+    }
+
+    #[test]
+    fn r_hier_090__a_new_unit_needs_adds_or_touches() {
+        let root = format!(
+            "{}\n[kinds.ent]\nshape = \"code\"\n",
+            L2.replace("level = 2\n", "level = 3\n")
+        );
+        let w = |ledger: Option<&str>, doc: Option<String>| {
+            let mut b = World::new()
+                .root(&root)
+                .file("src/a.rs", "// fairlead: def ctr.a\nfn d() {}\n// fairlead: def un.old layer=core.engine container=ctr.a\nfn o() {}\n// fairlead: def un.new layer=core.engine container=ctr.a\nfn n() {}\n");
+            if let Some(d) = doc {
+                b = b.file("fairlead/docs/changes/d-00000001-doc.md", &d);
+            }
+            let ledger = ledger.map(str::to_owned);
+            b.facts(move |f| {
+                if let Some(l) = ledger {
+                    f.ledgers.insert(
+                        crate::path::RepoPath::new("fairlead/ledger/hist/2026.hl").unwrap(),
+                        l.into(),
+                    );
+                }
+            })
+            .build()
+            .run_check(&HierCheck)
+        };
+        let sealed = "# scope=root year=2026 prev=- edition=1\nun.old kind=ud ud=x users=0 ctr=ctr.a d=aaaaaaaa\n# ckpt v=0.1.0 n=1 d=bbbbbbbb\n";
+        let ds = w(Some(sealed), None);
+        let d = of(&ds, c::HN_D004);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(d[0].message.contains("un.new is new"));
+        assert!(
+            of(
+                &w(Some(sealed), Some(doc_with("adds = [\"un.new\"]"))),
+                c::HN_D004
+            )
+            .is_empty()
+        );
+        assert!(
+            of(&w(None, None), c::HN_D004).is_empty(),
+            "nothing sealed at level 3 yet"
         );
     }
 

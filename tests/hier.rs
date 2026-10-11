@@ -354,3 +354,64 @@ fn r_hier_065__explain_entry_prints_the_trace() {
         assert!(e.stdout.contains(want), "{want}: {}", e.stdout);
     }
 }
+
+#[test]
+fn r_hier_092__from_diff_scaffolds_a_rolling_chore() {
+    let repo = ladder_repo(&[("src/u.rs", "fn u() {}\n")]);
+    let new = repo.run(&[
+        "new",
+        "change",
+        "Start",
+        "--field",
+        "impact=add",
+        "--field",
+        "covers=src/**",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(new.code, 0, "{}", new.stderr);
+    let changes = repo.path().join("fairlead/docs/changes");
+    for e in std::fs::read_dir(&changes).unwrap() {
+        let p = e.unwrap().path();
+        let t = std::fs::read_to_string(&p).unwrap();
+        std::fs::write(&p, t.replace("status = \"draft\"", "status = \"ready\"")).unwrap();
+    }
+    let seal = repo.run(&[
+        "seal",
+        "--yes",
+        "--anywhere",
+        "--allow-dirty",
+        "--commit",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(seal.code, 0, "{}{}", seal.stdout, seal.stderr);
+    std::fs::write(
+        repo.path().join("src/u.rs"),
+        "fn u() { /* typo fixed */ }\n",
+    )
+    .unwrap();
+    let chore = repo.run(&[
+        "new",
+        "change",
+        "Small fixes",
+        "--from-diff",
+        "--yes",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(chore.code, 0, "{}{}", chore.stdout, chore.stderr);
+    let doc = std::fs::read_dir(&changes)
+        .unwrap()
+        .map(|e| std::fs::read_to_string(e.unwrap().path()).unwrap())
+        .find(|t| t.contains("Small fixes"))
+        .unwrap();
+    assert!(
+        doc.contains("kind = \"chore\"")
+            && doc.contains("rolling = true")
+            && doc.contains("\"src/u.rs\""),
+        "{doc}"
+    );
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(!check.stdout.contains("HN-D006"), "{}", check.stdout);
+}

@@ -2745,6 +2745,58 @@ pub fn plan_new(
     Ok(plan)
 }
 
+/// R-HIER-092: the changed files (since the coverage base) that no draft or ready change doc
+/// covers, repo-relative and sorted; the change docs, the seal's outputs and generated files are
+/// never listed.
+pub fn uncovered_changes(loaded: &Loaded) -> Result<Vec<String>, Error> {
+    let files = match &loaded.facts.git.coverage {
+        Some(crate::facts::Coverage::Changed { files, .. }) => files,
+        Some(crate::facts::Coverage::Unavailable(why)) => {
+            return Err(Error::CannotDetermine(format!(
+                "--from-diff needs the coverage base: {why}"
+            )));
+        }
+        None => {
+            return Err(Error::Usage(
+                "--from-diff needs a sealed version: docs-first coverage starts with the first seal"
+                    .into(),
+            ));
+        }
+    };
+    let folder = &loaded.root.folder;
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    let open: Vec<&crate::docs::ChangeDoc> = docs
+        .iter()
+        .filter(|d| {
+            matches!(
+                d.status,
+                crate::docs::Status::Draft | crate::docs::Status::Ready
+            )
+        })
+        .collect();
+    let mut out: Vec<String> = files
+        .iter()
+        .filter(|p| {
+            let s = p.as_str();
+            !s.starts_with(".fairlead/")
+                && !s.starts_with(&format!("{folder}/versions/"))
+                && !s.contains(&format!("{folder}/docs/changes/"))
+                && !s.contains(&format!("{folder}/ledger/"))
+                && !loaded.corpus.records.get(*p).is_some_and(|r| {
+                    matches!(
+                        r.class,
+                        crate::classify::FileClass::Generated
+                            | crate::classify::FileClass::VendorOwned
+                    )
+                })
+        })
+        .filter(|p| !open.iter().any(|d| crate::docs::covers_path(d, "", p)))
+        .map(|p| p.as_str().to_owned())
+        .collect();
+    out.sort();
+    Ok(out)
+}
+
 /// 0.2.1 T1 (D-62): `new` never writes a control file that `check` would reject. Each planned
 /// control-file write is applied in memory and parsed as `check` parses it; a failure refuses with
 /// the parser's own diagnostic, and so does a new rule's anchored glob that matches no file of its

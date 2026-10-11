@@ -111,6 +111,19 @@ impl GitRepo {
     }
 
     pub fn commit_paths(root: &Root, paths: &[RepoPath], version: &str) -> Result<(), Error> {
+        // A path the seal removed that git never tracked (a draft doc sealed before its first
+        // commit, renamed to its ordinal) has nothing to commit, and `git add` would refuse it.
+        let mut ls = vec!["ls-files", "--"];
+        ls.extend(paths.iter().map(RepoPath::as_str));
+        let tracked: std::collections::BTreeSet<String> =
+            run_git(root, &ls)?.lines().map(str::to_owned).collect();
+        let paths: Vec<RepoPath> = paths
+            .iter()
+            .filter(|p| {
+                root.dir.join(p.as_str()).as_std_path().exists() || tracked.contains(p.as_str())
+            })
+            .cloned()
+            .collect();
         let mut add = vec!["add", "-A", "--"];
         add.extend(paths.iter().map(RepoPath::as_str));
         run_git(root, &add)?;

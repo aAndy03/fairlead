@@ -38,6 +38,28 @@ fn new(global: &GlobalArgs, args: &NewArgs) -> Result<CommandResult, Error> {
         at: optional_path(args.at.as_deref())?,
         hoist: args.hoist,
     };
+    let mut request = request;
+    if args.from_diff {
+        if args.kind != "change" || args.scope.is_some() {
+            return Err(Error::Usage(
+                "--from-diff applies to a root change doc: new change <title> --from-diff".into(),
+            ));
+        }
+        let files = fairlead_core::pipeline::uncovered_changes(&loaded)?;
+        if files.is_empty() {
+            return Err(Error::Usage(
+                "--from-diff: every changed file is already covered by an open change doc".into(),
+            ));
+        }
+        request.fields.insert("covers".to_owned(), files.join(","));
+        request
+            .fields
+            .entry("impact".to_owned())
+            .or_insert_with(|| "fix".to_owned());
+        request
+            .fields
+            .insert("rolling".to_owned(), "true".to_owned());
+    }
     fairlead_core::pipeline::merge_gate(&loaded, "new", false)?;
     let plan = if args.reid {
         if args.kind != "change" {

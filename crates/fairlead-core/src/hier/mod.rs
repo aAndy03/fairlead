@@ -598,6 +598,23 @@ pub fn digest_records(
         .render();
         out.push((home, line));
     }
+    // R-HIER-090: every bridge is recorded, so a new one is known at the next check.
+    for b in m.bridges(reg) {
+        if let Some(it) = reg.item(&b.id) {
+            let home = match &it.origin {
+                crate::registry::Origin::ControlTable { control } => control.clone(),
+                crate::registry::Origin::DocDef { path, .. } => path.clone(),
+            };
+            let line = crate::render::line::TerseLine::new(&format!(
+                "{}.{}",
+                b.id.kind.as_str(),
+                b.id.name.as_str()
+            ))
+            .with("kind", "bridge")
+            .render();
+            out.push((home, line));
+        }
+    }
     // R-HIER-064: each bridge's contract hash, and the hash of what was generated from it.
     for b in m.bridges(reg) {
         let Some((_, Some(ch), gh)) = contract_hashes(reg, corpus, &b) else {
@@ -623,6 +640,36 @@ pub fn digest_records(
         }
         .render();
         out.push((home, line));
+    }
+    out
+}
+
+/// R-HIER-090: the hierarchy IDs a seal has recorded (`kind.name` per scope): units by their
+/// digest records, containers by the `ctr=` of those records, bridges by their `kind=bridge`
+/// records. Empty until a level-3 tree has sealed once.
+pub fn recorded_ids(
+    reg: &Registry,
+    ledgers: &BTreeMap<crate::path::RepoPath, std::sync::Arc<str>>,
+) -> BTreeSet<(crate::registry::ScopeId, String)> {
+    let mut out = BTreeSet::new();
+    for (p, t) in ledgers {
+        let (Some(scope), Ok(f)) = (reg.scope_of(p), crate::hist::YearFile::parse(t)) else {
+            continue;
+        };
+        for l in &f.lines {
+            let crate::hist::HistLine::Record { text, .. } = l else {
+                continue;
+            };
+            let Ok(t) = crate::render::line::TerseLine::parse(text) else {
+                continue;
+            };
+            if matches!(t.get("kind"), Some("ud" | "bridge")) {
+                out.insert((scope.clone(), t.id.clone()));
+                if let Some(c) = t.get("ctr") {
+                    out.insert((scope.clone(), c.to_owned()));
+                }
+            }
+        }
     }
     out
 }

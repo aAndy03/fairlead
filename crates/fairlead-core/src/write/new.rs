@@ -217,9 +217,18 @@ pub fn new_change_plan(
     let cx = ctx(req, reg)?;
     check_fields(
         &req.fields,
-        &["impact", "covers", "hotfix", "revisits", "revisit-why"],
+        &[
+            "impact",
+            "covers",
+            "hotfix",
+            "revisits",
+            "revisit-why",
+            "rolling",
+        ],
         "change",
     )?;
+    // R-HIER-092: `--from-diff` writes a rolling chore doc for trivial work.
+    let rolling = req.fields.get("rolling").is_some_and(|v| v == "true");
     let hotfix = req.fields.contains_key("hotfix");
     let hotfix_on = reg
         .scope(reg.root_scope())
@@ -253,7 +262,13 @@ pub fn new_change_plan(
         &cx.dir,
         &format!("{}/docs/changes/{id}-{}.md", cx.folder, slug(title)),
     ))?;
-    let mut fm = format!("+++\nid = \"{id}\"\nkind = \"change\"\nstatus = \"draft\"\n");
+    let mut fm = format!(
+        "+++\nid = \"{id}\"\nkind = \"{}\"\nstatus = \"draft\"\n",
+        if rolling { "chore" } else { "change" }
+    );
+    if rolling {
+        fm.push_str("rolling = true\n");
+    }
     if let Some(i) = req.fields.get("impact") {
         fm.push_str(&format!("impact = \"{i}\"\n"));
     }

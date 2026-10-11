@@ -265,6 +265,10 @@ pub struct NewArgs {
     /// `new change <draft id or path> --reid`: give a colliding draft a new ID (R-VER-042).
     #[arg(long)]
     pub reid: bool,
+    /// `new change <title> --from-diff`: a rolling chore doc covering every changed file no open
+    /// doc covers yet (R-HIER-092).
+    #[arg(long)]
+    pub from_diff: bool,
 }
 
 #[derive(Args, Debug, Clone)]

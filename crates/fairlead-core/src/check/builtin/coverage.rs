@@ -34,7 +34,7 @@ fn exempt(cx: &CheckCx<'_>, folder: &str, p: &RepoPath) -> bool {
 /// R-VER-034: the strictest `docs-first.level` along the scope's chain (a child may raise, never
 /// lower), default `warn`; and every `docs-first.exempt` glob of the chain, relative to the scope
 /// that declares it.
-fn scope_policy(
+pub(crate) fn scope_policy(
     cx: &CheckCx<'_>,
     scope: &ScopeId,
 ) -> (crate::config::Stage, Vec<(String, globset::GlobMatcher)>) {
@@ -70,6 +70,30 @@ fn exempt_by_glob(globs: &[(String, globset::GlobMatcher)], p: &RepoPath) -> boo
         };
         rel.is_some_and(|r| m.is_match(r))
     })
+}
+
+/// The files an item stands for: a hierarchy unit's or container's bound files, otherwise its
+/// declaration file and its sites.
+fn id_files(
+    cx: &CheckCx<'_>,
+    from: &ScopeId,
+    id: &fairlead_syntax::ids::Id,
+) -> std::collections::BTreeSet<RepoPath> {
+    let reg = cx.registry;
+    let crate::registry::Lookup::Found(item) = reg.lookup(from, id) else {
+        return Default::default();
+    };
+    let m = crate::hier::Model::build(reg);
+    if m.units.contains_key(&item) || m.containers.contains_key(&item) {
+        let files: Vec<&RepoPath> = cx.corpus.records.keys().collect();
+        return m.bindings(reg, &files).remove(&item).unwrap_or_default();
+    }
+    let mut out: std::collections::BTreeSet<RepoPath> =
+        reg.sites_of(&item).iter().map(|s| s.path.clone()).collect();
+    if let Some(it) = reg.item(&item) {
+        out.insert(crate::check::builtin::origin_loc(it).0);
+    }
+    out
 }
 
 impl Check for CoverageCheck {
@@ -140,6 +164,37 @@ impl Check for CoverageCheck {
                 continue;
             }
             if open.iter().any(|(d, dir)| covers_path(d, dir, p)) {
+                continue;
+            }
+            // 0.3 (R-CHK-045 ID level, R-HIER-091): an ID in `covers` or `touches` covers the
+            // files its item binds; a scope name, the scope's files; a glob in `touches`, as in
+            // `covers`.
+            if open.iter().any(|(d, dir)| {
+                let mut entries: Vec<String> = d.covers.clone();
+                if let Some(t) = d.extra.get("touches") {
+                    entries.extend(crate::lifecycle::doc_ids(t));
+                }
+                let from = reg
+                    .scope_of(&d.path)
+                    .cloned()
+                    .unwrap_or_else(|| reg.root_scope().clone());
+                entries.iter().any(|e| {
+                    if let Some(sc) = reg.scopes().find(|s| s.id.0.as_str() == e.as_str()) {
+                        return reg.scope_of(p) == Some(&sc.id)
+                            || reg
+                                .chain(reg.scope_of(p).unwrap_or(reg.root_scope()))
+                                .contains(&&sc.id);
+                    }
+                    match fairlead_syntax::ids::Id::parse(e) {
+                        Ok(id) => id_files(cx, &from, &id).contains(p),
+                        Err(_) => {
+                            let mut g: crate::docs::ChangeDoc = (*d).clone();
+                            g.covers = vec![e.clone()];
+                            covers_path(&g, dir, p)
+                        }
+                    }
+                })
+            }) {
                 continue;
             }
             out.push(
@@ -330,5 +385,44 @@ mod tests {
             .build()
             .run_check(&CoverageCheck);
         assert_eq!(of(&d, c::HN_V010).len(), 1);
+    }
+
+    #[test]
+    fn r_chk_045__an_id_in_covers_or_touches_covers_its_files() {
+        let run = |covers: &str, extra: &str| {
+            let files: BTreeSet<RepoPath> = [rp("src/a.rs")].into_iter().collect();
+            World::new()
+                .root("[layers.core]\nengine = 30\n[kinds.ctr]\nshape = \"code\"\n[hier]\nlevel = 1\n")
+                .file("src/a.rs", "// fairlead: def ctr.a path=\"src/a.rs\"\nfn a() {}\n")
+                .file(
+                    "fairlead/docs/changes/d-00000001-x.md",
+                    &format!("+++\nid = \"d-00000001\"\nkind = \"change\"\nstatus = \"draft\"\nscope = \"root\"\ncovers = [{covers}]\n{extra}\n+++\n"),
+                )
+                .facts(move |f| {
+                    f.git.coverage = Some(Coverage::Changed {
+                        base: "b".into(),
+                        files,
+                    });
+                })
+                .build()
+                .run_check(&CoverageCheck)
+        };
+        assert_eq!(
+            of(&run("\"docs/**\"", ""), c::HN_D006).len(),
+            1,
+            "not covered"
+        );
+        assert!(
+            of(&run("\"ctr.a\"", ""), c::HN_D006).is_empty(),
+            "an ID in covers"
+        );
+        assert!(
+            of(&run("\"docs/**\"", "touches = [\"ctr.a\"]"), c::HN_D006).is_empty(),
+            "an ID in touches"
+        );
+        assert!(
+            of(&run("\"docs/**\"", "touches = [\"root\"]"), c::HN_D006).is_empty(),
+            "a scope in touches"
+        );
     }
 }
