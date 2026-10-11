@@ -56,6 +56,110 @@ fn claims(cx: &CheckCx<'_>, m: &Model, c: &ItemId) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// R-HIER-034: every verdict on `use` edges is a lower bound until an import extractor exists.
+pub(crate) const LOWER_BOUND: &str = "a lower bound: declared edges only (R-HIER-034)";
+
+/// R-HIER-002, R-HIER-005, R-HIER-006, R-HIER-020, R-HIER-023: the direction of each `use` edge.
+fn rank_edges(
+    cx: &CheckCx<'_>,
+    h: &crate::config::HierConfig,
+    m: &Model,
+    files: &[&crate::path::RepoPath],
+    scope: &ScopeId,
+    out: &mut Vec<Diagnostic>,
+) {
+    for e in m.edges(cx.registry, files) {
+        if e.from.scope != *scope {
+            continue;
+        }
+        let (Some(su), Some(tu)) = (m.units.get(&e.from), m.units.get(&e.to)) else {
+            continue;
+        };
+        if su.implements.contains(&e.to) {
+            continue; // R-HIER-023
+        }
+        let (Some(ls), Some(lt)) = (su.layer.as_deref(), tu.layer.as_deref()) else {
+            continue;
+        };
+        if !h.knows(ls) || !h.knows(lt) {
+            continue; // the layer itself is reported (R-HIER-003)
+        }
+        let edge = format!("{} ({ls}) uses {} ({lt})", bare_id(&e.from), bare_id(&e.to));
+        if let Some(why) = edge_problem(h, ls, lt, su.container == tu.container) {
+            out.push(
+                DiagB::new(HN_H007, &e.path, e.line, e.col, format!("{edge}: {why}"))
+                    .rule("hier-rank")
+                    .hint(format!("invert it through a lower port that this side implements, or waive rule.hier-rank with until= (R-HIER-024); {LOWER_BOUND}"))
+                    .related(bare_id(&e.to))
+                    .text(bare_id(&e.to))
+                    .build(),
+            );
+        }
+    }
+}
+
+/// Why an edge from layer `ls` to layer `lt` breaks the ladder rules, if it does.
+fn edge_problem(
+    h: &crate::config::HierConfig,
+    ls: &str,
+    lt: &str,
+    same_container: bool,
+) -> Option<String> {
+    use crate::config::hier::SameRank;
+    let free_s = h.free_layer(ls);
+    let free_t = h.free_layer(lt);
+    let same_free = matches!((free_s, free_t), (Some((a, _)), Some((b, _))) if a == b);
+    if h.entry_only.iter().any(|l| l == lt) && ls != lt {
+        return Some(format!("{lt} is reached only from entries (R-HIER-006)"));
+    }
+    if let Some((name, f)) = free_s
+        && !same_free
+        && !f.may_use.iter().any(|p| h.matches(p, lt))
+        && free_t.is_none_or(|(_, g)| !g.usable_by.iter().any(|p| h.matches(p, ls)))
+    {
+        return Some(format!(
+            "free layer {name} may use only {}",
+            list_or_none(&f.may_use)
+        ));
+    }
+    if let Some((name, g)) = free_t
+        && !same_free
+        && !g.usable_by.iter().any(|p| h.matches(p, ls))
+        && free_s.is_none_or(|(_, f)| !f.may_use.iter().any(|p| h.matches(p, lt)))
+    {
+        return Some(format!(
+            "free layer {name} is usable only by {}",
+            list_or_none(&g.usable_by)
+        ));
+    }
+    let ((ladder_s, rs), (ladder_t, rt)) = (h.rank(ls)?, h.rank(lt)?);
+    if ladder_s != ladder_t {
+        let sanctioned = h
+            .flows
+            .iter()
+            .any(|f| h.matches(&f.from, ls) && f.to.iter().any(|t| h.matches(t, lt)));
+        return (!sanctioned).then(|| format!("no [[flow]] sanctions {ladder_s} to {ladder_t}"));
+    }
+    if rt > rs {
+        return Some(format!("rank {rt} is above {rs}, an upward edge"));
+    }
+    match (rt == rs, h.settings.same_rank) {
+        (true, SameRank::Forbid) => Some("same-rank edges are forbidden".into()),
+        (true, SameRank::Container) if !same_container => {
+            Some("same-rank edges stay inside one container".into())
+        }
+        _ => None,
+    }
+}
+
+fn list_or_none(v: &[String]) -> String {
+    if v.is_empty() {
+        "nothing".to_owned()
+    } else {
+        v.join(", ")
+    }
+}
+
 impl Check for HierCheck {
     fn codes(&self) -> &'static [DiagCode] {
         &CODES
@@ -153,6 +257,9 @@ impl Check for HierCheck {
         }
         if level < 1 {
             return;
+        }
+        if level >= 2 {
+            rank_edges(cx, h, &m, &files, scope, out);
         }
         // L1: a unit's layer, its single container and its single binding.
         for u in m.units.values().filter(|u| u.id.scope == *scope) {
@@ -462,6 +569,179 @@ directives = ['def eng.x layer=core.engine container=ctr.a', 'def eng.y layer=co
         let d = of(&w, c::HN_H005);
         assert_eq!(d.len(), 1, "{w:#?}");
         assert!(d[0].message.contains("eng.x"));
+    }
+
+    const L2: &str = r#"[layers.core]
+primitive = 10
+engine = 30
+service = 50
+shell = 60
+
+[layers.ui]
+atom = 10
+page = 50
+
+[free.platform]
+usable-by = ["core.*"]
+
+[[flow]]
+from = "ui.*"
+to = ["core.service"]
+
+[layer-policy."core.shell"]
+used-by = "entry"
+
+[kinds.un]
+shape = "code"
+
+[kinds.ctr]
+shape = "code"
+
+[hier]
+level = 2
+"#;
+
+    fn units(same_rank: &str, code: &str) -> Vec<Diagnostic> {
+        let root = format!("{L2}same-rank = \"{same_rank}\"\n");
+        World::new()
+            .root(&root)
+            .file(
+                "src/decl.rs",
+                "// fairlead: def ctr.a\n// fairlead: def ctr.b\nfn decl() {}\n",
+            )
+            .file("src/a.rs", code)
+            .build()
+            .run_check(&HierCheck)
+    }
+
+    fn unit(id: &str, layer: &str, ctr: &str, extra: &str, uses: &[&str]) -> String {
+        let mut s = format!("// fairlead: def {id} layer={layer} container={ctr}{extra} +end\n");
+        for u in uses {
+            s.push_str(&format!("// fairlead: use {u}\n"));
+        }
+        s.push_str("fn f() {}\n// fairlead: end\n");
+        s
+    }
+
+    #[test]
+    fn r_hier_020__a_use_edge_points_down_or_sideways_by_same_rank() {
+        let code = [
+            unit("un.eng", "core.engine", "ctr.a", "", &["un.prim", "un.svc"]),
+            unit("un.prim", "core.primitive", "ctr.a", "", &[]),
+            unit("un.svc", "core.service", "ctr.a", "", &[]),
+            unit("un.eng2", "core.engine", "ctr.b", "", &["un.eng"]),
+        ]
+        .concat();
+        let allow = units("allow", &code);
+        let up = of(&allow, c::HN_H007);
+        assert_eq!(up.len(), 1, "{allow:#?}");
+        assert!(
+            up[0]
+                .message
+                .contains("un.eng (core.engine) uses un.svc (core.service): rank 50 is above 30"),
+            "{}",
+            up[0].message
+        );
+        assert!(up[0].hint.contains("lower bound"), "R-HIER-034");
+        // R-HIER-024: an upward edge is waived under the named built-in rule.hier-rank.
+        let w = World::new().root(L2).build();
+        let rules = crate::check::RuleSet::collect(&w.registry);
+        assert_eq!(rules.named_waivable("hier-rank"), Some(true));
+        assert_eq!(up[0].rule.as_deref(), Some("rule.hier-rank"));
+        let ctr = units("container", &code);
+        assert!(
+            of(&ctr, c::HN_H007)
+                .iter()
+                .any(|d| d.message.contains("stay inside one container"))
+        );
+        let forbid = units("forbid", &code);
+        assert!(
+            of(&forbid, c::HN_H007)
+                .iter()
+                .any(|d| d.message.contains("forbidden"))
+        );
+    }
+
+    #[test]
+    fn r_hier_020__a_use_under_a_def_belongs_to_that_unit() {
+        // 30-hierarchy, Declarations: `def` and `use` on the lines above one block.
+        let code = "// fairlead: def un.eng layer=core.engine container=ctr.a\n// fairlead: use un.svc\nfn f() {\n    g();\n}\n\n// fairlead: def un.svc layer=core.service container=ctr.a\nfn g() {}\n";
+        let ds = units("allow", code);
+        let d = of(&ds, c::HN_H007);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert_eq!(
+            (d[0].location.line, d[0].message.contains("un.eng")),
+            (2, true)
+        );
+    }
+
+    #[test]
+    fn r_hier_002__cross_ladder_needs_a_flow() {
+        let code = [
+            unit("un.page", "ui.page", "ctr.a", "", &["un.svc", "un.eng"]),
+            unit("un.svc", "core.service", "ctr.a", "", &[]),
+            unit("un.eng", "core.engine", "ctr.a", "", &[]),
+        ]
+        .concat();
+        let ds = units("allow", &code);
+        let d = of(&ds, c::HN_H007);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(d[0].message.contains("un.eng") && d[0].message.contains("no [[flow]]"));
+    }
+
+    #[test]
+    fn r_hier_005__free_layers_are_reached_through_their_lists() {
+        let code = [
+            unit("un.log", "platform", "ctr.a", "", &[]),
+            unit("un.eng", "core.engine", "ctr.a", "", &["un.log"]),
+            unit("un.page", "ui.page", "ctr.a", "", &["un.log"]),
+        ]
+        .concat();
+        let ds = units("allow", &code);
+        let d = of(&ds, c::HN_H007);
+        assert_eq!(d.len(), 1, "{d:#?}");
+        assert!(d[0].message.contains("un.page") && d[0].message.contains("usable only by core.*"));
+    }
+
+    #[test]
+    fn r_hier_006__an_entry_only_layer_is_not_a_use_target() {
+        let code = [
+            unit("un.cli", "core.shell", "ctr.a", "", &[]),
+            unit("un.svc", "core.service", "ctr.a", "", &["un.cli"]),
+        ]
+        .concat();
+        let ds = units("allow", &code);
+        let d = of(&ds, c::HN_H007);
+        assert!(
+            d.iter()
+                .any(|x| x.message.contains("reached only from entries")),
+            "{d:#?}"
+        );
+    }
+
+    #[test]
+    fn r_hier_023__implements_edges_are_exempt() {
+        let code = [
+            unit("un.port", "core.primitive", "ctr.a", "", &[]),
+            unit(
+                "un.ad",
+                "core.primitive",
+                "ctr.b",
+                " implements=un.port",
+                &["un.port"],
+            ),
+        ]
+        .concat();
+        assert!(
+            of(&units("forbid", &code), c::HN_H007).is_empty(),
+            "same rank and forbidden, but it implements the port"
+        );
+        let plain = [
+            unit("un.port", "core.primitive", "ctr.a", "", &[]),
+            unit("un.ad", "core.primitive", "ctr.b", "", &["un.port"]),
+        ]
+        .concat();
+        assert_eq!(of(&units("forbid", &plain), c::HN_H007).len(), 1);
     }
 
     #[test]

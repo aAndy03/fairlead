@@ -56,9 +56,13 @@ pub struct RuleSet {
     named: BTreeMap<String, Tuning>,
 }
 
-/// Built-in rules with a name of their own (chapter 21) and their default waivability.
-pub(crate) const NAMED_BUILTINS: [(&str, bool); 2] =
-    [("maturity-gap", true), ("env-leakage", false)];
+/// Built-in rules with a name of their own (chapters 21 and 30) and their default waivability;
+/// `hier-rank` is the rule an upward edge is waived under (R-HIER-024).
+pub(crate) const NAMED_BUILTINS: [(&str, bool); 3] = [
+    ("maturity-gap", true),
+    ("env-leakage", false),
+    ("hier-rank", true),
+];
 
 fn scalar<'a>(it: &'a EffectiveItem, k: &str) -> Option<&'a str> {
     match &it.fields.get(k)?.value {

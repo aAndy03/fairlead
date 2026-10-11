@@ -20,6 +20,8 @@ pub struct Unit {
     pub path: Option<String>,
     /// The unit has a code `def` extent (a site).
     pub code_bound: bool,
+    /// `implements=`: ports this unit implements; edges to them are exempt from rank (R-HIER-023).
+    pub implements: Vec<ItemId>,
 }
 
 /// A container: named by a unit's `container=` or a container's `parent=`, or a non-unit item that
@@ -107,6 +109,10 @@ impl Model {
                     container,
                     path: scalar(it, "path"),
                     code_bound: !reg.sites_of(&it.id).is_empty(),
+                    implements: list(it, "implements")
+                        .iter()
+                        .filter_map(|x| resolve(reg, &it.id, x))
+                        .collect(),
                 },
             );
         }
@@ -170,6 +176,81 @@ impl Model {
             out.push(p);
         }
         Ok(out)
+    }
+}
+
+/// A `use` edge between two units (R-HIER-020), at the `use` site.
+#[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
+pub struct UnitEdge {
+    pub from: ItemId,
+    pub to: ItemId,
+    pub path: crate::path::RepoPath,
+    pub line: u32,
+    pub col: u32,
+}
+
+impl Model {
+    /// The unit `use` edges: a `use` inside a unit's code `def` extent (the innermost) comes from
+    /// that unit; otherwise from the one unit whose `path=` claim covers the file. Edges whose
+    /// target is not a unit are not hierarchy edges. Declared edges only (R-HIER-034).
+    pub fn edges(&self, reg: &Registry, files: &[&crate::path::RepoPath]) -> Vec<UnitEdge> {
+        use fairlead_syntax::directive::Extent;
+        let mut extents: BTreeMap<&crate::path::RepoPath, Vec<(u32, u32, &ItemId)>> =
+            BTreeMap::new();
+        for u in self.units.values() {
+            for s in reg.sites_of(&u.id) {
+                let (a, b) = match s.extent {
+                    Extent::Lines { first, last } => (first, last),
+                    Extent::File | Extent::Doc => (0, u32::MAX),
+                };
+                extents.entry(&s.path).or_default().push((a, b, &u.id));
+            }
+        }
+        let by_path = self.bindings(reg, files);
+        let mut out = Vec::new();
+        for e in reg.edges() {
+            let Some(to) = e.resolved.as_ref().filter(|t| self.units.contains_key(*t)) else {
+                continue;
+            };
+            let line = e.from.span.line;
+            // A `use` binds to a block as a `def` does; it belongs to the unit whose extent
+            // contains its own (a `def` and a `use` on the lines above one block share it).
+            let (ua, ub) = match e.from.extent {
+                Extent::Lines { first, last } => (first, last),
+                Extent::File | Extent::Doc => (0, u32::MAX),
+            };
+            let inner = extents
+                .get(&e.from.path)
+                .and_then(|v| {
+                    v.iter()
+                        .filter(|(a, b, _)| *a <= ua && ub <= *b)
+                        .min_by_key(|(a, b, id)| (b - a, (*id).clone()))
+                })
+                .map(|(_, _, id)| (*id).clone());
+            let from = inner.or_else(|| {
+                let mut claimed = self
+                    .units
+                    .values()
+                    .filter(|u| u.path.is_some())
+                    .filter(|u| by_path.get(&u.id).is_some_and(|f| f.contains(&e.from.path)));
+                match (claimed.next(), claimed.next()) {
+                    (Some(u), None) => Some(u.id.clone()),
+                    _ => None,
+                }
+            });
+            if let Some(from) = from.filter(|f| f != to) {
+                out.push(UnitEdge {
+                    from,
+                    to: to.clone(),
+                    path: e.from.path.clone(),
+                    line,
+                    col: e.from.span.col,
+                });
+            }
+        }
+        out.sort();
+        out.dedup();
+        out
     }
 }
 
