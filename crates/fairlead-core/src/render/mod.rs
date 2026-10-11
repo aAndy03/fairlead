@@ -218,6 +218,30 @@ pub(crate) fn header_line(report: &CheckReport) -> String {
     s
 }
 
+/// 0.2.1-T6 (D-62): live errors whose stage is below `enforce` count in `errors N` but do not
+/// fail the run; the field test read `errors 1` with exit 0 as a bug. `None` when every live
+/// error fails (or none exists).
+pub(crate) fn soft_error_note(report: &CheckReport) -> Option<String> {
+    let soft = report
+        .findings
+        .iter()
+        .filter(|f| {
+            matches!(f.state, FindingState::New | FindingState::WaiverIneffective)
+                && f.severity == Severity::Error
+                && f.stage == Stage::Warn
+        })
+        .count();
+    match soft {
+        0 => None,
+        1 => Some(
+            "1 error is at stage warn and does not fail the run (stage enforce fails it)".into(),
+        ),
+        n => Some(format!(
+            "{n} errors are at stage warn and do not fail the run (stage enforce fails them)"
+        )),
+    }
+}
+
 pub(crate) fn counts_line(report: &CheckReport) -> String {
     let s = &report.summary;
     format!(

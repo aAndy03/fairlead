@@ -83,7 +83,8 @@ fn size(lines: &[String]) -> usize {
 /// output fits 2 KB; the dropped findings are counted in the `+N more` line.
 fn render_agent(report: &CheckReport, opts: &RenderOptions) -> String {
     let view = build_view(report, opts);
-    let head = vec![header_line(report), counts_line(report)];
+    let mut head = vec![header_line(report), counts_line(report)];
+    head.extend(super::soft_error_note(report));
     let lines: Vec<String> = view
         .groups
         .iter()

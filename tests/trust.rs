@@ -172,3 +172,36 @@ fn r_cli_021__for_agent_names_hidden_observe_findings_and_the_next_step() {
         plain.stdout
     );
 }
+
+#[test]
+fn r_chk_009__the_summary_says_when_an_error_does_not_fail_the_run() {
+    // HN-A002 (no CODEOWNERS for the managerial folder) is an error at stage warn.
+    let repo = repo();
+    let run = repo.run(&[
+        "check",
+        "--no-baseline",
+        "--format",
+        "human",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(run.code, 0, "{}", run.stdout);
+    assert!(
+        run.stdout
+            .contains("1 error is at stage warn and does not fail the run"),
+        "{}",
+        run.stdout
+    );
+    let terse = repo.run(&[
+        "check",
+        "--no-baseline",
+        "--format",
+        "terse",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert!(
+        !terse.stdout.contains("stage warn"),
+        "terse keeps its contract"
+    );
+}

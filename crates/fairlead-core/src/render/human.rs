@@ -59,6 +59,7 @@ impl Renderer for HumanRenderer {
             out.push(header_line(report));
         }
         out.push(counts_line(report));
+        out.extend(super::soft_error_note(report));
         for g in &view.groups {
             let f = g.lead;
             let note = if matches!(f.state, FindingState::WaiverIneffective) {
