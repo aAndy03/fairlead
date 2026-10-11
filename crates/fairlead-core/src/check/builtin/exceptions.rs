@@ -57,6 +57,13 @@ pub(crate) fn override_diags(o: &Override, as_of: AsOf, days: u32) -> Vec<Diagno
     let (p, l, c) = (&o.at.path, o.at.line, o.at.col);
     let (tgt, id) = (bare_id(&o.target), o.id.0.as_str().to_string());
     let exp = o.exp.map(|e| e.to_string()).unwrap_or_default();
+    // 0.2.2-T2: an `until=` expiry has no date; the field test saw "expired on ;".
+    let expired = match (o.exp, o.until.as_deref()) {
+        (Some(e), None) => format!("on {e}"),
+        (None, Some(u)) => format!("when version {u} opened"),
+        (Some(e), Some(u)) => format!("(exp {e}, until {u})"),
+        (None, None) => String::new(),
+    };
     let d = |code, msg: String, hint: String| {
         vec![
             DiagB::new(code, p, l, c, msg)
@@ -69,7 +76,7 @@ pub(crate) fn override_diags(o: &Override, as_of: AsOf, days: u32) -> Vec<Diagno
     match &o.state {
         OvrState::Expired => d(
             HN_X001,
-            format!("ovr of {tgt} expired on {exp}; the finding it waived is back"),
+            format!("ovr of {tgt} expired {expired}; the finding it waived is back"),
             "renew with fairlead approve, or delete the ovr".into(),
         ),
         OvrState::Inert(InertReason::SealedNoAllow) => d(
@@ -324,6 +331,25 @@ mod tests {
         );
         // HN-S016 for an incomplete ovr is the registry's.
         assert!(inert(InertReason::Incomplete).is_empty());
+    }
+
+    #[test]
+    fn r_ver_070__an_until_expiry_names_the_version_not_an_empty_date() {
+        let ok = ApprovalStatus::Approved { renewal: 0 };
+        let msg = |o: &Override| {
+            override_diags(o, AsOf::parse("2026-10-09").unwrap(), 90)[0]
+                .message
+                .clone()
+        };
+        let mut v = ovr(OvrState::Expired, ok, None);
+        v.until = Some("0.1.6".into());
+        assert!(
+            msg(&v).contains("expired when version 0.1.6 opened"),
+            "{}",
+            msg(&v)
+        );
+        let d = ovr(OvrState::Expired, ok, Some("2026-01-01"));
+        assert!(msg(&d).contains("expired on 2026-01-01"), "{}", msg(&d));
     }
 
     #[test]
