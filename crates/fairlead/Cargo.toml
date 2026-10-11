@@ -96,3 +96,7 @@ path = "../../tests/upgrade.rs"
 [[test]]
 name = "move"
 path = "../../tests/move.rs"
+
+[[test]]
+name = "field"
+path = "../../tests/field.rs"

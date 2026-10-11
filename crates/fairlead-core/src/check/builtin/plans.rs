@@ -136,6 +136,11 @@ impl Check for PlansCheck {
             .iter()
             .filter_map(|p| Some((p.item.clone(), p.to.clone()?)))
             .collect();
+        let (docs, _) = collect_change_docs(cx.corpus);
+        let ready: Vec<&crate::docs::ChangeDoc> = docs
+            .iter()
+            .filter(|d| d.status == crate::docs::Status::Ready)
+            .collect();
         for p in dc
             .plans
             .iter()
@@ -155,6 +160,49 @@ impl Check for PlansCheck {
                     )
                     .severity(Severity::Error)
                     .hint("a replace chain must end at an active ID; fix one to=")
+                    .related(bare_id(&p.item))
+                    .text(bare_id(&p.item))
+                    .build(),
+                );
+            }
+            // 0.2.2-T5 (R-LC-006): a due plan blocks the next seal; with no reference left nothing
+            // else names it, and the field test met it first as a refused seal.
+            if dc.state(p, as_of, window) == DueState::Due
+                && !reg
+                    .edges()
+                    .iter()
+                    .any(|e| e.resolved.as_ref() == Some(&p.item))
+                && !ready.iter().any(|d| {
+                    let named = |list: &[String]| {
+                        list.iter()
+                            .any(|c| *c == bare_id(&p.item) || *c == item_key(&p.item))
+                    };
+                    named(&d.covers)
+                        || (d.kind == "retarget"
+                            && named(
+                                &d.extra
+                                    .get("retargets")
+                                    .map(|v| crate::lifecycle::doc_ids(v))
+                                    .unwrap_or_default(),
+                            ))
+                })
+            {
+                let at = dc
+                    .target(p)
+                    .map_or_else(String::new, |t| format!(" at {t}"));
+                out.push(
+                    DiagB::new(
+                        HN_L001,
+                        &p.path,
+                        p.line,
+                        p.col,
+                        format!(
+                            "the {} plan for {}{at} is due and blocks the next seal",
+                            p.word.as_str(),
+                            bare_id(&p.item)
+                        ),
+                    )
+                    .hint("seal a ready doc whose covers names the ID, an exception with until, or a retarget doc (R-LC-006)")
                     .related(bare_id(&p.item))
                     .text(bare_id(&p.item))
                     .build(),
@@ -344,6 +392,41 @@ mod tests {
             of(&due, c::HN_R006)[0].severity,
             Severity::Error,
             "O = 1.4.1 reached"
+        );
+    }
+
+    #[test]
+    fn r_lc_006__a_due_plan_with_no_reference_left_warns_before_the_seal() {
+        let w = |covering: bool| {
+            let (vp, vt) = version_file("1.4.0");
+            let mut w = World::new()
+                .root(ROOT)
+                .file(
+                    "fairlead/docs/engine.md",
+                    &doc(&["def engine.old", "flag deprecate engine.old target=1.4.1"]),
+                )
+                .file(&vp, &vt);
+            if covering {
+                w = w.file(
+                    "fairlead/docs/changes/d-00000001-retire.md",
+                    "+++\nkind = \"change\"\nid = \"d-00000001\"\nstatus = \"ready\"\nimpact = \"fix\"\ncovers = [\"engine.old\"]\n+++\n# Retire\n",
+                );
+            }
+            w.build().run_check(&PlansCheck)
+        };
+        let due = w(false);
+        let l = of(&due, c::HN_L001);
+        assert_eq!(l.len(), 1, "{due:?}");
+        assert_eq!(l[0].severity, Severity::Warn, "check's exit is unchanged");
+        assert!(
+            l[0].message
+                .contains("deprecate plan for engine.old at 1.4.1 is due and blocks the next seal"),
+            "{}",
+            l[0].message
+        );
+        assert!(
+            of(&w(true), c::HN_L001).is_empty(),
+            "a ready doc covering the ID finishes it"
         );
     }
 

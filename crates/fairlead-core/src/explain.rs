@@ -210,7 +210,7 @@ pub fn explain(
         ExplainTarget::Topic(t) => topics::topic_sections(t, Some(reg))?,
         ExplainTarget::Code(c) => code_sections(*c)?,
         ExplainTarget::File(p) => file_sections(p, reg, report)?,
-        ExplainTarget::Id(id) => id_sections(id, reg)?,
+        ExplainTarget::Id(id) => id_sections(id, reg, report)?,
     };
     Ok(ExplainOutput {
         target: target.clone(),
@@ -349,7 +349,11 @@ fn file_sections(
     Ok(out)
 }
 
-fn id_sections(id: &Id, reg: &Registry) -> Result<Vec<ExplainSection>, Error> {
+fn id_sections(
+    id: &Id,
+    reg: &Registry,
+    report: Option<&CheckReport>,
+) -> Result<Vec<ExplainSection>, Error> {
     let item_id = match reg.lookup(reg.root_scope(), id) {
         Lookup::Found(i) => i,
         Lookup::Ambiguous(c) => {
@@ -448,13 +452,38 @@ fn id_sections(id: &Id, reg: &Registry) -> Result<Vec<ExplainSection>, Error> {
         })
         .map(|d| format!("{} {}", d.code.0, d.message))
         .collect();
-    Ok(vec![
+    let mut out = vec![
         section("declaration", vec![], vec![decl]),
         section("sites", vec![], sites),
         section("uses", vec![], uses),
         section("readings", vec![], readings),
         section("shadowing", shadow, vec![]),
-    ])
+    ];
+    // 0.2.2-T5: the check findings that name the item (a due lifecycle plan, an open escalation),
+    // with their fix; the field test found a seal blocked by a plan `explain` never mentioned.
+    if let Some(rep) = report {
+        let bare = id.to_string();
+        let found: Vec<TerseLine> = rep
+            .findings
+            .iter()
+            .filter(|f| {
+                f.related.as_deref() == Some(qid.as_str()) || f.related.as_deref() == Some(&bare)
+            })
+            .take(20)
+            .map(|f| {
+                tl(
+                    f.code.0,
+                    &[
+                        ("at", &format!("{}:{}", f.location.path, f.location.line)),
+                        ("msg", &f.message),
+                        ("fix", &f.fix),
+                    ],
+                )
+            })
+            .collect();
+        out.push(section("findings", vec![], found));
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

@@ -34,7 +34,7 @@ fn explain(global: &GlobalArgs, args: &ExplainArgs) -> Result<CommandResult, Err
     let registry = resolve_loaded(&loaded, as_of(global));
     let target = explain_target(&loaded.root, &cwd, &args.target)?;
     let report = match &target {
-        ExplainTarget::File(_) => Some(check_loaded(
+        ExplainTarget::File(_) | ExplainTarget::Id(_) => Some(check_loaded(
             &loaded,
             &registry,
             &default_options(as_of(global)),
