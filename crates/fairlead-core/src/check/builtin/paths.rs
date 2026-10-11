@@ -52,6 +52,25 @@ impl Check for PathsCheck {
                 );
             }
         }
+        // 0.2.2-T9 (R-FILE-050): a `[[file]]` path is scope-relative; the field test's wrong
+        // `path = "src/lib.rs"` was accepted without a word.
+        for f in &ctl.files {
+            let path = f.path.trim_start_matches("./");
+            if !files.contains(&path) {
+                out.push(
+                    DiagB::new(
+                        HN_M001,
+                        &cp,
+                        0,
+                        0,
+                        format!("[[file]] {} path {} matches no file", f.id, f.path),
+                    )
+                    .hint("the path is relative to the scope's folder; fix it, or remove the table")
+                    .text(f.path.clone())
+                    .build(),
+                );
+            }
+        }
     }
 }
 
@@ -79,6 +98,28 @@ mod tests {
             d.iter()
                 .all(|x| x.location.path.as_str() == "fairlead/control.toml")
         );
+    }
+
+    #[test]
+    fn r_file_050__a_file_table_whose_path_matches_no_file_is_m001() {
+        let toml = |path: &str| {
+            format!("[[file]]\nid = \"file.styles\"\nkind = \"stylesheet\"\npath = \"{path}\"\n")
+        };
+        let run = |path: &str| {
+            World::new()
+                .root(&toml(path))
+                .file("app/globals.css", "a{}")
+                .build()
+                .run_check(&PathsCheck)
+        };
+        let wrong = run("src/lib.rs");
+        let d = of(&wrong, c::HN_M001);
+        assert_eq!(d.len(), 1, "{wrong:#?}");
+        assert!(
+            d[0].message
+                .contains("[[file]] file.styles path src/lib.rs matches no file")
+        );
+        assert!(of(&run("app/globals.css"), c::HN_M001).is_empty());
     }
 
     #[test]
