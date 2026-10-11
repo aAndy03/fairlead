@@ -1,0 +1,23 @@
+name: merge-sim
+
+# Weekly and on demand only (E-18): 0.2 exit criteria 1 and 9 (P7-T2).
+on:
+  schedule:
+    - cron: "30 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  merge-sim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build fairlead
+        run: cargo build -p fairlead --locked
+      - name: Merge 50 sealing branches in two seeded orders
+        run: |
+          cargo run -p xtask --locked -- merge-sim --branches 50 --seed 1 --bin target/debug/fairlead
+          cargo run -p xtask --locked -- merge-sim --branches 50 --seed "$GITHUB_RUN_NUMBER" --bin target/debug/fairlead

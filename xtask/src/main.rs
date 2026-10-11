@@ -6,6 +6,7 @@ mod ablation;
 mod bench;
 mod docs;
 mod golden;
+mod merge_sim;
 mod sarif;
 mod syntax_card;
 
@@ -225,13 +226,74 @@ fn main() -> ExitCode {
                 }
             }
         }
+        Some("merge-sim") => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            let mut o = merge_sim::Options {
+                branches: 50,
+                seed: 1,
+                bin: None,
+                keep: false,
+            };
+            while let Some(a) = args.next() {
+                if a == "--keep" {
+                    o.keep = true;
+                    continue;
+                }
+                let v = args.next().unwrap_or_default();
+                match a.as_str() {
+                    "--branches" => o.branches = v.parse().unwrap_or(50),
+                    "--seed" => o.seed = v.parse().unwrap_or(1),
+                    "--bin" => o.bin = Some(std::path::PathBuf::from(v)),
+                    _ => {
+                        eprintln!("xtask merge-sim: unknown option {a}");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            match merge_sim::run(root, &o) {
+                Ok(r) => {
+                    println!(
+                        "merge-sim branches={} seed={} merges={} conflicted={} continuity={} gen-left={} unreported={} unrepairable={} failed-checks={}",
+                        o.branches,
+                        o.seed,
+                        r.merges,
+                        r.conflicted,
+                        r.continuity,
+                        r.gen_left.len(),
+                        r.unreported.len(),
+                        r.unrepairable.len(),
+                        r.failed_checks.len()
+                    );
+                    for l in r
+                        .gen_left
+                        .iter()
+                        .chain(&r.unreported)
+                        .chain(&r.unrepairable)
+                        .chain(&r.failed_checks)
+                    {
+                        println!("  {l}");
+                    }
+                    if r.passed() {
+                        ExitCode::SUCCESS
+                    } else {
+                        ExitCode::from(1)
+                    }
+                }
+                Err(e) => {
+                    eprintln!("xtask merge-sim: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
         Some(other) => {
             eprintln!("xtask: task `{other}` is not implemented in this build");
             ExitCode::from(2)
         }
         None => {
             eprintln!(
-                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | syntax-card-score DIR | sarif-validate | golden-bless NAME>"
+                "xtask: usage: cargo xtask <check-deps | bench-corpus | docs-check | ablation-score | ablation-report | ablation-arm-b | syntax-card-score DIR | sarif-validate | golden-bless NAME | merge-sim [--branches N] [--seed N] [--bin PATH]>"
             );
             ExitCode::from(2)
         }
