@@ -1,0 +1,33 @@
+# A-1 pilot rules (agent-runbook A-1): three common team rules, each waivable, so a maintainer
+# under time pressure meets them and either complies or declares an exception with a reason.
+[rules.no-todo]
+check    = "pattern"
+forbid   = '\bTODO\b'
+msg      = "open work is tracked in an issue, not a TODO comment"
+glob     = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.rs", "**/*.py", "**/*.go"]
+sev      = "error"
+stage    = "enforce"
+waivable = true
+why      = "pilot rule: untracked TODOs rot"
+
+[rules.no-debug-print]
+check    = "pattern"
+forbid   = '(console\.log\(|println!\(|dbg!\(|eprintln!\()'
+msg      = "debug output does not ship; use the project's logger"
+glob     = ["**/*.ts", "**/*.tsx", "**/*.js", "**/*.jsx", "**/*.rs"]
+exclude  = ["**/tests/**", "**/*.test.*", "**/examples/**", "**/bin/**", "**/main.rs"]
+sev      = "error"
+stage    = "enforce"
+waivable = true
+why      = "pilot rule: stray output leaks into users' terminals and logs"
+
+[rules.no-unwrap]
+check    = "pattern"
+forbid   = '\.unwrap\(\)'
+msg      = "handle the error or use expect with the invariant"
+glob     = ["**/*.rs"]
+exclude  = ["**/tests/**", "**/benches/**", "**/examples/**"]
+sev      = "error"
+stage    = "enforce"
+waivable = true
+why      = "pilot rule: a panic in a library is a user's crash"
