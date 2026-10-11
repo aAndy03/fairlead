@@ -120,7 +120,7 @@ pub(crate) fn parse_attach(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec<Atta
 }
 
 /// Tables whose keys are G1 vocabulary: never delegable (R-SCOPE-051, R-SCOPE-057).
-pub const G1_TABLES: [&str; 18] = [
+pub const G1_TABLES: [&str; 22] = [
     "fairlead",
     "settings",
     "scan",
@@ -133,6 +133,10 @@ pub const G1_TABLES: [&str; 18] = [
     "bind",
     "flagwords",
     "layers",
+    "free",
+    "flow",
+    "layer-policy",
+    "hier",
     "policies",
     "version",
     "lc",

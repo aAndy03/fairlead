@@ -24,6 +24,7 @@ pub const NEW_HELP: &str = "--field keys by kind (a key starting x- is always ac
                sev (error|warn|info), waivable (true|false), why, tokens (check=leak: design-token
                values leaking into CSS or TSX; it is not a secret scanner)
   scope        purpose (with --at <folder>)
+  ladder       no fields; NAME is a preset, ui or core (root only; 0.3)
   escalation   to (an ancestor scope), set, why, blocking; the NAME is the item escalated
                (fairlead new escalation rule.no-dbg --field why=...), not a label
   change       impact (break|add|fix), covers (comma list of globs or IDs), hotfix, revisits, revisit-why
@@ -233,7 +234,7 @@ pub struct SyncArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct NewArgs {
-    /// Kind of the item: a declared kind, or scope, rule, escalation or handoff.
+    /// Kind of the item: a declared kind, or scope, rule, ladder, escalation or handoff.
     pub kind: String,
     /// Slug name, at most 64 characters (R-CLI-029).
     pub name: String,

@@ -2,6 +2,8 @@
 pub mod approvals;
 pub use approvals::{Approval, ApprovalsFile, parse_approvals};
 pub mod header;
+pub mod hier;
+pub use hier::HierConfig;
 pub mod rules;
 pub mod schema;
 pub mod vocab;
@@ -51,6 +53,8 @@ pub struct ControlFile {
     pub comments: BTreeMap<String, Vec<String>>,
     pub agents: Vec<String>,
     pub kinds: BTreeMap<String, KindDecl>,
+    /// Hierarchy vocabulary (R-HIER-001; 0.3): ladders, free layers, flows, `[hier]`.
+    pub hier: HierConfig,
     pub file_kinds: BTreeMap<String, FileKindDecl>,
     pub layout: Layout,
     pub files: Vec<FileItemDecl>,
@@ -116,7 +120,12 @@ impl ControlFile {
 }
 
 /// Top-level tables a child may not hold (known 0.1 root-only tables).
-const ROOT_ONLY_TABLES: [&str; 19] = [
+const ROOT_ONLY_TABLES: [&str; 24] = [
+    "layers",
+    "free",
+    "flow",
+    "layer-policy",
+    "hier",
     "version",
     "changelog",
     "delegate",
@@ -256,6 +265,8 @@ pub fn parse_control(
     let comments = schema::parse_comments(&mut cx, &mut table);
     let agents = schema::parse_agents(&mut cx, &mut table);
     let kinds = schema::parse_kinds(&mut cx, &mut table);
+    let hier = hier::parse_hier(&mut cx, &mut table);
+    hier::check_kind_layers(&mut cx, &hier, &kinds);
     let file_kinds = schema::parse_file_kinds(&mut cx, &mut table);
     let layout = schema::parse_layout(&mut cx, &mut table);
     let files = schema::parse_files(&mut cx, &mut table);
@@ -313,6 +324,7 @@ pub fn parse_control(
         comments,
         agents,
         kinds,
+        hier,
         file_kinds,
         layout,
         files,

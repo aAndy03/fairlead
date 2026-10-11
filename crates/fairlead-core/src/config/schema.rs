@@ -120,6 +120,8 @@ pub struct KindDecl {
     pub dir: Option<String>,
     pub source_generate: bool,
     pub keys: BTreeMap<String, KeyDecl>,
+    /// `layers` (R-HIER-001; 0.3): the layers or ladders (`ui.*`) a unit of this kind may name.
+    pub layers: Vec<String>,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -939,6 +941,7 @@ pub(crate) fn parse_kinds(cx: &mut Ctx<'_>, root: &mut toml::Table) -> BTreeMap<
                 cx.error(&key, "source must be \"generate\" when present");
             }
         }
+        decl.layers = take_string_list(cx, &mut t, &key, "layers").unwrap_or_default();
         decl.keys = parse_key_decls(cx, &name, &mut t);
         cx.unknown_in(&key, &t);
         out.insert(name, decl);

@@ -115,6 +115,7 @@ fn builtin_handoff() -> KindDecl {
         dir: Some("docs/handoff/".into()),
         source_generate: false,
         keys: BTreeMap::new(),
+        layers: Vec::new(),
     }
 }
 
@@ -177,10 +178,11 @@ pub fn new_plan(
             verb: "new revive",
             milestone: "0.2",
         }),
-        "ladder" | "request" => Err(Error::Reserved {
-            verb: "new ladder",
+        "request" => Err(Error::Reserved {
+            verb: "new request",
             milestone: "0.3",
         }),
+        "ladder" => plan_ladder(req, reg, &cx),
         "scope" => plan_scope(req, reg, &cx),
         "rule" => plan_rule(req, reg, as_of, &cx),
         "escalation" => plan_escalation(req, reg, &cx),
@@ -758,6 +760,71 @@ fn plan_rule(req: &NewRequest, reg: &Registry, as_of: AsOf, cx: &Ctx) -> Result<
     append_control(path, prior, s, format!("rule {}", req.name), req, notes)
 }
 
+/// D-20: the presets of 30-hierarchy are content, scaffolded into the root control file.
+const LADDER_UI: &str = "
+[layers.ui]
+atom = 10
+molecule = 20
+organism = 30
+template = 40
+page = 50
+
+[free.chrome]
+of = \"ui\"
+may-use = [\"ui.atom\", \"ui.molecule\", \"ui.organism\"]
+";
+const LADDER_CORE: &str = "
+[layers.core]
+primitive = 10
+adapter = 20
+engine = 30
+pipeline = 40
+service = 50
+shell = 60
+
+[layer-policy.\"core.shell\"]
+used-by = \"entry\"
+";
+
+/// `new ladder ui|core` (R-HIER-001, D-20): ladders are root vocabulary, written once.
+fn plan_ladder(req: &NewRequest, reg: &Registry, cx: &Ctx) -> Result<Plan, Error> {
+    check_fields(&req.fields, &[], "ladder")?;
+    if cx.scope != *reg.root_scope() {
+        return Err(Error::Usage(
+            "ladders are declared in the root control file only (R-HIER-001)".into(),
+        ));
+    }
+    let text = match req.name.as_str() {
+        "ui" => LADDER_UI,
+        "core" => LADDER_CORE,
+        other => {
+            return Err(Error::Usage(format!(
+                "no preset ladder {other:?}: the presets are ui and core; declare another ladder as a [layers.<name>] table"
+            )));
+        }
+    };
+    let declared = reg
+        .scope(reg.root_scope())
+        .and_then(|s| s.control.as_ref())
+        .is_some_and(|c| c.hier.ladders.contains_key(&req.name));
+    if declared {
+        return Err(refuse(
+            RefusalKind::NoClobber,
+            format!("ladder {} is already declared", req.name),
+            "edit its [layers] table in the root control file",
+        ));
+    }
+    let (path, prior) = control_cas(reg, &cx.scope, &cx.folder)?;
+    append_control(
+        path,
+        prior,
+        text.to_owned(),
+        format!("ladder {}", req.name),
+        req,
+        vec!["presets are content (D-20): rename, add or remove layers freely; set [hier] level (0 to 3) to switch the checks on".to_owned()],
+    )
+}
+
 fn plan_escalation(req: &NewRequest, reg: &Registry, cx: &Ctx) -> Result<Plan, Error> {
     valid_id("req", &req.name)?; // the target is a dotted slug path
     check_fields(&req.fields, &["to", "set", "why", "blocking"], "escalation")?;
@@ -1167,7 +1234,7 @@ mod tests {
             "change docs go through pipeline::plan_new"
         );
         assert!(matches!(
-            plan("", &nr("ladder", "x")),
+            plan("", &nr("request", "x")),
             Err(Error::Reserved {
                 milestone: "0.3",
                 ..
@@ -1466,6 +1533,39 @@ mod tests {
             text(&plan("", &dflt).unwrap(), "apps/web/fairlead/control.toml")
                 .contains("why = \"TODO(fairlead)\"")
         );
+    }
+
+    #[test]
+    fn d_20__presets_are_content() {
+        let ui = plan("", &nr("ladder", "ui")).unwrap();
+        let t = text(&ui, "fairlead/control.toml");
+        assert!(
+            t.contains(
+                "[layers.ui]
+atom = 10
+"
+            ) && t.contains("[free.chrome]"),
+            "{t}"
+        );
+        let whole = format!("{ROOT_CONTROL}{t}{LADDER_CORE}");
+        let c = crate::config::parse_control(&rp("fairlead/control.toml"), whole.as_bytes(), true)
+            .unwrap();
+        assert_eq!(c.hier.rank("core.service"), Some(("core", 50)));
+        assert_eq!(c.hier.entry_only, ["core.shell"]);
+        assert!(matches!(
+            plan("[layers.ui]
+atom = 10
+", &nr("ladder", "ui")),
+            Err(Error::Refused(f)) if f.kind == RefusalKind::NoClobber
+        ));
+        assert!(
+            matches!(plan("", &nr("ladder", "web")), Err(Error::Usage(m)) if m.contains("presets"))
+        );
+        let mut child = nr("ladder", "ui");
+        child.scope = Some(crate::registry::ScopeId(
+            fairlead_syntax::ids::ScopeSlug::parse("web").unwrap(),
+        ));
+        assert!(matches!(plan("", &child), Err(Error::Usage(m)) if m.contains("root")));
     }
 
     #[test]
