@@ -83,7 +83,7 @@ P1 is first because P2 and P3 extend its graph. P4 and P5 depend only on 0.2 and
 | 6 | All 0.1 and 0.2 criteria still hold | P7-T6 |
 | 7 | Tree-sitter used only if its compatibility test passes; otherwise regex evidence only | P6-T6 |
 
-Also: `PENDING_0_3` is empty, the v1 API surface is written down and frozen (P7-T7), and the 1.0 gap list is opened (D-53).
+Also: `PENDING_0_3` is empty, the 0.3 API surface is written down and snapshotted (P7-T7; frozen at the end of 0.4, D-64), and the 1.0 gap list is opened (D-53).
 
 ## Risks
 

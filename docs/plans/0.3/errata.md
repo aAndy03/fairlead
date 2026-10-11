@@ -1,0 +1,6 @@
+# 0.3 errata
+
+Deviations from the 0.3 plans (plans/0.3) found while building, numbered E3-n. Chapters and decisions win over plans; this file records where a plan was wrong, incomplete or changed.
+
+- E3-1: P1-T1. `ACTIVE_MILESTONE` is M03 and `tests/codes.rs` lists the 42 M03 codes no test asserts yet as `PENDING_0_3` (the master plan's list also names `HN-D006`, which has been M02 since 0.2). M03 is the last milestone of the code table, so no registered code is inactive any more: the tests that inactive codes are dropped (`r_arch_055__load_diagnostics_pass_through_floor_stays_enforce_and_inactive_codes_vanish`, `r_agt_009__a_floor_finding_cannot_be_lowered_and_inactive_codes_are_dropped`) now use an unregistered code, `XX-Z999`, and `r_arch_055__later_milestone_codes_are_registered_but_inactive` asserts the M03 codes are active. The crate version stays 0.2.2 and the pin stays 0.2.0 until the 0.3 release, as in 0.2 (E2-75): raising either now re-blesses every golden and refuses the in-tree binary. The 0.2 golden outputs are the regression fixture as they stand (P7-T6). A draft change doc covers P1's product changes, widened as P1 lands.
+- E3-2: D-64 moved the v1 API freeze to the end of 0.4; P7-T7 writes and snapshots the 0.3 surface without freezing it, and P7-T9 (names reserved for 0.4) is withdrawn.

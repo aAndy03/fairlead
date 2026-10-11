@@ -417,7 +417,14 @@ mod tests {
             DiagB::new(c::HN_P001, &p, 0, 0, "reserved name")
                 .severity(Severity::Info)
                 .build(),
-            DiagB::new(c::HN_H001, &p, 0, 0, "later milestone").build(),
+            DiagB::new(
+                fairlead_syntax::diag::DiagCode("XX-Z999"),
+                &p,
+                0,
+                0,
+                "no row",
+            )
+            .build(),
         ];
         let r = report(&b, &load, |_| {});
         let floor = r.findings.iter().find(|f| f.code == c::HN_P001).unwrap();
@@ -425,7 +432,7 @@ mod tests {
             (floor.severity, floor.stage),
             (Severity::Error, crate::config::Stage::Enforce)
         );
-        assert!(r.findings.iter().all(|f| f.code != c::HN_H001));
+        assert!(r.findings.iter().all(|f| f.code.0 != "XX-Z999"));
     }
 
     macro_rules! sources { ($($p:literal),* $(,)?) => { [$(($p, include_str!($p))),*] }; }

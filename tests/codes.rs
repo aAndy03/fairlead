@@ -65,9 +65,16 @@ fn evidence(root: &Path) -> String {
     text
 }
 
-/// 0.2 codes whose checks have not landed yet (plans/0.2 master, constraint 4). Each task that
-/// lands a check removes its codes; 0.2 P7-T7 requires this list to be empty.
-const PENDING_0_2: &[&str] = &[];
+/// 0.3 codes whose checks have not landed yet (plans/0.3 P1-T1, as 0.2 did). Each task that
+/// lands a check removes its codes; 0.3 P7-T6 requires this list to be empty.
+const PENDING_0_3: &[&str] = &[
+    "HN-D004", "HN-D005", "HN-T006", "HN-T007", "HN-K001", "HN-V012", "HN-V014", "HN-H001",
+    "HN-H002", "HN-H003", "HN-H004", "HN-H005", "HN-H006", "HN-H007", "HN-H008", "HN-H009",
+    "HN-H010", "HN-H011", "HN-H012", "HN-H013", "HN-H014", "HN-H015", "HN-H016", "HN-H017",
+    "HN-H018", "HN-H019", "HN-H020", "HN-H021", "HN-H022", "HN-H023", "HN-H024", "HN-H025",
+    "HN-W001", "HN-W002", "HN-W003", "HN-W004", "HN-M004", "HN-M005", "HN-M006", "HN-M009",
+    "HN-M010", "HN-M012",
+];
 
 fn asserted(text: &str, code: &str) -> bool {
     text.contains(code) || text.contains(&code.replace('-', "_"))
@@ -81,7 +88,7 @@ fn r_arch_151__every_active_code_is_asserted_somewhere() {
         .iter()
         .filter(|s| fairlead_core::check::is_active(s.code))
         .map(|s| s.code.0)
-        .filter(|code| !asserted(&text, code) && !PENDING_0_2.contains(code))
+        .filter(|code| !asserted(&text, code) && !PENDING_0_3.contains(code))
         .collect();
     assert!(
         missing.is_empty(),
@@ -93,12 +100,12 @@ fn r_arch_151__every_active_code_is_asserted_somewhere() {
 fn r_arch_151__pending_list_holds_only_unasserted_codes() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let text = evidence(&root);
-    let stale: Vec<&&str> = PENDING_0_2
+    let stale: Vec<&&str> = PENDING_0_3
         .iter()
         .filter(|code| asserted(&text, code))
         .collect();
     assert!(
         stale.is_empty(),
-        "now asserted, remove from PENDING_0_2: {stale:?}"
+        "now asserted, remove from PENDING_0_3: {stale:?}"
     );
 }
