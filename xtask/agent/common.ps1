@@ -70,6 +70,8 @@ function Invoke-Sample {
     foreach ($f in $Files) { $a += @('--file', $f) }
     if ($Auto) { $a += '--auto' }
     $a += 'Follow the instructions in the attached prompt file. The other attached files are your context.'
+    # A sample takes a minute or more; say so, so a quiet terminal is not mistaken for a hang.
+    Write-Host ("[{0}] asking the model ({1})..." -f (Get-Date -Format 'HH:mm:ss'), (Split-Path -Leaf $OutFile))
     Push-Location $WorkDir
     try {
         $out = & opencode @a | Out-String
