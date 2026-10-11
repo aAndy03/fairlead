@@ -2740,6 +2740,23 @@ pub fn plan_new(
             as_of,
         );
     }
+    if request.kind == "request" {
+        let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+        let mut taken: std::collections::BTreeSet<crate::docs::DraftId> =
+            docs.iter().map(|d| d.id.clone()).collect();
+        taken.extend(
+            crate::variation::collect_requests(&loaded.corpus)
+                .into_iter()
+                .filter_map(|r| r.id),
+        );
+        return crate::write::new_request_plan(
+            request,
+            registry,
+            version_line(loaded).open,
+            random_bits(),
+            &taken,
+        );
+    }
     let plan = new_plan(request, registry, &loaded.facts, as_of)?;
     validate_control_writes(loaded, registry, &plan)?;
     Ok(plan)
@@ -3122,6 +3139,8 @@ pub fn plan_seal(
     );
     // R-HIER-045: at hierarchy level 3, each seal records every bound unit's digest.
     plan_records.extend(crate::hier::digest_records(registry, &loaded.corpus));
+    // R-VAR-063: interim wrappers roll up into the exception ledger.
+    plan_records.extend(crate::variation::awaiting_records(registry, &loaded.corpus));
     let seal_plan = crate::seal::plan(&crate::seal::SealInput {
         line,
         docs: &docs,

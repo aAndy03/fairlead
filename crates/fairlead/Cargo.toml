@@ -104,3 +104,7 @@ path = "../../tests/field.rs"
 [[test]]
 name = "hier"
 path = "../../tests/hier.rs"
+
+[[test]]
+name = "variation"
+path = "../../tests/variation.rs"

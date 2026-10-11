@@ -223,9 +223,43 @@ pub fn revive_preview(
             until: None,
         }));
     }
+    // R-VAR-043: an answer to variation requests is accepted by the home scope's owner.
+    let answers: Vec<String> = d
+        .extra
+        .get("answers")
+        .map(|a| crate::lifecycle::doc_ids(a))
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| !a.trim().is_empty())
+        .collect();
+    if !answers.is_empty() {
+        let kind = d.extra.get("type").cloned().unwrap_or_default();
+        let fp = crate::variation::answer_fp(draft.as_str(), &answers, &kind);
+        let already = facts.approvals.approvals.iter().any(|a| a.fp == fp);
+        let mut line = format!(
+            "answer {} ({kind}) to {}",
+            draft.as_str(),
+            answers.join(", ")
+        );
+        if already {
+            line.push_str(" (already approved)");
+        }
+        return Ok(Some(ApprovePreview {
+            confirm_prefix: fp.as_str().chars().take(4).collect(),
+            fp,
+            target: Id::parse("var.answer").map_err(|_| Error::Internal("answer id".into()))?,
+            ovr_line: sanitize_data(&line, 240),
+            scope: reg
+                .scope_of(&d.path)
+                .cloned()
+                .unwrap_or_else(|| reg.root_scope().clone()),
+            exp: None,
+            until: None,
+        }));
+    }
     if d.kind != "revive" {
         return Err(Error::Usage(format!(
-            "{} is a {} doc; only a revive or upgrade doc is approved by draft ID",
+            "{} is a {} doc; only a revive, upgrade or answer doc is approved by draft ID",
             req.target, d.kind
         )));
     }

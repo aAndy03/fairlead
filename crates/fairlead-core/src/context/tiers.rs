@@ -415,6 +415,64 @@ pub(crate) fn gather_open_work(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
             ),
         );
     }
+    // R-VAR-032, R-VAR-033: open variation requests filed here or addressed to a unit homed here,
+    // stale ones marked; the request's text is data, fenced with its provenance.
+    let corpus = scene.input.corpus;
+    let requests = crate::variation::collect_requests(corpus);
+    if requests.is_empty() {
+        return;
+    }
+    let root = reg.scope(reg.root_scope()).and_then(|s| s.control.as_ref());
+    let stale_after = root.map_or(4, |c| c.variation.stale_seals) as usize;
+    let folder = root
+        .and_then(|c| c.settings.folder.clone())
+        .unwrap_or_else(|| "fairlead".into());
+    let sealed = crate::docs::version_files(corpus, &folder);
+    // The brief has no approvals file: an answer counts as approved unless the check report
+    // says it is not (`HN-X002` at the answer doc).
+    let mut answers = crate::variation::answers(&docs, &crate::config::ApprovalsFile::default());
+    for a in &mut answers {
+        a.approved = !scene
+            .input
+            .report
+            .findings
+            .iter()
+            .any(|f| f.code == crate::diag::codes::HN_X002 && f.location.path == a.doc.path);
+    }
+    let awaiting = crate::variation::awaiting(reg, corpus);
+    for r in &requests {
+        let Some(id) = &r.id else { continue };
+        let from = crate::variation::scope_of(reg, &r.path);
+        let home = r
+            .field("need")
+            .and_then(|n| fairlead_syntax::ids::Id::parse(n).ok())
+            .and_then(|n| match reg.lookup(from, &n) {
+                crate::registry::Lookup::Found(i) => Some(i.scope),
+                _ => None,
+            });
+        if *from != scene.scope && home.as_ref() != Some(&scene.scope) {
+            continue;
+        }
+        let st = crate::variation::status(id, &answers, &awaiting);
+        if st != crate::variation::ReqStatus::Open {
+            continue;
+        }
+        let since = crate::variation::seals_since(r.created, &sealed);
+        let stale = if since > stale_after {
+            format!(" stale after {since} seals")
+        } else {
+            String::new()
+        };
+        let want = scene.fence_for_path(&r.path, r.field("want").unwrap_or(""), CAP_TEXT);
+        push(
+            format!("5var-{}", id.as_str()),
+            format!(
+                "request {} open{stale}: needs {} | {want}",
+                id.as_str(),
+                sanitize_data(r.field("need").unwrap_or("?"), 80)
+            ),
+        );
+    }
 }
 
 /// R-LC-034, R-LC-036, R-LC-037: the graveyard that applies here, its tripwires (how often a match

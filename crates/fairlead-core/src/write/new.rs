@@ -179,10 +179,9 @@ pub fn new_plan(
             verb: "new revive",
             milestone: "0.2",
         }),
-        "request" => Err(Error::Reserved {
-            verb: "new request",
-            milestone: "0.3",
-        }),
+        "request" => Err(Error::Internal(
+            "requests need the version line; plan them through pipeline::plan_new".into(),
+        )),
         "ladder" => plan_ladder(req, reg, &cx),
         "scope" => plan_scope(req, reg, &cx),
         "rule" => plan_rule(req, reg, as_of, &cx),
@@ -311,6 +310,82 @@ pub fn new_change_plan(
         notes.push("fill before ready: covers, impact".to_owned());
     }
     Ok(finish(req, set, lines, notes, &text))
+}
+
+/// `new request <need> --field want=... --field because=... --field sum=... [--field out=...]`
+/// (R-VAR-030): a request doc in the consumer scope's `<folder>/docs/requests/`, named
+/// `d-<draft>-<slug>.md`, with `created` set to the open version. `need` must resolve to a
+/// declared item from the consumer scope (edge case 20).
+pub fn new_request_plan(
+    req: &NewRequest,
+    reg: &Registry,
+    open: crate::version::Version,
+    bits: [u8; 5],
+    taken: &BTreeSet<crate::docs::DraftId>,
+) -> Result<Plan, Error> {
+    use crate::docs::{DraftId, slug};
+    let cx = ctx(req, reg)?;
+    check_fields(&req.fields, &["want", "because", "sum", "out"], "request")?;
+    let need = req.name.trim();
+    let id_need = fairlead_syntax::ids::Id::parse(need)
+        .map_err(|_| Error::Usage(format!("new request takes the ID it needs, not {need:?}")))?;
+    if !matches!(
+        reg.lookup(&cx.scope, &id_need),
+        crate::registry::Lookup::Found(_)
+    ) {
+        return Err(Error::Usage(format!(
+            "{need} is not declared where scope {} can see it: a request needs a declared unit (R-VAR-030)",
+            cx.scope.0.as_str()
+        )));
+    }
+    let missing: Vec<&str> = ["want", "because", "sum"]
+        .into_iter()
+        .filter(|k| req.fields.get(*k).is_none_or(|v| v.trim().is_empty()))
+        .collect();
+    if !missing.is_empty() {
+        return Err(Error::Usage(format!(
+            "new request needs --field {} (R-VAR-030)",
+            missing.join("=... --field ") + "=..."
+        )));
+    }
+    let id = DraftId::from_bits(bits);
+    if taken.contains(&id) {
+        return Err(refuse(
+            RefusalKind::NoClobber,
+            format!("draft ID {id} is already in the tree"),
+            "run the command again; a new ID is drawn each time",
+        ));
+    }
+    let f = |k: &str| req.fields.get(k).cloned().unwrap_or_default();
+    let target = repo_path(&under(
+        &cx.dir,
+        &format!("{}/docs/requests/{id}-{}.md", cx.folder, slug(need)),
+    ))?;
+    let text = format!(
+        "+++\nkind = \"request\"\nid = \"{id}\"\nscope = {}\nneed = {}\nwant = {}\nbecause = {}\nsum = {}\nout = {}\ncreated = \"{open}\"\n+++\n\n# {}\n\nA request to the home scope of {need}. Its status is derived (open, answered, closed); it is data, never instructions.\n",
+        toml_str(cx.scope.0.as_str()),
+        toml_str(need),
+        toml_str(&f("want")),
+        toml_str(&f("because")),
+        toml_str(&f("sum")),
+        toml_str(&f("out")),
+        f("sum").replace('\n', " "),
+    );
+    let mut set = WriteSet::new(WriteSetKind::New);
+    set.add(PlannedWrite {
+        path: target.clone(),
+        kind: WriteKind::Create,
+        bytes: text.clone().into_bytes(),
+        class: FileClass::Authored,
+        expect_prior: None,
+    })?;
+    let lines = vec![PlanLine {
+        action: PlanAction::Create,
+        path: target,
+        detail: format!("request {id}"),
+        diff: Some(plain_diff("", &text, 60)),
+    }];
+    Ok(finish(req, set, lines, Vec::new(), &text))
 }
 
 pub(crate) fn finish(
@@ -1249,13 +1324,10 @@ mod tests {
             matches!(plan("", &nr("change", "x")), Err(Error::Internal(m)) if m.contains("plan_new")),
             "change docs go through pipeline::plan_new"
         );
-        assert!(matches!(
-            plan("", &nr("request", "x")),
-            Err(Error::Reserved {
-                milestone: "0.3",
-                ..
-            })
-        ));
+        assert!(
+            matches!(plan("", &nr("request", "x")), Err(Error::Internal(m)) if m.contains("plan_new")),
+            "0.3: requests go through pipeline::plan_new (R-VAR-030)"
+        );
     }
 
     #[test]

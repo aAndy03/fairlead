@@ -209,7 +209,8 @@ impl ExtractPlan {
             pattern_rules: Vec::new(),
             env_scan: rc.lifecycle_declared(),
             grave_scan: rc.graveyard.declared,
-            hier_evidence: rc.hier.settings.level.is_some_and(|l| l >= 2),
+            // 0.3: `[variation]` needs the import specifiers too (R-VAR-074).
+            hier_evidence: rc.hier.settings.level.is_some_and(|l| l >= 2) || rc.variation.declared,
             tailwind: rc
                 .tokens
                 .tailwind

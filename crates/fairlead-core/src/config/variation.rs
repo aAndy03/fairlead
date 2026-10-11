@@ -17,6 +17,9 @@ pub enum ForkDetect {
 /// `[variation]` (R-VAR-020, R-VAR-032, R-VAR-051, R-VAR-081).
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct VariationConfig {
+    /// The root has a `[variation]` table: import specifiers are extracted for
+    /// `var.adapter-bypass` (R-VAR-074).
+    pub declared: bool,
     /// Layers whose units are varied only through a request (R-VAR-020).
     pub request_layers: Vec<String>,
     /// Seals after which an open request is stale (R-VAR-032).
@@ -31,6 +34,7 @@ pub struct VariationConfig {
 impl Default for VariationConfig {
     fn default() -> Self {
         Self {
+            declared: false,
             request_layers: Vec::new(),
             stale_seals: 4,
             axis_after: 3,
@@ -68,6 +72,7 @@ pub(crate) fn parse_variation(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Varia
     let Some(mut t) = take_table(cx, root, "", "variation") else {
         return out;
     };
+    out.declared = true;
     out.request_layers =
         take_string_list(cx, &mut t, "variation", "request-layers").unwrap_or_default();
     if let Some(n) = take_u32(cx, &mut t, "variation", "stale-seals") {

@@ -17,6 +17,7 @@ pub mod refs;
 pub mod scopes;
 pub mod syntax;
 pub mod tokens;
+pub mod variation;
 pub mod vendor;
 pub mod versions;
 

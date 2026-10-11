@@ -186,9 +186,9 @@ impl World {
             grave_scan: controls
                 .root_control()
                 .is_some_and(|c| c.graveyard.declared),
-            hier_evidence: controls
-                .root_control()
-                .is_some_and(|c| c.hier.settings.level.is_some_and(|l| l >= 2)),
+            hier_evidence: controls.root_control().is_some_and(|c| {
+                c.hier.settings.level.is_some_and(|l| l >= 2) || c.variation.declared
+            }),
             tailwind: controls
                 .root_control()
                 .map(|c| {
