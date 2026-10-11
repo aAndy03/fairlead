@@ -1,4 +1,4 @@
-fairlead check 0.1.0 edition=1 as-of=2026-10-10 scopes=1 files=13 rules=0
+fairlead check 0.2.0 edition=1 as-of=2026-10-10 scopes=1 files=13 rules=0
 errors 0 warn 1 info 0 | baselined 2 | waived 0 | observe 0 | accepted 0
 HN-V010 warn fairlead/control.toml docs-first coverage is unavailable: history does not reach the commit that added fairlead/versions/0.1.0.md (shallow clone?) | fix: fetch full history (fetch-depth: 0 in CI) so the coverage base is reachable
 waivers: none | relaxations: none

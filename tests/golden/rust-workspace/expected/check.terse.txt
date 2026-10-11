@@ -1,4 +1,4 @@
-fairlead check 0.1.0 edition=1 as-of=2026-10-09 scopes=2 files=13 rules=1
+fairlead check 0.2.0 edition=1 as-of=2026-10-09 scopes=2 files=13 rules=1
 errors 3 warn 0 info 0 | baselined 0 | waived 0 | observe 0 | accepted 0
 HN-X002 error crates/sync-core/src/digest.rs:2:4 ovr of rule.primitive-io has no approval and is ineffective | fix: owner runs fairlead approve p9vgj5hw3w41
 HN-U001 error crates/sync-core/src/digest.rs:3,4 rule.primitive-io: I/O belongs in an adapter (rank 1) [waiver-ineffective] | why: "primitives stay free of I/O" | fix: see fairlead explain rule.primitive-io

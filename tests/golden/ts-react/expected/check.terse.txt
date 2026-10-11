@@ -1,4 +1,4 @@
-fairlead check 0.1.0 edition=1 as-of=2026-10-09 scopes=3 files=17 rules=1
+fairlead check 0.2.0 edition=1 as-of=2026-10-09 scopes=3 files=17 rules=1
 errors 2 warn 0 info 0 | baselined 0 | waived 0 | observe 0 | accepted 0
 HN-X002 error apps/console/src/molecules/nav-group.tsx:2:4 ovr of rule.no-raw-color has no approval and is ineffective | fix: owner runs fairlead approve 9wk711rk86j4
 HN-T001 error apps/console/src/molecules/nav-group.tsx:4:32 literal #2563eb is tok.color.primary (color) [waiver-ineffective] | why: "colours come from tokens" | fix: use tok.color.primary

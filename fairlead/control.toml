@@ -7,7 +7,7 @@ marker  = "fairlead"
 
 [settings]
 folder        = "fairlead"
-fairlead-version = "0.1.0"
+fairlead-version = "0.2.0"
 purpose       = "fairlead's own declarations: the rules this repository is checked against."
 owners        = ["@aAndy03"]
 
