@@ -1,12 +1,15 @@
 +++
 id = "d-gya1avh7"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 scope = "root"
 title = "a [[file]] path that matches no file is reported"
 covers = ["crates/fairlead-core/src/check/builtin/paths.rs", "Cargo.toml", "crates/fairlead/Cargo.toml", "crates/fairlead-core/Cargo.toml", "crates/fairlead-syntax/Cargo.toml"]
 created = "0.2.2"
+sealed = "0.2.2"
+body-hash = "b3:rv7r7n1e6xrr1n4rjbk7"
+ordinal = 21
 +++
 
 # a [[file]] path that matches no file is reported

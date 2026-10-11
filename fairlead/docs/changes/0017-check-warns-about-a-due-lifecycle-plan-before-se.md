@@ -1,12 +1,15 @@
 +++
 id = "d-96s5fqdv"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 scope = "root"
 title = "check warns about a due lifecycle plan before seal refuses"
 covers = ["crates/fairlead-core/src/check/builtin/plans.rs", "crates/fairlead-core/src/explain.rs", "crates/fairlead/src/commands/explain.rs"]
 created = "0.2.2"
+sealed = "0.2.2"
+body-hash = "b3:5farv8mh6b7z9j867xw3"
+ordinal = 17
 +++
 
 # check warns about a due lifecycle plan before seal refuses

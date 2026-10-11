@@ -16,3 +16,14 @@ d-tf506nrd kind=change ord=0012 impact=fix title="Help lists exit codes, topics 
 d-yk7qtwbg kind=change ord=0013 impact=fix title="new refuses a rule that check would reject" d=aa6r69rg
 rollup.0.2.1 kind=rollup waivers=0 subtree-waivers=0 digest=dtk0t1s1d68yher636ca d=rxy4jery
 # ckpt v=0.2.1 n=6 d=7n5sffak
+d-0mr5p13k kind=change ord=0014 impact=fix title="seal --reseal names the tag left on the undone seal" d=fw8204ya
+d-5ykdxj0m kind=change ord=0015 impact=fix title="sync says what to do with an orphan generated file" d=jeksmk1z
+d-7apnej6s kind=change ord=0016 impact=fix title="new escalation refuses a target that names nothing" d=2089y7y8
+d-96s5fqdv kind=change ord=0017 impact=fix title="check warns about a due lifecycle plan before seal refuses" d=rnaxscts
+d-b5pwp89v kind=change ord=0018 impact=fix title="check --for-agent suggests showing hidden findings first" d=hn605hgx
+d-edy5c9es kind=change ord=0019 impact=fix title="expired until= exceptions name their version" d=6r6651mc
+d-en7jxym1 kind=change ord=0020 impact=fix title="explain finds an item declared in a child scope" d=b9rdcgk5
+d-gya1avh7 kind=change ord=0021 impact=fix title="a [[file]] path that matches no file is reported" d=q58kkqp2
+d-v45h978a kind=change ord=0022 impact=fix title="a removed rule ID cannot be declared again" d=4wfjw2nr
+rollup.0.2.2 kind=rollup waivers=0 subtree-waivers=0 digest=s2ssmsga4gdyce56tfj2 d=xd4ppfym
+# ckpt v=0.2.2 n=10 d=mxjdz059

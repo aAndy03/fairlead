@@ -1,12 +1,15 @@
 +++
 id = "d-7apnej6s"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 scope = "root"
 title = "new escalation refuses a target that names nothing"
 covers = ["crates/fairlead-core/src/write/new.rs", "crates/fairlead/src/cli.rs"]
 created = "0.2.2"
+sealed = "0.2.2"
+body-hash = "b3:vztv1xesdkkyeajkzx5q"
+ordinal = 16
 +++
 
 # new escalation refuses a target that names nothing

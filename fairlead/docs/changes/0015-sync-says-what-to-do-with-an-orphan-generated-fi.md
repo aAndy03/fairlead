@@ -1,12 +1,15 @@
 +++
 id = "d-5ykdxj0m"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 scope = "root"
 title = "sync says what to do with an orphan generated file"
 covers = ["crates/fairlead-core/src/write/sync.rs"]
 created = "0.2.2"
+sealed = "0.2.2"
+body-hash = "b3:w2jdh0g8d2farvyw1w76"
+ordinal = 15
 +++
 
 # sync says what to do with an orphan generated file
