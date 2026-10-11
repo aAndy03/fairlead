@@ -13,7 +13,7 @@
 param(
     [Parameter(Mandatory)][string[]]$Repos,
     [Parameter(Mandatory)][string]$Bin,
-    [string]$Tasks = (Join-Path $PSScriptRoot 'a1-tasks.json'),
+    [string]$Tasks = '',
     [int]$Weeks = 8,
     [int]$PerWeek = 5,
     [int]$Seed = 1,
@@ -21,6 +21,10 @@ param(
 )
 . "$PSScriptRoot\common.ps1"
 
+# Windows PowerShell 5.1 leaves $PSScriptRoot empty in parameter defaults, so the default is set
+# here; and `powershell -File` passes `a,b,c` as one string, so the list is split here.
+if (-not $Tasks) { $Tasks = Join-Path $PSScriptRoot 'a1-tasks.json' }
+$Repos = @($Repos | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
 if ($Repos.Count -ne 3) { throw 'A-1 runs on exactly three repositories (TS/React, Rust, mixed)' }
 $bin = (Resolve-Path $Bin).Path
 $env:PATH = (Split-Path -Parent $bin) + [System.IO.Path]::PathSeparator + $env:PATH

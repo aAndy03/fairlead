@@ -10,6 +10,9 @@ param(
 )
 . "$PSScriptRoot\common.ps1"
 
+# `powershell -File` passes `a,b` as one string; split the lists here.
+$Goldens = @($Goldens | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
+$Chapters = @($Chapters | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $root = Get-RepoRoot
 $run = New-RunDir 'A-5'
 $prompt = Join-Path $PSScriptRoot 'prompts\A-5-golden.md'
