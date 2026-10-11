@@ -117,3 +117,26 @@ fn r_cli_035__explain_answers_static_topics_and_codes_without_a_root() {
     assert_eq!(kinds.code, 2, "kinds reads the codebase");
     assert!(kinds.stderr.contains("fairlead init"), "{}", kinds.stderr);
 }
+
+#[test]
+fn r_cli_035__help_text_describes_the_running_release() {
+    let dir = tempfile::tempdir().unwrap();
+    let card = testkit::run_fairlead(dir.path(), &["explain", "syntax"], &[]);
+    assert!(
+        !card.stdout.contains("arrive in 0.2") && !card.stdout.contains("until= is 0.2"),
+        "{}",
+        card.stdout
+    );
+    assert!(
+        card.stdout.contains("until=MAJOR.MINOR.PATCH"),
+        "{}",
+        card.stdout
+    );
+    let repo = repo();
+    let bad = repo.run(&["explain", "no-such-thing", "--as-of", AS_OF]);
+    assert!(
+        bad.stderr.contains("docs-first") && bad.stderr.contains("authority"),
+        "every topic is listed: {}",
+        bad.stderr
+    );
+}

@@ -107,8 +107,9 @@ pub fn parse_explain_target(
         return Ok(ExplainTarget::Id(id));
     }
     Err(Error::Usage(format!(
-        "{:?} is not a topic, code, existing path or ID; topics: syntax, kinds, approve",
-        sanitize_data(arg, 60)
+        "{:?} is not a topic, code, existing path or ID; topics: {}",
+        sanitize_data(arg, 60),
+        topics::TOPICS.join(", ")
     )))
 }
 
@@ -144,7 +145,8 @@ fn code_sections(c: DiagCode) -> Result<Vec<ExplainSection>, Error> {
     let s = spec(c).ok_or_else(|| Error::Usage(format!("unknown diagnostic code {}", c.0)))?;
     let mut meaning = vec![format!("{} ({}): {}", s.code.0, s.mnemonic, s.title)];
     if !is_active(c) {
-        meaning.push("inactive in 0.1; the code is reserved and its number is stable".into());
+        meaning
+            .push("inactive in this release; the code is reserved and its number is stable".into());
     }
     let sev = match s.default_severity {
         Severity::Info => "info",
@@ -580,7 +582,7 @@ mod tests {
             assert_eq!(titles, ["meaning", "why", "example", "fix"], "{}", s.code.0);
             assert!(text(&o).contains(s.title), "{}", s.code.0);
             assert_eq!(
-                text(&o).contains("inactive in 0.1"),
+                text(&o).contains("inactive in this release"),
                 !is_active(s.code),
                 "{}",
                 s.code.0

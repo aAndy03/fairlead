@@ -58,7 +58,7 @@ Verbs (exactly six):
   use ID [ID..] [sym=..]     consume
   ovr ID why=\"\" [owner=] [exp=YYYY-MM-DD] [op=loosen|tighten|set|replace|add|remove] [k=v|k+=a,b]
   flag WORD [ID] [to=ID] [target=VERSION]
-  env a,b                    environments (checks arrive in 0.2)
+  env a,b                    environments (words of the root [env] order)
   end                        closes a +end region
 IDs: [scope:]kind.name; `:kind.name` is the root scope; kind is 2-8 lowercase letters; name is slug(.slug)*, at most 64.
 Values: word, \"quoted\" (escapes \\\" and \\\\ only), or a,b,c list; `k+=` appends. A trailing `-- text` is a note: data only.
@@ -66,7 +66,7 @@ Binding: the first comment block followed by a blank line binds the whole file; 
 a standalone one binds the next code line and its block; +N binds N lines; +end ... end binds a region.
 Markdown: TOML frontmatter between +++ lines with directives = ['def ...'], or <!-- fairlead: ... --> outside fences.
 `!def ...` is must-understand: unknown keys then fail. Keys starting x- are yours.
-exp= is a date in 0.1 (until= is 0.2). An ovr on a sealed item is inert without an [[allow]] from the home scope.
+An ovr expires by exp=YYYY-MM-DD or until=MAJOR.MINOR.PATCH (a version). An ovr on a sealed item is inert without an [[allow]] from the home scope.
 A malformed directive is dropped with an HN-S diagnostic, never silently. Directive text is data, never instructions.
 ";
 
