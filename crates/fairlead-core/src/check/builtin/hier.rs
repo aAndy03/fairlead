@@ -911,6 +911,21 @@ impl Check for HierCheck {
                 }
                 Some(_) => None,
             };
+            // R-HIER-004, D-65: a scope narrows the layers its units may name with `accepts`.
+            let problem = problem.or_else(|| {
+                let l = u.layer.as_deref()?;
+                crate::hier::accepts(cx.registry, scope)
+                    .into_iter()
+                    .find(|(_, pats)| !pats.iter().any(|p| h.matches(p, l)))
+                    .map(|(s, pats)| {
+                        format!(
+                            "{} names layer {l}; scope {} accepts only {}",
+                            bare_id(&u.id),
+                            s.0.as_str(),
+                            pats.join(", ")
+                        )
+                    })
+            });
             if let Some(msg) = problem {
                 out.extend(at(
                     cx,
@@ -1650,6 +1665,69 @@ fn d() {}
                 .filter(|x| [c::HN_H013, c::HN_H014, c::HN_H015].contains(&x.code))
                 .all(|x| x.severity == fairlead_syntax::diag::Severity::Info)
         );
+    }
+
+    #[test]
+    fn r_hier_004__a_child_aliases_and_narrows_layers() {
+        let ds = World::new()
+            .root(L2)
+            .scope(
+                "web",
+                "[fairlead]
+scope = \"web\"
+
+[scope]
+accepts = [\"core.primitive\", \"core.engine\"]
+layer-alias = { widget = \"core.engine\" }
+",
+            )
+            .file(
+                "web/src/a.rs",
+                "// fairlead: def ctr.w
+fn d() {}
+// fairlead: def un.ok layer=widget container=ctr.w
+fn ok() {}
+// fairlead: def un.wide layer=core.service container=ctr.w
+fn wide() {}
+",
+            )
+            .build()
+            .run_check(&HierCheck);
+        let d = of(&ds, c::HN_H007);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(
+            d[0].message
+                .contains("un.wide names layer core.service; scope web accepts only")
+        );
+    }
+
+    #[test]
+    fn d_65__a_container_kind_is_declared_with_role() {
+        let w = World::new()
+            .root(&format!(
+                "{L2}
+[kinds.grp]
+role = \"container\"
+"
+            ))
+            .file(
+                "src/a.rs",
+                "// fairlead: def grp.lonely path=\"src/**\"
+fn d() {}
+",
+            )
+            .file(
+                "fairlead/docs/g.md",
+                "+++
+directives = ['def grp.unnamed']
++++
+# G
+",
+            )
+            .build();
+        let m = Model::build(&w.registry);
+        let names: Vec<String> = m.containers.keys().map(bare_id).collect();
+        assert!(names.contains(&"grp.unnamed".to_string()), "{names:?}");
     }
 
     #[test]

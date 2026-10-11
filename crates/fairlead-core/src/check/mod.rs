@@ -188,6 +188,19 @@ pub fn run(input: &CheckInput<'_>) -> CheckReport {
     if let Some(b) = baseline {
         let seen: BTreeSet<Fingerprint> = findings.iter().map(|f| f.fingerprint.clone()).collect();
         apply::apply_baseline(&mut findings, b);
+        // R-HIER-081, D-65: a scope with `[scope] strict-coverage` baselines no orphan file.
+        for f in findings
+            .iter_mut()
+            .filter(|f| f.code == crate::diag::codes::HN_H003 && f.state == FindingState::Baselined)
+        {
+            let strict = reg
+                .scope(&f.scope)
+                .and_then(|s| s.control.as_ref())
+                .is_some_and(|c| c.scope_cfg.strict_coverage);
+            if strict {
+                f.state = FindingState::New;
+            }
+        }
         if let Ok(bp) = RepoPath::new(&builtin::baseline_rel(reg)) {
             let extra = apply::lift(apply::baseline_diags(&seen, b, &bp, whole_run), reg, &rules);
             findings.extend(extra);

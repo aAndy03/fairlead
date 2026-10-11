@@ -122,6 +122,8 @@ pub struct KindDecl {
     pub keys: BTreeMap<String, KeyDecl>,
     /// `layers` (R-HIER-001; 0.3): the layers or ladders (`ui.*`) a unit of this kind may name.
     pub layers: Vec<String>,
+    /// `role = "container"` (D-65): every item of this kind is a container.
+    pub container: bool,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -942,6 +944,11 @@ pub(crate) fn parse_kinds(cx: &mut Ctx<'_>, root: &mut toml::Table) -> BTreeMap<
             }
         }
         decl.layers = take_string_list(cx, &mut t, &key, "layers").unwrap_or_default();
+        match take_string(cx, &mut t, &key, "role").as_deref() {
+            None => {}
+            Some("container") => decl.container = true,
+            Some(_) => cx.error(&key, "role must be \"container\" (D-65)"),
+        }
         decl.keys = parse_key_decls(cx, &name, &mut t);
         cx.unknown_in(&key, &t);
         out.insert(name, decl);

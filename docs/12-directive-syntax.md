@@ -186,7 +186,7 @@ Every TOML table and key family used anywhere in the drafts, with the chapter th
 | `[settings]` | root `control.toml` | `folder`, `fairlead-version`, `fairlead-range`, `index-values`, `purpose`, `owners` | 12 R-SYN-038, R-SYN-051; 22 R-EDN-001; 11 R-FILE-038 | 0.1 |
 | `[scan]` | `control.toml` | `exclude`, `skip`, `header-skip`, `max-file`, `max-directives` (child: `exclude`, `skip` only) | 12 R-SYN-030, R-SYN-031 | 0.1 |
 | `[comments]`, `[agents]`, `[baseline]`, `[secrets]` | root `control.toml` | leader overrides; `targets`; `file` and ramp defaults; fingerprint `allow` | 12 R-SYN-006, R-AGT-001, R-CHK-030; 40 R-AGT-024 | 0.1 |
-| `[kinds.K]`, `[kinds.K.keys]` | root `control.toml` | `title`, `shape`, `impl`, `unused`, `dir`, `source`; `layers`; `required` under `[kinds.<K>.keys.<key>]` | 12 R-SYN-024; 11 R-FILE-031; 30 R-HIER-001 | 0.1 (`layers` 0.3) |
+| `[kinds.K]`, `[kinds.K.keys]` | root `control.toml` | `title`, `shape`, `impl`, `unused`, `dir`, `source`; `layers`, `role = "container"` (D-65); `required` under `[kinds.<K>.keys.<key>]` | 12 R-SYN-024; 11 R-FILE-031; 30 R-HIER-001 | 0.1 (`layers`, `role` 0.3) |
 | `[file-kinds.K]`, `[layout]` | root `control.toml` | extractor and native binding per file kind; `docs`, `contract`, `gen`, `ledger`, `ref` | 11 R-FILE-020, R-FILE-053 | 0.1 |
 | `[[file]]`, `[[vendor]]` | scope `control.toml` | `id`, `kind`, `path`, `extends`; `path`, `tool` | 11 R-FILE-040, R-FILE-050 | 0.1 |
 | `[[ovr]]` | scope `control.toml` | scope-level exception; the keys of the `ovr` directive; `"key+"` append spelling, `x-pin` | 12 table (R-SCOPE-041 in [scopes](10-scopes-and-inheritance.md)) | 0.1 |
@@ -209,7 +209,7 @@ Every TOML table and key family used anywhere in the drafts, with the chapter th
 | `[hier]` | root `control.toml` | `level`, `same-rank`, `unbound-ok`, `promote`; `governed` globs | 30 R-HIER-080, R-HIER-051 | 0.3 |
 | `[variation]`, `[tokens]` | root `control.toml` | `request-layers`, `stale-seals`, `fork-detect`, `similarity`; `root-px`, `near`, property table | 31 R-VAR-020, R-VAR-032, R-VAR-081, R-VAR-084, R-VAR-093, R-VAR-095 | 0.3 |
 | `[layer-policy."<ladder>.<layer>"]` | root `control.toml` | `used-by` | 30 R-HIER-006 | 0.3 |
-| `[scope]` | portable scope `control.toml` | `portable`, `provides`, `requires` (no `id`: identity is `[fairlead] scope`, R-SYN-051) | 32 R-PORT-020, R-PORT-022 | 0.3 |
+| `[scope]` | any scope `control.toml` | `portable`, `provides`, `requires`; `accepts`, `layer-alias`, `strict-coverage` (30 R-HIER-004, R-HIER-081, D-65) (no `id`: identity is `[fairlead] scope`, R-SYN-051) | 32 R-PORT-020, R-PORT-022 | 0.3 |
 | `[[mount]]` | root `control.toml` | `scope`, `path`, `inherit`, `as` | 32 R-PORT-030, R-PORT-035 | 0.3 |
 | `[[approval]]` | `fairlead/approvals.toml` | `fp`, `target`, `scope`, `approver`, `date`, `renewal` | 15 R-CLI-037; 13 R-CHK-026; 22 R-EDN-006 | 0.1 |
 | `[[tomb]]` | `fairlead/tombstones/<year>.toml` | `id`, `removed`, `by`, `why`; `paths`, `repl`, `moved-to`, `deleted-by`, `at`, `d` | 21 R-LC-020; 33 R-RET-040 to R-RET-043; 30 R-HIER-101 | 0.2; user deletion and `moved-to` 0.3 (`paths`: R-LC-020) |

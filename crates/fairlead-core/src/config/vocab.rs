@@ -250,6 +250,12 @@ pub struct ScopeConfig {
     pub detached: bool,
     /// R-SCOPE-029: what sibling scopes may name with a qualified ID (`kind.name` or `kind.*`).
     pub provides: Vec<String>,
+    /// R-HIER-004, D-65: the layers (or `<ladder>.*`) units of this scope may name; empty: all.
+    pub accepts: Vec<String>,
+    /// R-HIER-004, D-65: local words for layers (`widget = "ui.molecule"`); never a reorder.
+    pub layer_alias: BTreeMap<String, String>,
+    /// R-HIER-081, D-65: orphan files of this scope are never absorbed by the baseline.
+    pub strict_coverage: bool,
 }
 
 pub(crate) fn parse_scope_cfg(cx: &mut Ctx<'_>, root: &mut toml::Table) -> ScopeConfig {
@@ -258,6 +264,23 @@ pub(crate) fn parse_scope_cfg(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Scope
         out.portable = take_bool(cx, &mut t, "scope", "portable").unwrap_or(false);
         out.detached = take_bool(cx, &mut t, "scope", "detached").unwrap_or(false);
         out.provides = take_string_list(cx, &mut t, "scope", "provides").unwrap_or_default();
+        out.accepts = take_string_list(cx, &mut t, "scope", "accepts").unwrap_or_default();
+        out.strict_coverage = take_bool(cx, &mut t, "scope", "strict-coverage").unwrap_or(false);
+        if let Some(a) = take_table(cx, &mut t, "scope", "layer-alias") {
+            for (word, layer) in a {
+                match layer.as_str() {
+                    Some(l) if word_ok(&word) => {
+                        out.layer_alias.insert(word, l.to_owned());
+                    }
+                    _ => cx.error(
+                        "scope.layer-alias",
+                        format!(
+                            "`scope.layer-alias.{word}` must map a lowercase word to a layer name"
+                        ),
+                    ),
+                }
+            }
+        }
         cx.unknown_in("scope", &t);
     }
     out

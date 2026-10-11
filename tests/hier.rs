@@ -236,3 +236,29 @@ fn r_hier_102__retired_container_hint() {
         c.stdout
     );
 }
+
+#[test]
+fn r_hier_081__strict_coverage_baselines_no_orphan() {
+    let repo = repo();
+    let accept = repo.run(&[
+        "sync",
+        "--baseline",
+        "--accept-new",
+        "--why",
+        "orphans before adoption",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(accept.code, 0, "{}", accept.stderr);
+    assert_eq!(check(&repo).code, 0, "baselined");
+    let ctl = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(&ctl, format!("{text}\n[scope]\nstrict-coverage = true\n")).unwrap();
+    let strict = check(&repo);
+    assert_eq!(strict.code, 1, "{}", strict.stdout);
+    assert!(
+        strict.stdout.contains("HN-H003 error src/b.rs"),
+        "{}",
+        strict.stdout
+    );
+}

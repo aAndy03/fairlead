@@ -116,6 +116,7 @@ fn builtin_handoff() -> KindDecl {
         source_generate: false,
         keys: BTreeMap::new(),
         layers: Vec::new(),
+        container: false,
     }
 }
 

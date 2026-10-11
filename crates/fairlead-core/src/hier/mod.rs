@@ -60,6 +60,38 @@ fn scalar(it: &Item, k: &str) -> Option<String> {
     }
 }
 
+/// R-HIER-004, D-65: a scope's own word for a layer (`[scope] layer-alias`), nearest scope first;
+/// the written name when no scope of the chain aliases it.
+pub fn layer_alias(reg: &Registry, scope: &crate::registry::ScopeId, written: &str) -> String {
+    reg.chain(scope)
+        .into_iter()
+        .rev()
+        .find_map(|s| {
+            reg.scope(s)?
+                .control
+                .as_ref()?
+                .scope_cfg
+                .layer_alias
+                .get(written)
+                .cloned()
+        })
+        .unwrap_or_else(|| written.to_owned())
+}
+
+/// R-HIER-004, D-65: the `[scope] accepts` lists of the chain a unit's layer must satisfy.
+pub fn accepts(
+    reg: &Registry,
+    scope: &crate::registry::ScopeId,
+) -> Vec<(crate::registry::ScopeId, Vec<String>)> {
+    reg.chain(scope)
+        .into_iter()
+        .filter_map(|s| {
+            let a = &reg.scope(s)?.control.as_ref()?.scope_cfg.accepts;
+            (!a.is_empty()).then(|| (s.clone(), a.clone()))
+        })
+        .collect()
+}
+
 /// The root's hierarchy vocabulary, if the root control file parsed.
 pub fn config(reg: &Registry) -> Option<&HierConfig> {
     Some(&reg.scope(reg.root_scope())?.control.as_ref()?.hier)
@@ -104,7 +136,7 @@ impl Model {
                 it.id.clone(),
                 Unit {
                     id: it.id.clone(),
-                    layer: scalar(it, "layer"),
+                    layer: scalar(it, "layer").map(|l| layer_alias(reg, &it.id.scope, &l)),
                     container_raw,
                     container,
                     path: scalar(it, "path"),
@@ -137,11 +169,19 @@ impl Model {
         }
         // A kind with one container is a container kind: its other items are containers too,
         // even before anything names them (a merge target, a new parent).
-        let container_kinds: BTreeSet<String> = m
+        // D-65: a kind declared `role = "container"`, or one with an inferred container.
+        let mut container_kinds: BTreeSet<String> = m
             .containers
             .keys()
             .map(|c| c.kind.as_str().to_owned())
             .collect();
+        container_kinds.extend(
+            reg.scopes()
+                .filter_map(|s| s.control.as_ref())
+                .flat_map(|c| c.kinds.iter())
+                .filter(|(_, k)| k.container)
+                .map(|(n, _)| n.clone()),
+        );
         for it in reg.items() {
             if container_kinds.contains(it.id.kind.as_str())
                 && !m.units.contains_key(&it.id)
