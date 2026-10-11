@@ -24,7 +24,8 @@ pub const NEW_HELP: &str = "--field keys by kind (a key starting x- is always ac
                sev (error|warn|info), waivable (true|false), why, tokens (check=leak: design-token
                values leaking into CSS or TSX; it is not a secret scanner)
   scope        purpose (with --at <folder>)
-  escalation   to (an ancestor scope), set, why, blocking
+  escalation   to (an ancestor scope), set, why, blocking; the NAME is the item escalated
+               (fairlead new escalation rule.no-dbg --field why=...), not a label
   change       impact (break|add|fix), covers (comma list of globs or IDs), hotfix, revisits, revisit-why
   handoff and declared kinds
                st, sum, kw, sym, of, policy, value, applies, min-len, home, css, and the keys of the

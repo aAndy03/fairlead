@@ -753,6 +753,23 @@ fn plan_escalation(req: &NewRequest, reg: &Registry, cx: &Ctx) -> Result<Plan, E
     let sc = reg
         .scope(&cx.scope)
         .ok_or_else(|| Error::Usage("unknown scope".into()))?;
+    // 0.2.2-T1: the name is the `[[req]]` target. The field test passed a label
+    // (`allow-dbg-demo`), which wrote a request no grant can ever answer.
+    let Some((head, _)) = req.name.split_once('.') else {
+        return Err(Error::Usage(format!(
+            "{:?} is not an escalation target: name the item or key to escalate, as kind.name (for example rule.no-dbg) or a vocabulary key (layer-ranks.widget)",
+            req.name
+        )));
+    };
+    let item_kind = crate::registry::item::BUILTIN_KINDS.contains(&head)
+        || kind_decl(reg, &cx.scope, head).is_some();
+    if item_kind && reg.resolve_target(&cx.scope, &req.name).is_none() {
+        return Err(Error::Usage(format!(
+            "no item {} is visible from scope {}: an escalation names an existing item (kind.name, or kind.name.field)",
+            req.name,
+            cx.scope.0.as_str()
+        )));
+    }
     let parent = sc
         .parent
         .clone()
@@ -1432,6 +1449,33 @@ mod tests {
         assert!(
             text(&plan("", &dflt).unwrap(), "apps/web/fairlead/control.toml")
                 .contains("why = \"TODO(fairlead)\"")
+        );
+    }
+
+    #[test]
+    fn r_scope_053__escalation_names_an_existing_item_or_a_vocabulary_key() {
+        let web = || {
+            Some(crate::registry::ScopeId(
+                fairlead_syntax::ids::ScopeSlug::parse("web").unwrap(),
+            ))
+        };
+        let rule = "\n[rules.r]\ncheck = \"pattern\"\nforbid = \"x\"\nmsg = \"no x\"\n";
+        let mut label = nr("escalation", "allow-dbg-demo");
+        label.scope = web();
+        assert!(
+            matches!(plan(rule, &label), Err(Error::Usage(m)) if m.contains("kind.name")),
+            "a label is not a target"
+        );
+        let mut missing = nr("escalation", "rule.nope");
+        missing.scope = web();
+        assert!(
+            matches!(plan(rule, &missing), Err(Error::Usage(m)) if m.contains("no item rule.nope"))
+        );
+        let mut ok = nr("escalation", "rule.r");
+        ok.scope = web();
+        assert!(
+            text(&plan(rule, &ok).unwrap(), "apps/web/fairlead/control.toml")
+                .contains("target = \"rule.r\"")
         );
     }
 
