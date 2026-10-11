@@ -140,3 +140,35 @@ fn r_cli_035__help_text_describes_the_running_release() {
         bad.stderr
     );
 }
+
+#[test]
+fn r_cli_021__for_agent_names_hidden_observe_findings_and_the_next_step() {
+    let repo = repo();
+    assert_eq!(rule(&repo, "no-fn-a", "fn a", "src/**/*.rs").code, 0);
+    assert_eq!(repo.run(&["sync", "--as-of", AS_OF]).code, 0);
+    let quiet = repo.run(&["check", "--for-agent", "--as-of", AS_OF]);
+    assert!(
+        quiet
+            .stdout
+            .contains("observe: 1 hidden; show them with fairlead check --show-observe"),
+        "{}",
+        quiet.stdout
+    );
+    std::fs::write(
+        repo.path().join("src/b.rs"),
+        "// fairlead: use rule.nosuch\nfn b() {}\n",
+    )
+    .unwrap();
+    let found = repo.run(&["check", "--for-agent", "--as-of", AS_OF]);
+    assert!(
+        found.stdout.contains("next: fairlead explain HN-"),
+        "{}",
+        found.stdout
+    );
+    let plain = repo.run(&["check", "--format", "terse", "--as-of", AS_OF]);
+    assert!(
+        !plain.stdout.contains("next:") && !plain.stdout.contains("observe: 1 hidden"),
+        "terse output keeps its contract: {}",
+        plain.stdout
+    );
+}

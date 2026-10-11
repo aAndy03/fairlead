@@ -134,6 +134,17 @@ fn render_agent(report: &CheckReport, opts: &RenderOptions) -> String {
             .map(|(l, _)| l),
     );
     out.extend(more_line(hidden, &hidden_codes));
+    // 0.2.1-T5 (D-62): an agent saw a real violation only as a counter bump, and had to know the
+    // follow-up verb from the finding text.
+    if report.summary.observe > 0 && !opts.show_observe {
+        out.push(format!(
+            "observe: {} hidden; show them with fairlead check --show-observe",
+            report.summary.observe
+        ));
+    }
+    if let Some(g) = view.groups.first() {
+        out.push(format!("next: fairlead explain {}", g.lead.code.0));
+    }
     out.extend(tail);
     finish(out.join("\n"))
 }
