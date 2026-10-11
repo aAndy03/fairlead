@@ -100,3 +100,7 @@ path = "../../tests/move.rs"
 [[test]]
 name = "field"
 path = "../../tests/field.rs"
+
+[[test]]
+name = "hier"
+path = "../../tests/hier.rs"

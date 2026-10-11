@@ -196,7 +196,8 @@ pub fn run(input: &CheckInput<'_>) -> CheckReport {
     let keep = apply::ReportScope::new(opts, input.facts);
     findings.retain(|f| keep.keeps(f));
     findings.sort();
-    let summary = summary::summarize(&findings, reg, &rules, opts, input.facts, baseline, days);
+    let mut summary = summary::summarize(&findings, reg, &rules, opts, input.facts, baseline, days);
+    summary.hier_coverage = crate::hier::coverage(reg, input.corpus);
     let unknown = |absent_only: bool| {
         reg.scopes()
             .filter(|s| match s.state {

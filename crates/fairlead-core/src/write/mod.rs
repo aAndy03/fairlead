@@ -474,6 +474,7 @@ pub(crate) mod testutil {
                 codeowners_uncovered: 0,
                 requests_open: 0,
                 oldest_request_days: None,
+                hier_coverage: None,
             },
             partial: false,
             unknown_scopes: vec![],

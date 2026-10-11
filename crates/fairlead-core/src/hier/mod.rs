@@ -227,6 +227,47 @@ impl Model {
     }
 }
 
+/// R-HIER-081: `(bound, governed)` over the whole tree, when the root sets `[hier] governed`.
+/// `unbound-ok` files are not governed. Existing orphans are absorbed by the baseline (D-28), so a
+/// newly unbound file is a new `HN-H003` that needs a waiver: the ratchet.
+pub fn coverage(reg: &Registry, corpus: &crate::extract::Corpus) -> Option<(u32, u32)> {
+    let h = config(reg)?;
+    h.settings.level?;
+    let governed: Vec<_> = h
+        .settings
+        .governed
+        .iter()
+        .filter_map(|g| matcher(g))
+        .collect();
+    if governed.is_empty() {
+        return None;
+    }
+    let exempt: Vec<_> = h
+        .settings
+        .unbound_ok
+        .iter()
+        .filter_map(|g| matcher(g))
+        .collect();
+    let files: Vec<&crate::path::RepoPath> = corpus.records.keys().collect();
+    let bound: BTreeSet<crate::path::RepoPath> = Model::build(reg)
+        .bindings(reg, &files)
+        .into_values()
+        .flatten()
+        .collect();
+    let gov: Vec<&&crate::path::RepoPath> = files
+        .iter()
+        .filter(|f| {
+            governed.iter().any(|g| g.is_match(f.as_str()))
+                && !exempt.iter().any(|g| g.is_match(f.as_str()))
+        })
+        .collect();
+    let n = |x: usize| u32::try_from(x).unwrap_or(u32::MAX);
+    Some((
+        n(gov.iter().filter(|f| bound.contains(**f)).count()),
+        n(gov.len()),
+    ))
+}
+
 /// The literal directory prefix of a glob (the segments before the first wildcard).
 pub fn literal_prefix(glob: &str) -> String {
     glob.trim_start_matches("./")

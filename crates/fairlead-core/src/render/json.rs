@@ -63,6 +63,9 @@ struct JsonSummary {
     codeowners_uncovered: u32,
     requests_open: u32,
     oldest_request_days: Option<u32>,
+    /// R-HIER-081 (0.3): `[bound, governed]`; absent without `[hier] governed`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hier_coverage: Option<[u32; 2]>,
     partial: bool,
     unknown_scopes: Vec<String>,
     zero_declarations: bool,
@@ -132,6 +135,7 @@ impl Renderer for JsonRenderer {
                 codeowners_uncovered: s.codeowners_uncovered,
                 requests_open: s.requests_open,
                 oldest_request_days: s.oldest_request_days,
+                hier_coverage: s.hier_coverage.map(|(b, g)| [b, g]),
                 partial: report.partial,
                 unknown_scopes: report
                     .unknown_scopes

@@ -5,7 +5,7 @@ status = "draft"
 impact = "add"
 scope = "root"
 title = "Hierarchy: ladders, containers, units and the use graph"
-covers = ["crates/fairlead-core/src/config/**", "crates/fairlead-core/src/check/**", "crates/fairlead-core/src/hier/**", "crates/fairlead-core/src/registry/**", "crates/fairlead-core/src/lib.rs", "crates/fairlead-core/src/write/new.rs", "crates/fairlead-syntax/src/directive.rs", "crates/fairlead/src/cli.rs"]
+covers = ["crates/fairlead-core/src/**", "crates/fairlead-syntax/src/directive.rs", "crates/fairlead/src/cli.rs", "crates/fairlead/Cargo.toml"]
 created = "0.2.3"
 +++
 

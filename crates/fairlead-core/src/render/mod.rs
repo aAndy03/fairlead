@@ -299,6 +299,14 @@ pub(crate) fn tail_lines(report: &CheckReport, opts: &RenderOptions) -> Vec<Stri
             None => format!("requests: {} open", s.requests_open),
         });
     }
+    if let Some((bound, governed)) = s.hier_coverage {
+        out.push(format!(
+            "hier coverage: {bound}/{governed} governed files bound ({}%)",
+            (u64::from(bound) * 100)
+                .checked_div(u64::from(governed))
+                .unwrap_or(100)
+        ));
+    }
     if !report.unknown_scopes.is_empty() {
         let names: Vec<&str> = report.unknown_scopes.iter().map(|s| s.0.as_str()).collect();
         out.push(format!(

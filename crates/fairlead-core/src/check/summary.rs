@@ -37,6 +37,8 @@ pub struct Summary {
     pub codeowners_uncovered: u32,
     pub requests_open: u32,
     pub oldest_request_days: Option<u32>,
+    /// R-HIER-081: bound files over governed files, when `[hier] governed` is set (0.3).
+    pub hier_coverage: Option<(u32, u32)>,
 }
 
 pub(crate) fn count(fs: &[Finding]) -> Summary {
