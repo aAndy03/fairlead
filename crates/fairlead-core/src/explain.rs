@@ -8,7 +8,7 @@ use crate::registry::Registry;
 use crate::render::line::{TerseLine, TerseValue};
 use crate::render::sanitize::sanitize_data;
 use fairlead_syntax::diag::{DiagCode, Severity};
-use fairlead_syntax::ids::Id;
+use fairlead_syntax::ids::{Id, IdQualifier};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ExplainTarget {
@@ -354,7 +354,26 @@ fn id_sections(
     reg: &Registry,
     report: Option<&CheckReport>,
 ) -> Result<Vec<ExplainSection>, Error> {
-    let item_id = match reg.lookup(reg.root_scope(), id) {
+    // 0.2.2-T6: an unqualified ID declared in a child scope is not visible from the root; the
+    // field test needed `core:file.calc-engine`. A name unique in the tree is found anyway.
+    let anywhere = || -> Vec<crate::registry::ItemId> {
+        if !matches!(id.qualifier, IdQualifier::Bare) {
+            return Vec::new();
+        }
+        reg.items()
+            .filter(|i| i.id.kind == id.kind && i.id.name == id.name)
+            .map(|i| i.id.clone())
+            .collect()
+    };
+    let lookup = match reg.lookup(reg.root_scope(), id) {
+        Lookup::Missing { nearest } => match anywhere().as_slice() {
+            [one] => Lookup::Found(one.clone()),
+            [] => Lookup::Missing { nearest },
+            many => Lookup::Ambiguous(many.to_vec()),
+        },
+        other => other,
+    };
+    let item_id = match lookup {
         Lookup::Found(i) => i,
         Lookup::Ambiguous(c) => {
             let list = c
@@ -726,6 +745,27 @@ mod tests {
                 m.contains("no declaration") && m.contains("rule.no-raw-hex"),
                 "{m}"
             ),
+            other => panic!("{:?}", other.map(|o| o.sections.len())),
+        }
+    }
+
+    #[test]
+    fn r_cli_035__an_unqualified_id_declared_in_one_child_scope_is_found() {
+        let child = "\n[rules.web-only]\ncheck = \"pattern\"\nforbid = \"x\"\nmsg = \"m\"\n";
+        let web = format!("{WEB_CONTROL}{child}");
+        let api = format!("[fairlead]\nscope = \"api\"\n{child}");
+        let mut controls = vec![
+            ("fairlead/control.toml", ROOT_CONTROL),
+            ("apps/web/fairlead/control.toml", web.as_str()),
+        ];
+        let id = fairlead_syntax::ids::Id::parse("rule.web-only").unwrap();
+        let one = registry(&controls, "2026-10-09").1;
+        let o = explain(&ExplainTarget::Id(id.clone()), &one, None).unwrap();
+        assert_eq!(word(&o.sections[0].lines[0], "home"), "web");
+        controls.push(("apps/api/fairlead/control.toml", api.as_str()));
+        let two = registry(&controls, "2026-10-09").1;
+        match explain(&ExplainTarget::Id(id), &two, None) {
+            Err(Error::Usage(m)) => assert!(m.contains("ambiguous"), "{m}"),
             other => panic!("{:?}", other.map(|o| o.sections.len())),
         }
     }
