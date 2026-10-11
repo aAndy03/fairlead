@@ -55,10 +55,10 @@ Done when the job exists and its result is recorded.
 
 Test: as in 0.2 P3-T13, extended to `ovr` records.
 
-**T8. MCP server (optional).** R-ARCH-004, owner question Q-3:
+**T8. MCP server (firm, D-62).** R-ARCH-004, owner question Q-3:
 - A separate crate, `crates/fairlead-mcp`, with tools and resources only: `check`, `context`, `explain` and read-only resources.
 - `rmcp` is pinned to an exact minor.
 - No network stack enters the `fairlead` binary.
 - A test asserts that `fairlead`'s dependency tree contains no `rmcp`.
 
-Build it only if P1 to P5 are complete.
+It ships in 0.3: an agent field test of 0.1 and 0.2 (D-62) found that agents meet fairlead through their tool loop, so the MCP tools are the main entry point for them, not an extra.

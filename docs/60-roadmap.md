@@ -62,8 +62,8 @@ Not in 0.1: seal and versions, environments, maturity, lifecycle flags, graveyar
 | Portability | Sealed sub-roots, `adopt`, attach, cut and copy, digest-only lock with `portable` snapshots, requires and provides ([32-portability-and-restructure.md](32-portability-and-restructure.md)) |
 | Retention | Version-based TTL with a calendar floor (minimum age 90 days by default, D-39); compaction inside `seal`; `sum:` authored at creation and `out:` filled at close (D-39); append-only ledger with hash chain and periodic checkpoints ([33-retention-and-compaction.md](33-retention-and-compaction.md)) |
 | Bridge | TS to Rust bridge declarations with presence, wire-literal and version-pin checks (D-29) |
-| Context and authority | BM25 task queries, `--dense`, general signed-commit verification of authority records |
-| Later in the line | Import-graph extraction (tree-sitter, `syn`), MCP server as a separate crate. TypeScript parsing through tree-sitter is adopted only after a CI compatibility test of the grammar against the pinned core passes ([30-hierarchy-and-engines.md](30-hierarchy-and-engines.md) R-HIER-035); until then import evidence is the regex pass only (R-HIER-033) |
+| Context and authority | BM25 task queries, `--dense`, general signed-commit verification of authority records, the MCP server as a separate crate (`check`, `context`, `explain`; D-62) |
+| Later in the line | Import-graph extraction (tree-sitter, `syn`). TypeScript parsing through tree-sitter is adopted only after a CI compatibility test of the grammar against the pinned core passes ([30-hierarchy-and-engines.md](30-hierarchy-and-engines.md) R-HIER-035); until then import evidence is the regex pass only (R-HIER-033) |
 
 ### 3.3a Path to 1.0 (D-53)
 

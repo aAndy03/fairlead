@@ -59,7 +59,7 @@ P1 is first because P2 and P3 extend its graph. P4 and P5 depend only on 0.2 and
 | `portable/` | `requires`/`provides`, lock entries and snapshots, mounts, attach diff | P4 |
 | `retention/` | record schema, TTL evaluation, compaction plan, rollups, chain, purge | P5 |
 | `query/` | BM25 inverted index (in the gitignored cache), scorer, task-query brief | P6 |
-| `crates/fairlead-mcp/` (optional) | MCP server, tools and resources only, depends on `fairlead-core` | P6 |
+| `crates/fairlead-mcp/` | MCP server, tools and resources only, depends on `fairlead-core` | P6 |
 
 ## Owner questions
 
@@ -67,7 +67,7 @@ P1 is first because P2 and P3 extend its graph. P4 and P5 depend only on 0.2 and
 |---|---|---|---|
 | Q-1 | Do the 0.3 keys (`pin=`, `spell=`, `container=`, `layer=`, `vis=`...) stay in edition 1, or does 0.3 ship edition 2? | P1 | Stay in edition 1. They are new keys on known verbs, and older binaries warn and preserve them (R-EDN-021). Ship edition 2 only if a grammar change is unavoidable. Decide before the v1 freeze. |
 | Q-2 | Adopt tree-sitter for TS imports in 0.3? | P6 | Not in 0.3. Keep the regex evidence; build only the extractor seam (R-ARCH-034) and the compatibility test. |
-| Q-3 | Ship the MCP server (`rmcp`) in 0.3? | P6 | Optional. Build it last, as a separate crate, only if P1 to P5 are on time (R-ARCH-004). |
+| Q-3 | Ship the MCP server (`rmcp`) in 0.3? | P6 | Yes, firm (owner, 2026-10-11, D-62): a separate crate, built in P6 whatever the timing of P1 to P5 (R-ARCH-004). |
 | Q-4 | The BM25 query set for R-CTX-063 needs real short task texts with expected scopes. | P6 | Agent-run (D-59): protocol B-2, one writer agent and a separate labeller agent. |
 | Q-5 | Hierarchy precision review (4.3 criterion 1): blind review of findings on three repositories. | P7 | Agent-run (D-59): protocol B-1, a blind reviewer agent. |
 
