@@ -19,7 +19,18 @@ pub fn run(global: &GlobalArgs, args: &ExplainArgs) -> CommandResult {
 
 fn explain(global: &GlobalArgs, args: &ExplainArgs) -> Result<CommandResult, Error> {
     let cwd = working_dir(global)?;
-    let loaded = load(&load_request(global, false, None)?)?;
+    let loaded = match load(&load_request(global, false, None)?) {
+        Ok(l) => l,
+        // 0.2.1-T3: static topics and codes need no codebase; a new user reads them before init.
+        Err(Error::NoRoot { .. })
+            if fairlead_core::explain::explain_rootless(&args.target).is_some() =>
+        {
+            let output = fairlead_core::explain::explain_rootless(&args.target)
+                .ok_or_else(|| Error::Internal("rootless explain vanished".into()))??;
+            return render(global, &output);
+        }
+        Err(e) => return Err(e),
+    };
     let registry = resolve_loaded(&loaded, as_of(global));
     let target = explain_target(&loaded.root, &cwd, &args.target)?;
     let report = match &target {
@@ -36,8 +47,15 @@ fn explain(global: &GlobalArgs, args: &ExplainArgs) -> Result<CommandResult, Err
             .sections
             .push(fairlead_core::pipeline::file_version_section(&loaded, path));
     }
+    render(global, &output)
+}
+
+fn render(
+    global: &GlobalArgs,
+    output: &fairlead_core::explain::ExplainOutput,
+) -> Result<CommandResult, Error> {
     let format = default_format(global.format, stdout_is_tty());
-    let stdout = renderer(format).explain(&output).ok_or_else(|| {
+    let stdout = renderer(format).explain(output).ok_or_else(|| {
         Error::Usage("explain has no output in this format; use human or terse".to_string())
     })?;
     Ok(CommandResult::text(stdout))

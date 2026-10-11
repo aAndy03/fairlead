@@ -420,7 +420,8 @@ fn shape_word(s: &KindShape) -> &'static str {
     }
 }
 
-pub fn topic_sections(name: &str, reg: &Registry) -> Result<Vec<ExplainSection>, Error> {
+/// A topic's sections. Only `kinds` reads the registry; without one (no root, 0.2.1-T3) it refuses.
+pub fn topic_sections(name: &str, reg: Option<&Registry>) -> Result<Vec<ExplainSection>, Error> {
     match name {
         "syntax" => Ok(vec![section(
             "syntax",
@@ -433,6 +434,11 @@ pub fn topic_sections(name: &str, reg: &Registry) -> Result<Vec<ExplainSection>,
             vec![],
         )]),
         "kinds" => {
+            let Some(reg) = reg else {
+                return Err(Error::Usage(
+                    "explain kinds lists the kinds this codebase declares; run it inside a fairlead root (fairlead init)".into(),
+                ));
+            };
             let mut lines = vec![tl(
                 "handoff",
                 &[

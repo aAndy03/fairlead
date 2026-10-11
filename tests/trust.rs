@@ -104,3 +104,16 @@ fn r_file_050__explain_says_how_a_file_item_is_declared() {
     assert_eq!(found.code, 0, "{}", found.stderr);
     assert!(found.stdout.contains("root:file.calc"), "{}", found.stdout);
 }
+
+#[test]
+fn r_cli_035__explain_answers_static_topics_and_codes_without_a_root() {
+    let dir = tempfile::tempdir().unwrap();
+    for target in ["syntax", "approve", "docs-first", "HN-R001"] {
+        let run = testkit::run_fairlead(dir.path(), &["explain", target], &[]);
+        assert_eq!(run.code, 0, "{target}: {}", run.stderr);
+        assert!(!run.stdout.is_empty(), "{target}");
+    }
+    let kinds = testkit::run_fairlead(dir.path(), &["explain", "kinds"], &[]);
+    assert_eq!(kinds.code, 2, "kinds reads the codebase");
+    assert!(kinds.stderr.contains("fairlead init"), "{}", kinds.stderr);
+}

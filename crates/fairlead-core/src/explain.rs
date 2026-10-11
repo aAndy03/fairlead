@@ -178,13 +178,34 @@ fn code_sections(c: DiagCode) -> Result<Vec<ExplainSection>, Error> {
     ])
 }
 
+/// 0.2.1-T3 (D-62): what `explain` answers without a root: every static topic and every
+/// diagnostic code. `None` for a target that needs the codebase (`kinds`, a path, an ID).
+pub fn explain_rootless(arg: &str) -> Option<Result<ExplainOutput, Error>> {
+    let target = if topics::TOPICS.contains(&arg) && arg != "kinds" {
+        ExplainTarget::Topic(arg.to_owned())
+    } else if arg.starts_with("HN-") {
+        match parse_explain_target(arg, &|_| false) {
+            Ok(t) => t,
+            Err(e) => return Some(Err(e)),
+        }
+    } else {
+        return None;
+    };
+    let sections = match &target {
+        ExplainTarget::Topic(t) => topics::topic_sections(t, None),
+        ExplainTarget::Code(c) => code_sections(*c),
+        _ => return None,
+    };
+    Some(sections.map(|sections| ExplainOutput { target, sections }))
+}
+
 pub fn explain(
     target: &ExplainTarget,
     reg: &Registry,
     report: Option<&CheckReport>,
 ) -> Result<ExplainOutput, Error> {
     let sections = match target {
-        ExplainTarget::Topic(t) => topics::topic_sections(t, reg)?,
+        ExplainTarget::Topic(t) => topics::topic_sections(t, Some(reg))?,
         ExplainTarget::Code(c) => code_sections(*c)?,
         ExplainTarget::File(p) => file_sections(p, reg, report)?,
         ExplainTarget::Id(id) => id_sections(id, reg)?,
