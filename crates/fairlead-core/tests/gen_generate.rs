@@ -70,6 +70,7 @@ fn empty_facts() -> Facts {
         manifest_hints: ManifestHints {
             workspace_members: BTreeSet::new(),
             default_excludes: Vec::new(),
+            crate_deps: Default::default(),
         },
     }
 }

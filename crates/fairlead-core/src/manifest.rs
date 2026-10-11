@@ -3,13 +3,104 @@ use crate::discover::Root;
 use crate::path::RepoPath;
 use crate::walk::WalkResult;
 use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// Oracle for eligibility hints and the default excludes `init` proposes; never authoritative.
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct ManifestHints {
     pub workspace_members: BTreeSet<RepoPath>,
     pub default_excludes: Vec<String>,
+    /// R-HIER-027 (0.3): path dependencies between the crates of the tree, crate directory to the
+    /// directories it depends on (`dependencies`, `build-dependencies` and their `target.*` forms;
+    /// `dev-dependencies` excluded), read from the manifests directly (D-50).
+    pub crate_deps: BTreeMap<RepoPath, BTreeSet<RepoPath>>,
+}
+
+/// `base/rel` with `.` and `..` resolved; `None` when it leaves the root.
+fn join_rel(base: &RepoPath, rel: &str) -> Option<RepoPath> {
+    let mut parts: Vec<&str> = if base.is_root() {
+        Vec::new()
+    } else {
+        base.as_str().split('/').collect()
+    };
+    for seg in rel.trim_end_matches('/').split('/') {
+        match seg {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            s => parts.push(s),
+        }
+    }
+    if parts.is_empty() {
+        Some(RepoPath::root())
+    } else {
+        RepoPath::new(&parts.join("/")).ok()
+    }
+}
+
+/// The dependency tables of a manifest that make a build edge (R-HIER-027).
+fn dep_tables(table: &toml::Table) -> Vec<&toml::Table> {
+    let mut out: Vec<&toml::Table> = ["dependencies", "build-dependencies"]
+        .iter()
+        .filter_map(|k| table.get(*k).and_then(toml::Value::as_table))
+        .collect();
+    if let Some(targets) = table.get("target").and_then(toml::Value::as_table) {
+        for t in targets.values().filter_map(toml::Value::as_table) {
+            out.extend(
+                ["dependencies", "build-dependencies"]
+                    .iter()
+                    .filter_map(|k| t.get(*k).and_then(toml::Value::as_table)),
+            );
+        }
+    }
+    out
+}
+
+/// The crate directories each crate depends on by path, directly or through
+/// `workspace = true` and the workspace's `[workspace.dependencies]`.
+fn crate_deps(parsed: &BTreeMap<RepoPath, toml::Table>) -> BTreeMap<RepoPath, BTreeSet<RepoPath>> {
+    let crates: BTreeSet<&RepoPath> = parsed
+        .iter()
+        .filter(|(_, t)| t.contains_key("package"))
+        .map(|(d, _)| d)
+        .collect();
+    let workspace_of = |dir: &RepoPath| -> Option<(&RepoPath, &toml::Table)> {
+        parsed
+            .iter()
+            .filter(|(d, t)| t.contains_key("workspace") && (dir == *d || dir.is_within(d)))
+            .max_by_key(|(d, _)| d.as_str().len())
+    };
+    let mut out: BTreeMap<RepoPath, BTreeSet<RepoPath>> = BTreeMap::new();
+    for dir in &crates {
+        let Some(table) = parsed.get(*dir) else {
+            continue;
+        };
+        for deps in dep_tables(table) {
+            for (name, v) in deps {
+                let Some(spec) = v.as_table() else { continue };
+                let target = if let Some(p) = spec.get("path").and_then(toml::Value::as_str) {
+                    join_rel(dir, p)
+                } else if spec.get("workspace").and_then(toml::Value::as_bool) == Some(true) {
+                    workspace_of(dir).and_then(|(ws, wt)| {
+                        let p = wt
+                            .get("workspace")?
+                            .get("dependencies")?
+                            .get(name)?
+                            .get("path")?
+                            .as_str()?;
+                        join_rel(ws, p)
+                    })
+                } else {
+                    None
+                };
+                if let Some(t) = target.filter(|t| crates.contains(t) && t != *dir) {
+                    out.entry((*dir).clone()).or_default().insert(t);
+                }
+            }
+        }
+    }
+    out
 }
 
 fn strings(v: Option<&toml::Value>) -> Vec<String> {
@@ -48,6 +139,7 @@ pub fn read_manifest_hints(root: &Root, walk: &WalkResult) -> ManifestHints {
     let manifest_dirs: BTreeSet<RepoPath> = manifests.iter().filter_map(RepoPath::parent).collect();
     let mut hints = ManifestHints::default();
     let mut parsed_any = false;
+    let mut parsed: BTreeMap<RepoPath, toml::Table> = BTreeMap::new();
     for m in &manifests {
         let abs = root.dir.join(m.as_str());
         let Ok(text) = std::fs::read_to_string(abs.as_std_path()) else {
@@ -58,6 +150,7 @@ pub fn read_manifest_hints(root: &Root, walk: &WalkResult) -> ManifestHints {
         };
         parsed_any = true;
         let Some(base) = m.parent() else { continue };
+        parsed.insert(base.clone(), table.clone());
         let Some(ws) = table.get("workspace").and_then(toml::Value::as_table) else {
             continue;
         };
@@ -76,6 +169,7 @@ pub fn read_manifest_hints(root: &Root, walk: &WalkResult) -> ManifestHints {
     if parsed_any {
         hints.default_excludes.push("target/".to_string());
     }
+    hints.crate_deps = crate_deps(&parsed);
     hints
 }
 
@@ -176,6 +270,53 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(t.join("crates/a/Cargo.toml").as_std_path()).unwrap(),
             PKG
+        );
+    }
+
+    #[test]
+    fn r_hier_027__path_and_workspace_dependencies_are_crate_edges() {
+        let (h, _t, _g) = hints(&[
+            (
+                "Cargo.toml",
+                "[workspace]
+members = [\"crates/*\"]
+[workspace.dependencies]
+core = { path = \"crates/core\" }
+",
+            ),
+            ("crates/core/Cargo.toml", PKG),
+            (
+                "crates/app/Cargo.toml",
+                "[package]
+name = \"app\"
+[dependencies]
+core = { workspace = true }
+serde = \"1\"
+[dev-dependencies]
+kit = { path = \"../kit\" }
+",
+            ),
+            (
+                "crates/kit/Cargo.toml",
+                "[package]
+name = \"kit\"
+[target.'cfg(unix)'.dependencies]
+core = { path = \"../core\" }
+",
+            ),
+        ]);
+        let edges: Vec<(&str, Vec<&str>)> = h
+            .crate_deps
+            .iter()
+            .map(|(a, b)| (a.as_str(), b.iter().map(RepoPath::as_str).collect()))
+            .collect();
+        assert_eq!(
+            edges,
+            [
+                ("crates/app", vec!["crates/core"]),
+                ("crates/kit", vec!["crates/core"])
+            ],
+            "dev-dependencies are not edges"
         );
     }
 

@@ -227,6 +227,7 @@ impl WorldBuilder {
             manifest_hints: ManifestHints {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],
+                crate_deps: Default::default(),
             },
         };
         let as_of = AsOf::parse("2026-10-09").unwrap();

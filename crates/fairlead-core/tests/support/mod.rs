@@ -284,6 +284,7 @@ impl Kit {
             manifest_hints: ManifestHints {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],
+                crate_deps: Default::default(),
             },
         };
         resolve(&ResolveInput {

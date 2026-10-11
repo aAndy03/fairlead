@@ -9,6 +9,9 @@ use crate::hier::{Model, literal_prefix, matcher, prefixes_overlap};
 use crate::registry::{ItemId, ScopeId};
 
 pub struct HierCheck;
+
+/// A container edge: from, to, why (for the cycle report), and where it is written.
+type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
 const CODES: [DiagCode; 10] = [
     HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H007, HN_H008, HN_H009, HN_H010, HN_H023,
 ];
@@ -103,6 +106,7 @@ fn rank_edges(
 fn cycle_edges(
     m: &Model,
     edges: &[crate::hier::UnitEdge],
+    cargo: Vec<ContainerEdge>,
     scope: &ScopeId,
     out: &mut Vec<Diagnostic>,
 ) {
@@ -139,46 +143,47 @@ fn cycle_edges(
         }
     }
     let ctr = |u: &ItemId| m.units.get(u).and_then(|x| x.container.clone());
-    let mut graph: BTreeMap<ItemId, BTreeSet<ItemId>> = BTreeMap::new();
-    let mut causes: Vec<(ItemId, ItemId, &crate::hier::UnitEdge)> = Vec::new();
+    // (from, to, description, location) of every container edge: unit edges aggregated, and
+    // Cargo dependencies between the containers that claim the two crates (R-HIER-027).
+    let mut causes: Vec<ContainerEdge> = Vec::new();
     for e in edges {
         if let (Some(a), Some(b)) = (ctr(&e.from), ctr(&e.to))
             && a != b
         {
-            graph.entry(a.clone()).or_default().insert(b.clone());
-            causes.push((a, b, e));
+            let why = format!(
+                "{} -> {} ({}:{})",
+                bare_id(&e.from),
+                bare_id(&e.to),
+                e.path.as_str(),
+                e.line
+            );
+            causes.push((a, b, why, (e.path.clone(), e.line, e.col)));
         }
+    }
+    causes.extend(cargo);
+    let mut graph: BTreeMap<ItemId, BTreeSet<ItemId>> = BTreeMap::new();
+    for (a, b, _, _) in &causes {
+        graph.entry(a.clone()).or_default().insert(b.clone());
     }
     for comp in crate::hier::cycles(&graph) {
         let Some(first) = comp.first().filter(|f| f.scope == *scope) else {
             continue;
         };
-        let inside: Vec<&(ItemId, ItemId, &crate::hier::UnitEdge)> = causes
+        let inside: Vec<_> = causes
             .iter()
-            .filter(|(a, b, _)| comp.contains(a) && comp.contains(b))
+            .filter(|(a, b, _, _)| comp.contains(a) && comp.contains(b))
             .collect();
-        let Some((_, _, lead)) = inside.first() else {
+        let Some((_, _, _, (path, line, col))) = inside.first() else {
             continue;
         };
         let names: Vec<String> = comp.iter().map(bare_id).collect();
-        let why: Vec<String> = inside
-            .iter()
-            .map(|(_, _, e)| {
-                format!(
-                    "{} -> {} ({}:{})",
-                    bare_id(&e.from),
-                    bare_id(&e.to),
-                    e.path.as_str(),
-                    e.line
-                )
-            })
-            .collect();
+        let why: Vec<&str> = inside.iter().map(|(_, _, w, _)| w.as_str()).collect();
         out.push(
             DiagB::new(
                 HN_H009,
-                &lead.path,
-                lead.line,
-                lead.col,
+                path,
+                *line,
+                *col,
                 format!(
                     "containers in a cycle: {}; caused by {}",
                     names.join(", "),
@@ -192,6 +197,95 @@ fn cycle_edges(
             .text(bare_id(first))
             .build(),
         );
+    }
+}
+
+/// R-HIER-027: the container edges of the Cargo dependencies between workspace crates, each
+/// crate mapped to the container with the deepest `path=` claim that contains it.
+fn cargo_edges(cx: &CheckCx<'_>, m: &Model) -> Vec<ContainerEdge> {
+    let claims: Vec<(ItemId, Vec<String>)> = m
+        .containers
+        .keys()
+        .map(|c| (c.clone(), claims(cx, m, c)))
+        .collect();
+    let owner = |dir: &crate::path::RepoPath| -> Option<ItemId> {
+        claims
+            .iter()
+            .flat_map(|(c, ps)| ps.iter().map(move |p| (c, p)))
+            .filter(|(_, p)| {
+                p.is_empty()
+                    || dir.as_str() == p.as_str()
+                    || dir.as_str().starts_with(&format!("{p}/"))
+            })
+            .max_by_key(|(c, p)| (p.len(), (*c).clone()))
+            .map(|(c, _)| c.clone())
+    };
+    let mut out = Vec::new();
+    for (a, deps) in &cx.facts.manifest_hints.crate_deps {
+        let Some(ca) = owner(a) else { continue };
+        for b in deps {
+            if let Some(cb) = owner(b).filter(|cb| *cb != ca) {
+                let manifest = crate::path::RepoPath::new(&if a.is_root() {
+                    "Cargo.toml".to_owned()
+                } else {
+                    format!("{}/Cargo.toml", a.as_str())
+                })
+                .unwrap_or_else(|_| a.clone());
+                let why = format!(
+                    "crate {} depends on {} (evidence=cargo)",
+                    a.as_str(),
+                    b.as_str()
+                );
+                out.push((ca.clone(), cb, why, (manifest, 0, 0)));
+            }
+        }
+    }
+    out
+}
+
+/// R-HIER-027: within one ladder, a Cargo edge must not point to a container whose highest unit
+/// layer ranks above the dependent container's.
+fn cargo_rank(
+    h: &crate::config::HierConfig,
+    m: &Model,
+    cargo: &[ContainerEdge],
+    scope: &ScopeId,
+    out: &mut Vec<Diagnostic>,
+) {
+    let top = |c: &ItemId| -> Option<(&str, u32, &str)> {
+        m.units
+            .values()
+            .filter(|u| u.container.as_ref() == Some(c))
+            .filter_map(|u| {
+                let l = u.layer.as_deref()?;
+                h.rank(l).map(|(ladder, r)| (ladder, r, l))
+            })
+            .max_by_key(|(ladder, r, _)| (*r, *ladder))
+    };
+    for (a, b, why, (path, line, col)) in cargo.iter().filter(|(a, ..)| a.scope == *scope) {
+        let (Some((la, ra, layer_a)), Some((lb, rb, layer_b))) = (top(a), top(b)) else {
+            continue;
+        };
+        if la == lb && rb > ra {
+            out.push(
+                DiagB::new(
+                    HN_H007,
+                    path,
+                    *line,
+                    *col,
+                    format!(
+                        "container {} (up to {layer_a}) depends on {} (up to {layer_b}): {why}",
+                        bare_id(a),
+                        bare_id(b)
+                    ),
+                )
+                .rule("hier-rank")
+                .hint("move the shared part into a lower container, or invert the dependency (R-HIER-027)")
+                .related(bare_id(b))
+                .text(bare_id(b))
+                .build(),
+            );
+        }
     }
 }
 
@@ -410,7 +504,9 @@ impl Check for HierCheck {
         if level >= 2 {
             let edges = m.edges(cx.registry, &files);
             rank_edges(h, &m, &edges, scope, out);
-            cycle_edges(&m, &edges, scope, out);
+            let cargo = cargo_edges(cx, &m);
+            cargo_rank(h, &m, &cargo, scope, out);
+            cycle_edges(&m, &edges, cargo, scope, out);
             visibility(cx, &m, scope, out);
         }
         // L1: a unit's layer, its single container and its single binding.
@@ -964,6 +1060,57 @@ fn e() {}
             of(&up, c::HN_H007).len(),
             1,
             "visible, still upward: {up:#?}"
+        );
+    }
+
+    #[test]
+    fn r_hier_027__cargo_edge_feeds_cycle_and_rank() {
+        let rp = |s: &str| crate::path::RepoPath::new(s).unwrap();
+        let run = |deps: &[(&str, &str)]| {
+            let deps: Vec<(String, String)> = deps
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect();
+            World::new()
+                .root(L2)
+                .file(
+                    "crates/core/src/lib.rs",
+                    "// fairlead: def ctr.core path=\"crates/core/**\"\n// fairlead: def un.eng layer=core.engine container=ctr.core\nfn eng() {}\n",
+                )
+                .file(
+                    "crates/app/src/lib.rs",
+                    "// fairlead: def ctr.app path=\"crates/app/**\"\n// fairlead: def un.svc layer=core.service container=ctr.app\nfn svc() {}\n",
+                )
+                .facts(move |f| {
+                    for (a, b) in &deps {
+                        f.manifest_hints
+                            .crate_deps
+                            .entry(rp(a))
+                            .or_default()
+                            .insert(rp(b));
+                    }
+                })
+                .build()
+                .run_check(&HierCheck)
+        };
+        let down = run(&[("crates/app", "crates/core")]);
+        assert!(
+            of(&down, c::HN_H007).is_empty() && of(&down, c::HN_H009).is_empty(),
+            "{down:#?}"
+        );
+        let up = run(&[("crates/core", "crates/app")]);
+        let r = of(&up, c::HN_H007);
+        assert_eq!(r.len(), 1, "{up:#?}");
+        assert!(
+            r[0].message.contains("evidence=cargo")
+                && r[0].location.path.as_str() == "crates/core/Cargo.toml"
+        );
+        let both = run(&[("crates/core", "crates/app"), ("crates/app", "crates/core")]);
+        let cyc = of(&both, c::HN_H009);
+        assert_eq!(cyc.len(), 1, "{both:#?}");
+        assert!(
+            cyc[0].message.contains("ctr.app, ctr.core")
+                && cyc[0].message.contains("evidence=cargo")
         );
     }
 

@@ -37,6 +37,7 @@ fn r_scope_011__busy_folder_and_manifest_member_are_eligible_hints_only() {
     let mut hints = ManifestHints {
         workspace_members: Default::default(),
         default_excludes: vec![],
+        crate_deps: Default::default(),
     };
     hints.workspace_members.insert(path("crates/core"));
     let cfg = EligibilityConfig {
