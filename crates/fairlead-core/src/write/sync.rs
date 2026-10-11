@@ -275,7 +275,7 @@ pub fn sync_plan_from(
         {
             if p.as_str().contains(&reg_dir) || p.as_str().ends_with(&members) {
                 notes.push(format!(
-                    "orphan generated file {} (sync does not delete in 0.1)",
+                    "orphan generated file {}: no scope generates it now and sync leaves it in place; delete it by hand",
                     p.as_str()
                 ));
             }

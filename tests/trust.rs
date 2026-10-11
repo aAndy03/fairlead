@@ -154,9 +154,15 @@ fn r_cli_021__for_agent_names_hidden_observe_findings_and_the_next_step() {
         "{}",
         quiet.stdout
     );
+    // 0.2.2-T8: nothing listed fails the run, so the next step is to show what is hidden.
+    assert!(
+        quiet.stdout.contains("next: fairlead check --show-observe"),
+        "{}",
+        quiet.stdout
+    );
     std::fs::write(
         repo.path().join("src/b.rs"),
-        "// fairlead: use rule.nosuch\nfn b() {}\n",
+        "// fairlead: frobnicate x\nfn b() {}\n", // HN-S001: an error that fails the run
     )
     .unwrap();
     let found = repo.run(&["check", "--for-agent", "--as-of", AS_OF]);

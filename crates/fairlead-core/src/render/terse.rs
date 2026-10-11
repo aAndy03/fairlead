@@ -143,7 +143,14 @@ fn render_agent(report: &CheckReport, opts: &RenderOptions) -> String {
             report.summary.observe
         ));
     }
-    if let Some(g) = view.groups.first() {
+    // 0.2.2-T8: when nothing listed fails the run, the hidden observe findings come first; the
+    // field test's real problem was hidden while `next:` pointed at a warning.
+    let fails = |g: &Group| {
+        g.lead.severity == Severity::Error && g.lead.stage == crate::config::Stage::Enforce
+    };
+    if report.summary.observe > 0 && !opts.show_observe && !view.groups.iter().any(fails) {
+        out.push("next: fairlead check --show-observe".to_owned());
+    } else if let Some(g) = view.groups.first() {
         out.push(format!("next: fairlead explain {}", g.lead.code.0));
     }
     out.extend(tail);
