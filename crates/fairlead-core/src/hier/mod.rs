@@ -254,6 +254,84 @@ impl Model {
     }
 }
 
+/// Strongly connected components with more than one node (Tarjan), each sorted, in the order of
+/// their smallest node. Deterministic: nodes and successors are visited in `Ord` order.
+pub fn cycles<T: Ord + Clone>(graph: &BTreeMap<T, BTreeSet<T>>) -> Vec<Vec<T>> {
+    struct St<'a, T: Ord> {
+        g: &'a BTreeMap<T, BTreeSet<T>>,
+        index: BTreeMap<&'a T, usize>,
+        low: BTreeMap<&'a T, usize>,
+        stack: Vec<&'a T>,
+        on: BTreeSet<&'a T>,
+        next: usize,
+        out: Vec<Vec<&'a T>>,
+    }
+    fn visit<'a, T: Ord>(s: &mut St<'a, T>, v: &'a T) {
+        s.index.insert(v, s.next);
+        s.low.insert(v, s.next);
+        s.next += 1;
+        s.stack.push(v);
+        s.on.insert(v);
+        if let Some(succ) = s.g.get(v) {
+            for w in succ {
+                // Successors outside the graph's keys have no edges and cannot close a cycle.
+                let Some((w, _)) = s.g.get_key_value(w) else {
+                    continue;
+                };
+                if !s.index.contains_key(w) {
+                    visit(s, w);
+                    let lw = s.low.get(w).copied().unwrap_or(usize::MAX);
+                    if lw < s.low.get(v).copied().unwrap_or(usize::MAX) {
+                        s.low.insert(v, lw);
+                    }
+                } else if s.on.contains(w) {
+                    let iw = s.index.get(w).copied().unwrap_or(usize::MAX);
+                    if iw < s.low.get(v).copied().unwrap_or(usize::MAX) {
+                        s.low.insert(v, iw);
+                    }
+                }
+            }
+        }
+        if s.low.get(v) == s.index.get(v) {
+            let mut comp = Vec::new();
+            while let Some(w) = s.stack.pop() {
+                s.on.remove(w);
+                comp.push(w);
+                if std::ptr::eq(w, v) {
+                    break;
+                }
+            }
+            s.out.push(comp);
+        }
+    }
+    let mut s = St {
+        g: graph,
+        index: BTreeMap::new(),
+        low: BTreeMap::new(),
+        stack: Vec::new(),
+        on: BTreeSet::new(),
+        next: 0,
+        out: Vec::new(),
+    };
+    for v in graph.keys() {
+        if !s.index.contains_key(v) {
+            visit(&mut s, v);
+        }
+    }
+    let mut out: Vec<Vec<T>> = s
+        .out
+        .into_iter()
+        .filter(|c| c.len() > 1)
+        .map(|c| {
+            let mut c: Vec<T> = c.into_iter().cloned().collect();
+            c.sort();
+            c
+        })
+        .collect();
+    out.sort();
+    out
+}
+
 /// A glob matcher with `*` stopping at `/`, as the registry matches globs.
 pub fn matcher(glob: &str) -> Option<globset::GlobMatcher> {
     globset::GlobBuilder::new(glob.trim_start_matches("./"))

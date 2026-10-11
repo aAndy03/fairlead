@@ -9,8 +9,8 @@ use crate::hier::{Model, literal_prefix, matcher, prefixes_overlap};
 use crate::registry::{ItemId, ScopeId};
 
 pub struct HierCheck;
-const CODES: [DiagCode; 7] = [
-    HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H007, HN_H023,
+const CODES: [DiagCode; 9] = [
+    HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H007, HN_H008, HN_H009, HN_H023,
 ];
 
 fn at(
@@ -61,14 +61,13 @@ pub(crate) const LOWER_BOUND: &str = "a lower bound: declared edges only (R-HIER
 
 /// R-HIER-002, R-HIER-005, R-HIER-006, R-HIER-020, R-HIER-023: the direction of each `use` edge.
 fn rank_edges(
-    cx: &CheckCx<'_>,
     h: &crate::config::HierConfig,
     m: &Model,
-    files: &[&crate::path::RepoPath],
+    edges: &[crate::hier::UnitEdge],
     scope: &ScopeId,
     out: &mut Vec<Diagnostic>,
 ) {
-    for e in m.edges(cx.registry, files) {
+    for e in edges {
         if e.from.scope != *scope {
             continue;
         }
@@ -95,6 +94,104 @@ fn rank_edges(
                     .build(),
             );
         }
+    }
+}
+
+/// R-HIER-021, R-HIER-022: the unit graph is a DAG, and the container graph (the unit edges
+/// aggregated) has no strongly connected component. Each cycle is reported once, in the scope of
+/// its smallest member, at the first edge that closes it.
+fn cycle_edges(
+    m: &Model,
+    edges: &[crate::hier::UnitEdge],
+    scope: &ScopeId,
+    out: &mut Vec<Diagnostic>,
+) {
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut units: BTreeMap<ItemId, BTreeSet<ItemId>> = BTreeMap::new();
+    for e in edges {
+        units
+            .entry(e.from.clone())
+            .or_default()
+            .insert(e.to.clone());
+    }
+    for comp in crate::hier::cycles(&units) {
+        let Some(first) = comp.first().filter(|f| f.scope == *scope) else {
+            continue;
+        };
+        let names: Vec<String> = comp.iter().map(bare_id).collect();
+        if let Some(e) = edges
+            .iter()
+            .find(|e| e.from == *first && comp.contains(&e.to))
+        {
+            out.push(
+                DiagB::new(
+                    HN_H008,
+                    &e.path,
+                    e.line,
+                    e.col,
+                    format!("units in a use cycle: {}", names.join(", ")),
+                )
+                .hint(format!("the unit graph must be a DAG: extract the shared part into a lower unit, or invert one edge (R-HIER-021); {LOWER_BOUND}"))
+                .related(bare_id(first))
+                .text(bare_id(first))
+                .build(),
+            );
+        }
+    }
+    let ctr = |u: &ItemId| m.units.get(u).and_then(|x| x.container.clone());
+    let mut graph: BTreeMap<ItemId, BTreeSet<ItemId>> = BTreeMap::new();
+    let mut causes: Vec<(ItemId, ItemId, &crate::hier::UnitEdge)> = Vec::new();
+    for e in edges {
+        if let (Some(a), Some(b)) = (ctr(&e.from), ctr(&e.to))
+            && a != b
+        {
+            graph.entry(a.clone()).or_default().insert(b.clone());
+            causes.push((a, b, e));
+        }
+    }
+    for comp in crate::hier::cycles(&graph) {
+        let Some(first) = comp.first().filter(|f| f.scope == *scope) else {
+            continue;
+        };
+        let inside: Vec<&(ItemId, ItemId, &crate::hier::UnitEdge)> = causes
+            .iter()
+            .filter(|(a, b, _)| comp.contains(a) && comp.contains(b))
+            .collect();
+        let Some((_, _, lead)) = inside.first() else {
+            continue;
+        };
+        let names: Vec<String> = comp.iter().map(bare_id).collect();
+        let why: Vec<String> = inside
+            .iter()
+            .map(|(_, _, e)| {
+                format!(
+                    "{} -> {} ({}:{})",
+                    bare_id(&e.from),
+                    bare_id(&e.to),
+                    e.path.as_str(),
+                    e.line
+                )
+            })
+            .collect();
+        out.push(
+            DiagB::new(
+                HN_H009,
+                &lead.path,
+                lead.line,
+                lead.col,
+                format!(
+                    "containers in a cycle: {}; caused by {}",
+                    names.join(", "),
+                    why.join(", ")
+                ),
+            )
+            .hint(format!(
+                "extract the shared piece into a lower container (R-HIER-022); {LOWER_BOUND}"
+            ))
+            .related(bare_id(first))
+            .text(bare_id(first))
+            .build(),
+        );
     }
 }
 
@@ -259,7 +356,9 @@ impl Check for HierCheck {
             return;
         }
         if level >= 2 {
-            rank_edges(cx, h, &m, &files, scope, out);
+            let edges = m.edges(cx.registry, &files);
+            rank_edges(h, &m, &edges, scope, out);
+            cycle_edges(&m, &edges, scope, out);
         }
         // L1: a unit's layer, its single container and its single binding.
         for u in m.units.values().filter(|u| u.id.scope == *scope) {
@@ -672,6 +771,51 @@ level = 2
         assert_eq!(
             (d[0].location.line, d[0].message.contains("un.eng")),
             (2, true)
+        );
+    }
+
+    #[test]
+    fn r_hier_021__unit_cycle_reported() {
+        let code = [
+            unit("un.a", "core.engine", "ctr.a", "", &["un.b"]),
+            unit("un.b", "core.engine", "ctr.a", "", &["un.c"]),
+            unit("un.c", "core.engine", "ctr.a", "", &["un.a"]),
+            unit("un.d", "core.engine", "ctr.a", "", &["un.d"]),
+        ]
+        .concat();
+        let ds = units("allow", &code);
+        let d = of(&ds, c::HN_H008);
+        assert_eq!(
+            d.len(),
+            1,
+            "one cycle, and self-recursion is allowed: {ds:#?}"
+        );
+        assert!(
+            d[0].message.contains("un.a, un.b, un.c"),
+            "{}",
+            d[0].message
+        );
+        assert!(d[0].hint.contains("lower bound"));
+    }
+
+    #[test]
+    fn r_hier_022__container_scc_lists_causing_edges() {
+        let code = [
+            unit("un.a", "core.engine", "ctr.a", "", &["un.b"]),
+            unit("un.b", "core.engine", "ctr.b", "", &["un.c"]),
+            unit("un.c", "core.engine", "ctr.a", "", &[]),
+        ]
+        .concat();
+        let ds = units("allow", &code);
+        assert!(of(&ds, c::HN_H008).is_empty(), "the unit graph is a DAG");
+        let d = of(&ds, c::HN_H009);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(
+            d[0].message.contains("ctr.a, ctr.b")
+                && d[0].message.contains("un.a -> un.b")
+                && d[0].message.contains("un.b -> un.c"),
+            "{}",
+            d[0].message
         );
     }
 
