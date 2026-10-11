@@ -59,14 +59,34 @@ $map = @('id,kind,repo,detail')
 $log = @()
 
 # Arguments travel as arrays, so `--flag` words are never read as PowerShell parameter names.
-function G([string]$Dir, [string[]]$A) {
-    $all = @('-C', $Dir, '-c', 'user.name=pilot', '-c', 'user.email=pilot@invalid', '-c', 'commit.gpgsign=false') + $A
-    & git @all | Out-String
+# (Not `FL` or `G`: `fl` is the built-in alias of Format-List, and an alias wins over a function.)
+# A native command's stderr (a git warning, a fairlead refusal) is data here, never a reason to stop
+# the run: it is captured apart from stdout with the error preference relaxed for the call.
+function Invoke-Native([string]$Exe, [string[]]$A) {
+    $eap = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $all = @(& $Exe @A 2>&1)
+        $code = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $eap
+    }
+    $isErr = { $_ -is [System.Management.Automation.ErrorRecord] }
+    @{
+        code = $code
+        out  = ($all | Where-Object { -not (& $isErr) } | ForEach-Object { "$_" }) -join "`n"
+        err  = ($all | Where-Object $isErr | ForEach-Object { "$_" }) -join "`n"
+    }
 }
 
-function FL([string]$Dir, [string[]]$A) {
+function Invoke-Git([string]$Dir, [string[]]$A) {
+    $all = @('-C', $Dir, '-c', 'user.name=pilot', '-c', 'user.email=pilot@invalid', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false') + $A
+    (Invoke-Native 'git' $all).out
+}
+
+function Invoke-Fairlead([string]$Dir, [string[]]$A) {
     Push-Location $Dir
-    try { $o = & $bin @A | Out-String; @{ code = $LASTEXITCODE; out = $o } } finally { Pop-Location }
+    try { Invoke-Native $bin $A } finally { Pop-Location }
 }
 
 $repoDirs = @()
@@ -74,16 +94,17 @@ foreach ($src in (Get-Shuffled $RepoList $Seed)) {
     $rid = Get-OpaqueId $Seed "repo|$src"
     $map += "$rid,repo,$src,"
     $dir = Join-Path $run "work\$rid"
-    & git clone -q $src $dir
-    if ($LASTEXITCODE -ne 0) { throw "clone failed: $src" }
-    FL $dir @('init', '--yes', '--as-of', $Start) | Out-Null
+    Write-Host "downloading $src ..."
+    $clone = Invoke-Native 'git' @('clone', '-q', $src, $dir)
+    if ($clone.code -ne 0) { throw "clone failed: $src`n$($clone.err)" }
+    Invoke-Fairlead $dir @('init', '--yes', '--as-of', $Start) | Out-Null
     $ctl = Join-Path $dir 'fairlead\control.toml'
     Write-Utf8 $ctl ((Get-Content -Raw -LiteralPath $ctl) + "`n" + $rules)
-    FL $dir @('sync', '--as-of', $Start) | Out-Null
+    Invoke-Fairlead $dir @('sync', '--as-of', $Start) | Out-Null
     # The repository's existing violations are history, not the pilot's exceptions.
-    FL $dir @('sync', '--baseline', '--accept-new', '--why', 'pilot start', '--as-of', $Start) | Out-Null
-    G $dir @('add', '-A') | Out-Null
-    G $dir @('commit', '-q', '-m', 'pilot: fairlead init, rules, baseline') | Out-Null
+    Invoke-Fairlead $dir @('sync', '--baseline', '--accept-new', '--why', 'pilot start', '--as-of', $Start) | Out-Null
+    Invoke-Git $dir @('add', '-A') | Out-Null
+    Invoke-Git $dir @('commit', '-q', '-m', 'pilot: fairlead init, rules, baseline') | Out-Null
     $repoDirs += , @($rid, $dir)
 }
 
@@ -100,16 +121,17 @@ foreach ($rd in $repoDirs) {
             $p = Join-Path $run "private\prompts\$sid.md"
             Write-Utf8 $p ($subjectBase.Replace('{{DATE}}', $date).Replace('{{TASK}}', $task.text))
             Invoke-Sample -PromptFile $p -WorkDir $dir -OutFile (Join-Path $run "answers\$sid.json") -Auto | Out-Null
-            G $dir @('add', '-A') | Out-Null
-            G $dir @('commit', '-q', '--allow-empty', '-m', "week $($w + 1): $($task.id)") | Out-Null
+            Invoke-Git $dir @('add', '-A') | Out-Null
+            Invoke-Git $dir @('commit', '-q', '--allow-empty', '-m', "week $($w + 1): $($task.id)") | Out-Null
         }
-        $seal = FL $dir @('seal', '--yes', '--anywhere', '--as-of', $date)
-        $log += "- $rid week $($w + 1) ($date): seal exit $($seal.code)"
+        $seal = Invoke-Fairlead $dir @('seal', '--yes', '--anywhere', '--as-of', $date)
+        $why = if ($seal.code -eq 0) { '' } else { ': ' + (($seal.err -split "`n")[0]).Trim() }
+        $log += "- $rid week $($w + 1) ($date): seal exit $($seal.code)$why"
         if ($seal.code -eq 0) {
-            G $dir @('add', '-A') | Out-Null
-            G $dir @('commit', '-q', '-m', "week $($w + 1): seal") | Out-Null
+            Invoke-Git $dir @('add', '-A') | Out-Null
+            Invoke-Git $dir @('commit', '-q', '-m', "week $($w + 1): seal") | Out-Null
         }
-        Write-Host "$rid week $($w + 1): seal exit $($seal.code)"
+        Write-Host "$rid week $($w + 1): seal exit $($seal.code)$why"
     }
 }
 
@@ -118,9 +140,9 @@ $labels = @{ stale = 0; expired = 0; live = 0; unparsed = 0 }
 $checks = @()
 foreach ($rd in $repoDirs) {
     $rid = $rd[0]; $dir = $rd[1]
-    $json = FL $dir @('check', '--format', 'json', '--as-of', $endDate)
+    $json = Invoke-Fairlead $dir @('check', '--format', 'json', '--as-of', $endDate)
     Write-Utf8 (Join-Path $run "private\$rid-check.json") $json.out
-    $terse = (FL $dir @('check', '--format', 'terse', '--max', '0', '--as-of', $endDate)).out
+    $terse = (Invoke-Fairlead $dir @('check', '--format', 'terse', '--max', '0', '--as-of', $endDate)).out
     $checks += "- $rid`: check exit $($json.code)"
     $ledger = (Get-ChildItem -Recurse -File -Path $dir -Filter '*.hl' -ErrorAction SilentlyContinue |
         Where-Object { $_.FullName -notmatch '\\.git\\' } | ForEach-Object { Get-Content -Raw -LiteralPath $_.FullName }) -join "`n"
