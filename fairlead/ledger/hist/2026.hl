@@ -1,0 +1,11 @@
+# scope=root year=2026 prev=- edition=1
+d-445wywhj kind=change ord=0001 impact=add title="Quality and the changelog" d=06wpxa9s
+d-9gk2v7qd kind=change ord=0002 impact=break title="Licence changed from MIT to GPL-3.0-or-later" d=2md3d4f1
+d-cpn1nn8s kind=change ord=0003 impact=add title="Editions, pins and upgrade" d=y4jtkx1a
+d-dt7tma3m kind=change ord=0004 impact=add title="Git integration and move" d=026dkcak
+d-mnyjssq7 kind=change ord=0005 impact=add title="Versions and seal" d=d8887as0
+d-pskjh5xj kind=change ord=0006 impact=add title="Docs-first coverage" d=a5kyzcja
+d-ptn7sp0m kind=change ord=0007 impact=add title="Lifecycle and the graveyard" d=j2a00j9j
+d-sc8ry880 kind=change ord=0008 impact=add title="Scopes, styles and authority" d=40e0qsm4
+rollup.0.2.0 kind=rollup waivers=0 subtree-waivers=0 digest=axb9kwr8x0q2jxn54cwy d=rzkmhnf4
+# ckpt v=0.2.0 n=9 d=gjpsh60y

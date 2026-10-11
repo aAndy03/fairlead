@@ -1,12 +1,15 @@
 +++
 id = "d-ptn7sp0m"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Lifecycle and the graveyard"
 covers = ["crates/fairlead-core/src/lifecycle.rs", "crates/fairlead-core/src/graveyard.rs", "crates/fairlead-core/src/check/builtin/plans.rs", "crates/fairlead-core/src/check/builtin/grave.rs", "crates/fairlead-core/src/config/vocab.rs"]
 created = "0.2.0"
+sealed = "0.2.0"
+body-hash = "b3:nssejq5k3qgn1fqj6h8p"
+ordinal = 7
 +++
 
 # Lifecycle and the graveyard

@@ -1,12 +1,15 @@
 +++
 id = "d-445wywhj"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Quality and the changelog"
 covers = ["tests/**", "xtask/**", ".github/workflows/**", "crates/fairlead-core/src/generate/**", "crates/fairlead-core/src/classify.rs"]
 created = "0.2.0"
+sealed = "0.2.0"
+body-hash = "b3:amxfb2yqjjbpcx56k1nn"
+ordinal = 1
 +++
 
 # Quality and the changelog

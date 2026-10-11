@@ -1,12 +1,15 @@
 +++
 id = "d-dt7tma3m"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Git integration and move"
 covers = ["crates/fairlead-core/src/git.rs", "crates/fairlead-core/src/restructure.rs", "crates/fairlead/src/commands/mv.rs", "crates/fairlead-core/src/write/**"]
 created = "0.2.0"
+sealed = "0.2.0"
+body-hash = "b3:ee7hff7gr8zxrj5pktw2"
+ordinal = 4
 +++
 
 # Git integration and move

@@ -1,12 +1,15 @@
 +++
 id = "d-cpn1nn8s"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Editions, pins and upgrade"
 covers = ["crates/fairlead-core/src/edition.rs", "crates/fairlead-core/src/upgrade.rs", "crates/fairlead/src/commands/upgrade.rs"]
 created = "0.2.0"
+sealed = "0.2.0"
+body-hash = "b3:18sb6jpk3dsvkp46gb6r"
+ordinal = 3
 +++
 
 # Editions, pins and upgrade

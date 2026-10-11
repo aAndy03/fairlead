@@ -1,12 +1,15 @@
 +++
 id = "d-pskjh5xj"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Docs-first coverage"
 covers = ["crates/fairlead-core/src/check/builtin/coverage.rs", "crates/fairlead-core/src/check/builtin/versions.rs", "crates/fairlead/src/commands/check.rs", "crates/fairlead/src/commands/new.rs"]
 created = "0.2.0"
+sealed = "0.2.0"
+body-hash = "b3:ep8z77wcjensaxgkdy1z"
+ordinal = 6
 +++
 
 # Docs-first coverage

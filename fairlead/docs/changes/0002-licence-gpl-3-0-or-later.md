@@ -1,12 +1,15 @@
 +++
 id = "d-9gk2v7qd"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "break"
 scope = "root"
 title = "Licence changed from MIT to GPL-3.0-or-later"
 covers = ["LICENSE", "Cargo.toml", "deny.toml", "README.md"]
 created = "0.2.0"
+sealed = "0.2.0"
+body-hash = "b3:x01zzc2b9d1srqrsx2gn"
+ordinal = 2
 +++
 
 # Licence changed from MIT to GPL-3.0-or-later

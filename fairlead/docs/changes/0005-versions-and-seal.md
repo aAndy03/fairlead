@@ -1,12 +1,15 @@
 +++
 id = "d-mnyjssq7"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Versions and seal"
 covers = ["crates/fairlead-core/src/seal.rs", "crates/fairlead-core/src/version.rs", "crates/fairlead-core/src/docs.rs", "crates/fairlead-core/src/hist.rs", "crates/fairlead-core/src/merkle.rs", "crates/fairlead/src/commands/seal.rs"]
 created = "0.2.0"
+sealed = "0.2.0"
+body-hash = "b3:8ycmkpsj818rtfdfhbhp"
+ordinal = 5
 +++
 
 # Versions and seal
