@@ -675,6 +675,17 @@ fn plan_rule(req: &NewRequest, reg: &Registry, as_of: AsOf, cx: &Ctx) -> Result<
         ],
         "rule",
     )?;
+    // 0.2.2-T3 (R-LC-021): as for doc kinds, a removed rule ID is reserved forever.
+    if let Some(t) = reg.tomb_for(&cx.scope, &id) {
+        return Err(refuse(
+            RefusalKind::NoClobber,
+            format!(
+                "rule.{} was removed ({}) and is reserved forever",
+                req.name, t.removed
+            ),
+            "pick another name; a revive doc creates a versioned successor (R-LC-024)",
+        ));
+    }
     if !matches!(reg.lookup(&cx.scope, &id), Lookup::Missing { .. }) {
         return Err(refuse(
             RefusalKind::NoClobber,
@@ -993,7 +1004,7 @@ mod tests {
         let mut facts = facts_empty();
         facts.tombstones.insert(
             rp("fairlead/tombstones/2026.toml"),
-            "[[tomb]]\nid = \"tok.old\"\nremoved = \"0.3.0\"\nwhy = \"x\"\n".into(),
+            "[[tomb]]\nid = \"tok.old\"\nremoved = \"0.3.0\"\nwhy = \"x\"\n\n[[tomb]]\nid = \"rule.no-todo\"\nremoved = \"2026-10-11\"\nwhy = \"TODO placeholder\"\ndeleted-by = \"sync\"\n".into(),
         );
         let (_root, reg) = registry_with(
             &[("fairlead/control.toml", &format!("{ROOT_CONTROL}{TOK}"))],
@@ -1002,17 +1013,22 @@ mod tests {
         );
         let mut r = nr("tok", "old");
         r.fields.insert("role".into(), "brand".into());
-        let e = new_plan(
-            &r,
-            &reg,
-            &facts_empty(),
-            crate::time::AsOf::parse("2026-10-09").unwrap(),
-        )
-        .unwrap_err();
-        assert!(
-            matches!(&e, Error::Refused(f) if f.kind == RefusalKind::NoClobber && f.message.contains("reserved forever")),
-            "{e:?}"
-        );
+        let mut rule = nr("rule", "no-todo");
+        rule.fields.insert("forbid".into(), "TODO".into());
+        // 0.2.2-T3: a rule is a control-table item; its removed ID is reserved too.
+        for r in [r, rule] {
+            let e = new_plan(
+                &r,
+                &reg,
+                &facts_empty(),
+                crate::time::AsOf::parse("2026-10-09").unwrap(),
+            )
+            .unwrap_err();
+            assert!(
+                matches!(&e, Error::Refused(f) if f.kind == RefusalKind::NoClobber && f.message.contains("reserved forever")),
+                "{e:?}"
+            );
+        }
     }
 
     #[test]

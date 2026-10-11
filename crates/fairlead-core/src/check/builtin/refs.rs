@@ -238,6 +238,21 @@ impl Check for RefsCheck {
                 }
             }
         }
+        // 0.2.2-T3 (R-LC-021): a control table (`[rules.X]`, `[[file]]`) is a declaration too; the
+        // field test re-created a tombstoned rule and nothing reported it.
+        for it in reg.items().filter(|i| i.id.scope == *scope) {
+            let crate::registry::Origin::ControlTable { control } = &it.origin else {
+                continue;
+            };
+            let bare = format!("{}.{}", it.id.kind.as_str(), it.id.name.as_str());
+            if let Some(t) = reg
+                .retired()
+                .iter()
+                .find(|t| t.is_item() && t.id == bare && t.scope.as_ref() == Some(scope))
+            {
+                out.push(reserved(control, 0, 0, &bare, t));
+            }
+        }
         // R-LC-024: the only way back for a tombstoned ID is an approved revive doc that creates a
         // versioned successor.
         let (docs, _) = crate::docs::collect_change_docs(cx.corpus);
@@ -507,6 +522,30 @@ mod tests {
             .build();
         assert_eq!(of(&b.run_check(&RefsCheck), c::HN_D003).len(), 1);
         assert_eq!(b.registry.retired().len(), 2);
+    }
+
+    #[test]
+    fn r_lc_021__a_control_table_that_reuses_a_removed_id_is_reserved() {
+        let tomb = "[[tomb]]\nid = \"rule.no-todo\"\nremoved = \"2026-10-11\"\nwhy = \"TODO placeholder\"\ndeleted-by = \"sync\"\n";
+        let run = |rule: &str| {
+            World::new()
+                .root(rule)
+                .file("src/a.rs", "fn a() {}\n")
+                .facts(|f| {
+                    f.tombstones.insert(
+                        RepoPath::new("fairlead/tombstones/2026.toml").unwrap(),
+                        tomb.into(),
+                    );
+                })
+                .build()
+                .run_check(&RefsCheck)
+        };
+        let reused = run("[rules.no-todo]\ncheck = \"pattern\"\nforbid = \"TODO\"\nmsg = \"m\"\n");
+        let d = of(&reused, c::HN_D003);
+        assert_eq!(d.len(), 1, "{reused:?}");
+        assert_eq!(d[0].location.path.as_str(), "fairlead/control.toml");
+        let other = run("[rules.no-fixme]\ncheck = \"pattern\"\nforbid = \"FIXME\"\nmsg = \"m\"\n");
+        assert!(of(&other, c::HN_D003).is_empty());
     }
 
     #[test]
