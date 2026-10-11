@@ -49,6 +49,9 @@ pub struct Extras {
     pub grave: Option<crate::graveyard::Fingerprint>,
     #[serde(default)]
     pub css: Option<cssscan::CssFacts>,
+    /// Identifier hashes for `sym=` evidence, once the root's `[hier] level` is 2 or more.
+    #[serde(default)]
+    pub idents: Vec<u64>,
 }
 
 use crate::classify::{ClassifyRules, FileClass, classify, scans_directives};
@@ -68,6 +71,7 @@ pub mod envscan;
 pub mod literals;
 
 pub use envscan::{EnvToken, scan_env_tokens};
+pub mod idents;
 
 pub use literals::{LEAK_PROPERTIES, PatternHit, PatternProbe, scan_literals, scan_patterns};
 
@@ -92,6 +96,8 @@ pub struct FileRecord {
     pub grave: Option<crate::graveyard::Fingerprint>,
     /// The cascade structure of a stylesheet (R-CHK-047).
     pub css: Option<cssscan::CssFacts>,
+    /// Identifier hashes for `sym=` evidence (R-HIER-031; `extract::idents`).
+    pub idents: Vec<u64>,
     pub skip: Option<SkipReason>,
 }
 
@@ -109,6 +115,8 @@ pub struct ExtractPlan {
     pub env_scan: bool,
     /// The root declares `[graveyard]`: fingerprint authored files (R-LC-033).
     pub grave_scan: bool,
+    /// The root's `[hier] level` is 2 or more: identifier hashes for `sym=` evidence (R-HIER-031).
+    pub hier_evidence: bool,
 }
 
 impl ExtractPlan {
@@ -189,6 +197,7 @@ impl ExtractPlan {
             pattern_rules: Vec::new(),
             env_scan: rc.lifecycle_declared(),
             grave_scan: rc.graveyard.declared,
+            hier_evidence: rc.hier.settings.level.is_some_and(|l| l >= 2),
         })
     }
 
@@ -206,6 +215,9 @@ impl ExtractPlan {
         }
         if self.env_scan {
             h.update(b"env\0");
+        }
+        if self.hier_evidence {
+            h.update(b"idents\0");
         }
         h.update(b"styles-cascade\0");
         for e in &self.styles.extensions {
@@ -228,7 +240,8 @@ pub fn extras_wanted(plan: &ExtractPlan, path: &RepoPath, class: FileClass) -> b
             || !plan.leak_properties.is_empty()
             || !plan.pattern_rules.is_empty()
             || plan.env_scan
-            || plan.grave_scan))
+            || plan.grave_scan
+            || plan.hier_evidence))
         || plan.classify.in_managerial_folder(path)
 }
 
@@ -278,6 +291,9 @@ fn compute_extras(
     }
     if scanned && class == FileClass::Authored && plan.env_scan {
         out.env_tokens = scan_env_tokens(text, &ext, path.file_name());
+    }
+    if scanned && class == FileClass::Authored && plan.hier_evidence {
+        out.idents = idents::ident_hashes(text, &ext);
     }
     if plan.classify.in_managerial_folder(path) {
         out.secrets = crate::secrets::scan_secrets(text);
@@ -343,6 +359,7 @@ pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> File
         env_tokens: extras.env_tokens,
         grave: extras.grave,
         css: extras.css,
+        idents: extras.idents,
         skip,
     }
 }
@@ -454,6 +471,7 @@ fn unread_record(e: &WalkEntry, class: FileClass, skip: SkipReason, head: &[u8])
         env_tokens: Vec::new(),
         grave: None,
         css: None,
+        idents: Vec::new(),
         skip: Some(skip),
     }
 }
@@ -491,6 +509,7 @@ fn from_cache(
         env_tokens: extras.env_tokens,
         grave: extras.grave,
         css: extras.css,
+        idents: extras.idents,
         skip,
     })
 }
@@ -549,6 +568,7 @@ fn process(
                     env_tokens: rec.env_tokens.clone(),
                     grave: rec.grave.clone(),
                     css: rec.css.clone(),
+                    idents: rec.idents.clone(),
                 };
                 cache.put_extras(&rec.hash, &extras_key(fp, plan, &e.path), &extras);
             }

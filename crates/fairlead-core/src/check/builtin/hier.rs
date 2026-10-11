@@ -12,8 +12,9 @@ pub struct HierCheck;
 
 /// A container edge: from, to, why (for the cycle report), and where it is written.
 type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
-const CODES: [DiagCode; 10] = [
-    HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H007, HN_H008, HN_H009, HN_H010, HN_H023,
+const CODES: [DiagCode; 13] = [
+    HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H006, HN_H007, HN_H008, HN_H009, HN_H010,
+    HN_H011, HN_H012, HN_H023,
 ];
 
 fn at(
@@ -289,6 +290,157 @@ fn cargo_rank(
     }
 }
 
+/// R-HIER-030: the units whose `sym` is usable as evidence (at least 6 characters, unique across
+/// the declared syms), and the ambiguous ones.
+/// Units with their `sym`.
+type Syms = Vec<(ItemId, String)>;
+
+fn syms(cx: &CheckCx<'_>, m: &Model) -> (Syms, Syms) {
+    let mut all: Vec<(ItemId, String)> = m
+        .units
+        .keys()
+        .filter_map(|u| {
+            let s = cx
+                .registry
+                .item(u)
+                .and_then(|it| crate::check::builtin::field_str(it, "sym"))?;
+            Some((u.clone(), s.to_owned()))
+        })
+        .collect();
+    all.sort();
+    let (good, bad) = all.iter().cloned().partition(|(_, s)| {
+        s.len() >= crate::extract::idents::MIN_SYM
+            && all.iter().filter(|(_, t)| t == s).count() == 1
+    });
+    (good, bad)
+}
+
+/// R-HIER-030 (L1): an ambiguous `sym` suppresses the unit's evidence checks until fixed.
+fn sym_ambiguous(cx: &CheckCx<'_>, m: &Model, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    let (_, bad) = syms(cx, m);
+    for (u, s) in bad.iter().filter(|(u, _)| u.scope == *scope) {
+        let why = if s.len() < crate::extract::idents::MIN_SYM {
+            "shorter than 6 characters"
+        } else {
+            "declared by another unit too"
+        };
+        out.extend(at(
+            cx,
+            u,
+            HN_H006,
+            format!(
+                "sym {s} of {} is {why}; its evidence checks are off",
+                bare_id(u)
+            ),
+            "pick a distinctive identifier of 6 or more characters (R-HIER-030)",
+        ));
+    }
+}
+
+/// R-HIER-031 (L2): a file with `use X` that never mentions X's `sym` (`HN-H011`), and a file
+/// that mentions it without `use X` (`HN-H012`). Comments are excluded and a match is a whole
+/// identifier (`extract::idents`). Markdown registry docs carry no code and are not judged; a
+/// `use X dyn=1` declares an edge with no evidence (R-HIER-025).
+fn evidence(
+    cx: &CheckCx<'_>,
+    m: &Model,
+    files: &[&crate::path::RepoPath],
+    scope: &ScopeId,
+    out: &mut Vec<Diagnostic>,
+) {
+    use crate::extract::idents::mentions;
+    let reg = cx.registry;
+    let (good, _) = syms(cx, m);
+    let sym_of = |u: &ItemId| good.iter().find(|(x, _)| x == u).map(|(_, s)| s.as_str());
+    let code = |p: &crate::path::RepoPath| !matches!(p.extension(), "md" | "mdx");
+    let idents = |p: &crate::path::RepoPath| {
+        cx.corpus
+            .records
+            .get(p)
+            .map(|r| r.idents.as_slice())
+            .unwrap_or_default()
+    };
+    let dynamic = |e: &crate::registry::Edge| {
+        cx.corpus
+            .records
+            .get(&e.from.path)
+            .and_then(|r| r.extraction.as_ref())
+            .is_some_and(|x| {
+                x.directives.iter().any(|d| {
+                    d.verb == fairlead_syntax::directive::Verb::Use
+                        && d.span.line == e.from.span.line
+                        && d.args.iter().any(|a| a.key == "dyn")
+                })
+            })
+    };
+    let mut used: std::collections::BTreeSet<(&crate::path::RepoPath, &ItemId)> =
+        std::collections::BTreeSet::new();
+    for e in reg.edges() {
+        let Some(t) = e.resolved.as_ref().filter(|t| m.units.contains_key(*t)) else {
+            continue;
+        };
+        used.insert((&e.from.path, t));
+        if e.from.scope != *scope || !code(&e.from.path) || dynamic(e) {
+            continue;
+        }
+        let Some(sym) = e.sym.as_deref().or_else(|| sym_of(t)) else {
+            continue;
+        };
+        if !mentions(idents(&e.from.path), sym) {
+            out.push(
+                DiagB::new(
+                    HN_H011,
+                    &e.from.path,
+                    e.from.span.line,
+                    e.from.span.col,
+                    format!("use {} without its sym {sym} in this file", bare_id(t)),
+                )
+                .hint("call or import the symbol here, or drop the use; mark a dynamic call with use <id> dyn=1 (R-HIER-031)")
+                .related(bare_id(t))
+                .text(bare_id(t))
+                .build(),
+            );
+        }
+    }
+    let bound = m.bindings(reg, files);
+    for f in files
+        .iter()
+        .filter(|f| reg.scope_of(f) == Some(scope) && code(f))
+    {
+        let ids = idents(f);
+        if ids.is_empty() {
+            continue;
+        }
+        for (u, sym) in &good {
+            if mentions(ids, sym)
+                && !used.contains(&(*f, u))
+                && !bound.get(u).is_some_and(|b| b.contains(*f))
+            {
+                out.push(
+                    DiagB::new(
+                        HN_H012,
+                        f,
+                        0,
+                        0,
+                        format!(
+                            "{} mentions {sym}, the sym of {}, without use {}",
+                            f.as_str(),
+                            bare_id(u),
+                            bare_id(u)
+                        ),
+                    )
+                    .hint(
+                        "declare the edge with // fairlead: use <id> next to the call (R-HIER-031)",
+                    )
+                    .related(bare_id(u))
+                    .text(bare_id(u))
+                    .build(),
+                );
+            }
+        }
+    }
+}
+
 /// R-HIER-026, R-HIER-028, R-VAR-010, R-VAR-011: a reference to a unit from outside its
 /// visibility (`subtree`, the default: the home scope and its descendants; `public`: anywhere).
 /// Independent of rank. A qualified sideways reference to an item its scope does not provide is
@@ -508,7 +660,9 @@ impl Check for HierCheck {
             cargo_rank(h, &m, &cargo, scope, out);
             cycle_edges(&m, &edges, cargo, scope, out);
             visibility(cx, &m, scope, out);
+            evidence(cx, &m, &files, scope, out);
         }
+        sym_ambiguous(cx, &m, scope, out);
         // L1: a unit's layer, its single container and its single binding.
         for u in m.units.values().filter(|u| u.id.scope == *scope) {
             match (u.container_raw.as_slice(), &u.container) {
@@ -1111,6 +1265,63 @@ fn e() {}
         assert!(
             cyc[0].message.contains("ctr.app, ctr.core")
                 && cyc[0].message.contains("evidence=cargo")
+        );
+    }
+
+    fn evidence_world(caller: &str) -> Vec<Diagnostic> {
+        World::new()
+            .root(L2)
+            .file(
+                "src/core.rs",
+                "// fairlead: def ctr.a\nfn d() {}\n// fairlead: def un.verify layer=core.primitive container=ctr.a sym=verify_manifest\nfn verify_manifest() {}\n// fairlead: def un.tiny layer=core.primitive container=ctr.a sym=go\nfn go() {}\n",
+            )
+            .file("src/caller.rs", caller)
+            .build()
+            .run_check(&HierCheck)
+    }
+
+    #[test]
+    fn r_hier_030__sym_must_be_long_and_unique() {
+        let ds = evidence_world("fn x() {}\n");
+        let d = of(&ds, c::HN_H006);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert!(
+            d[0].message
+                .contains("sym go of un.tiny is shorter than 6 characters")
+        );
+    }
+
+    #[test]
+    fn r_hier_031__use_without_its_sym_is_no_evidence() {
+        let head = "// fairlead: def un.eng layer=core.engine container=ctr.a\n// fairlead: use un.verify\n";
+        let without = evidence_world(&format!("{head}fn e() {{ other_thing(); }}\n"));
+        let d = of(&without, c::HN_H011);
+        assert_eq!(d.len(), 1, "{without:#?}");
+        assert!(
+            d[0].message
+                .contains("use un.verify without its sym verify_manifest")
+        );
+        let with = evidence_world(&format!("{head}fn e() {{ verify_manifest(); }}\n"));
+        assert!(of(&with, c::HN_H011).is_empty(), "{with:#?}");
+        let dynamic = evidence_world(
+            "// fairlead: def un.eng layer=core.engine container=ctr.a\n// fairlead: use un.verify dyn=1\nfn e() {}\n",
+        );
+        assert!(
+            of(&dynamic, c::HN_H011).is_empty(),
+            "dyn=1 needs no evidence (R-HIER-025)"
+        );
+    }
+
+    #[test]
+    fn r_hier_031__sym_without_use_is_undeclared() {
+        let ds = evidence_world("fn e() { verify_manifest(); }\n// verify_manifest in a comment\n");
+        let d = of(&ds, c::HN_H012);
+        assert_eq!(d.len(), 1, "{ds:#?}");
+        assert_eq!(d[0].location.path.as_str(), "src/caller.rs");
+        let commented = evidence_world("// only verify_manifest in a comment\nfn e() {}\n");
+        assert!(
+            of(&commented, c::HN_H012).is_empty(),
+            "comments are excluded"
         );
     }
 

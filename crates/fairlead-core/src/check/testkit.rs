@@ -191,6 +191,9 @@ impl World {
             grave_scan: controls
                 .root_control()
                 .is_some_and(|c| c.graveyard.declared),
+            hier_evidence: controls
+                .root_control()
+                .is_some_and(|c| c.hier.settings.level.is_some_and(|l| l >= 2)),
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),

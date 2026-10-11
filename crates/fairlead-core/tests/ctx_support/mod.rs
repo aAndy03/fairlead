@@ -188,6 +188,7 @@ impl WorldBuilder {
             pattern_rules: vec![],
             env_scan: false,
             grave_scan: false,
+            hier_evidence: false,
         };
         let mut corpus = Corpus {
             records: BTreeMap::new(),

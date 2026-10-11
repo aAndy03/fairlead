@@ -506,6 +506,7 @@ pub(crate) mod testutil {
             env_tokens: vec![],
             grave: None,
             css: None,
+            idents: vec![],
             skip: None,
         }
     }
