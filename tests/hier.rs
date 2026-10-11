@@ -76,3 +76,40 @@ fn r_hier_081__coverage_ratchet_blocks_decrease() {
         dropped.stdout
     );
 }
+
+#[test]
+fn r_hier_072__sync_writes_the_suggestions_shard() {
+    let repo = RepoBuilder::new()
+        .file(
+            "src/ctr.rs",
+            "// fairlead: def cx.top\n// fairlead: def cx.leaf parent=cx.top\n// fairlead: def cx.b parent=cx.top\n// fairlead: def cx.c parent=cx.top\nfn d() {}\n",
+        )
+        .file(
+            "src/a.rs",
+            "// fairlead: def un.shared layer=core.primitive container=cx.leaf sym=shared_helper\nfn shared_helper() {}\n\n// fairlead: def un.b layer=core.engine container=cx.b\n// fairlead: use un.shared\nfn b() {\n    shared_helper();\n}\n\n// fairlead: def un.c layer=core.engine container=cx.c\n// fairlead: use un.shared\nfn c() {\n    shared_helper();\n}\n",
+        )
+        .git_init(true)
+        .build();
+    assert_eq!(repo.run(&["init", "--yes", "--as-of", AS_OF]).code, 0);
+    let ctl = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(
+        &ctl,
+        format!("{text}\n[layers.core]\nprimitive = 10\nengine = 30\n\n[kinds.cx]\nshape = \"code\"\n\n[kinds.un]\nlayers = [\"core.*\"]\n\n[hier]\nlevel = 2\npromote = {{ fan-in-containers = 2 }}\n"),
+    )
+    .unwrap();
+    let sync = repo.run(&["sync", "--as-of", AS_OF]);
+    assert_eq!(sync.code, 0, "{}{}", sync.stdout, sync.stderr);
+    let shard = std::fs::read_to_string(repo.path().join("fairlead/gen/hier.suggest")).unwrap();
+    assert!(
+        shard.contains("promote un.shared to=cx.top -- used from 2 containers"),
+        "{shard}"
+    );
+    let check = check(&repo);
+    assert_eq!(
+        check.code, 0,
+        "suggestions never fail the run: {}",
+        check.stdout
+    );
+    assert!(!check.stdout.contains("HN-G00"), "{}", check.stdout);
+}

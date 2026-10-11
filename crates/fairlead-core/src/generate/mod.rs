@@ -41,6 +41,9 @@ pub enum GenKind {
     /// `changelog.file`: the aggregate of the version files (R-VER-053), a Markdown file whose
     /// header line is an HTML comment.
     Changelog,
+    /// `gen/hier.suggest`: the hierarchy refactor suggestions of a scope (R-HIER-072), written
+    /// only when the root's `[hier] level` is 2 or more and the scope has suggestions.
+    Suggest,
 }
 
 /// One generated file. `body` is the sorted terse lines, each ending in `\n`, without the header.
@@ -336,6 +339,14 @@ pub fn generate(
         .and_then(|c| crate::version::Version::parse(&c.version.start))
         .unwrap_or(crate::version::Version::new(0, 1, 0));
     let sealed = crate::docs::line_of(corpus, &folder, start).sealed;
+    let suggestions = crate::hier::config(reg)
+        .filter(|h| h.settings.level.is_some_and(|l| l >= 2))
+        .map(|h| {
+            let m = crate::hier::Model::build(reg);
+            let paths: Vec<&RepoPath> = corpus.records.keys().collect();
+            let edges = m.edges(reg, &paths);
+            m.suggestions(reg, &edges, h)
+        });
 
     for scope in reg.scopes() {
         if !matches!(scope.state, ScopeState::Resolved) {
@@ -470,6 +481,21 @@ pub fn generate(
                 GenKind::ScopeLock,
                 crate::merkle::scope_lock_body(s, &crate::merkle::ancestor_digest(reg, &scope.id)),
             );
+        }
+
+        // 3d. hierarchy suggestions (R-HIER-072), only at level 2 and when there are any
+        if let Some(sg) = suggestions.as_ref() {
+            let body = crate::hier::suggest_body(sg, &scope.id);
+            if !body.is_empty() {
+                put(
+                    &mut files,
+                    dir,
+                    &format!("{folder}/{gen_dir}/hier.suggest"),
+                    &scope.id,
+                    GenKind::Suggest,
+                    body,
+                );
+            }
         }
 
         // 4. vendor lock (R-FILE-040)

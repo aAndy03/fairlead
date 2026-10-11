@@ -254,6 +254,168 @@ impl Model {
     }
 }
 
+/// A refactor suggestion (R-HIER-071, R-HIER-072): info, never a failing finding.
+#[derive(Clone, PartialEq, Eq, Debug, PartialOrd, Ord)]
+pub struct Suggestion {
+    pub word: &'static str,
+    pub unit: ItemId,
+    /// The proposed target (a container for `promote`, a layer for `demote`), or empty.
+    pub to: String,
+    pub why: String,
+}
+
+impl Model {
+    /// The suggestions that need no seal history: `promote` (a leaf-container unit used from at
+    /// least `fan-in-containers` other containers, to their lowest common ancestor), `demote` (a
+    /// unit declared more than one layer above its implied layer, R-HIER-070; never for
+    /// `vis=public` or `etype=export`) and `split` (a unit whose edges reach at least
+    /// `fan-in-containers` other containers). `merge` and the seal-count `demote` need the
+    /// per-seal records of P2.
+    pub fn suggestions(
+        &self,
+        reg: &Registry,
+        edges: &[UnitEdge],
+        h: &HierConfig,
+    ) -> Vec<Suggestion> {
+        let k = usize::try_from(h.settings.promote.fan_in_containers)
+            .unwrap_or(usize::MAX)
+            .max(1);
+        let ctr = |u: &ItemId| self.units.get(u).and_then(|x| x.container.clone());
+        let parents: BTreeSet<&ItemId> = self
+            .containers
+            .values()
+            .filter_map(|c| c.parent.as_ref())
+            .collect();
+        let field = |u: &ItemId, key: &str| reg.item(u).and_then(|it| scalar(it, key));
+        let mut out = Vec::new();
+        for u in self.units.values() {
+            let own = ctr(&u.id);
+            let consumers: BTreeSet<ItemId> = edges
+                .iter()
+                .filter(|e| e.to == u.id)
+                .filter_map(|e| ctr(&e.from))
+                .filter(|c| Some(c) != own.as_ref())
+                .collect();
+            if let Some(leaf) = own.as_ref().filter(|c| !parents.contains(c))
+                && consumers.len() >= k
+            {
+                let lineage = |c: &ItemId| {
+                    let mut v = vec![c.clone()];
+                    v.extend(self.ancestors(c).unwrap_or_default());
+                    v
+                };
+                let mine = lineage(leaf);
+                let lca = mine
+                    .iter()
+                    .skip(1)
+                    .find(|a| consumers.iter().all(|c| lineage(c).contains(a)));
+                out.push(Suggestion {
+                    word: "promote",
+                    unit: u.id.clone(),
+                    to: lca
+                        .map(|c| format!("{}.{}", c.kind.as_str(), c.name.as_str()))
+                        .unwrap_or_default(),
+                    why: format!(
+                        "used from {} containers while in a leaf container",
+                        consumers.len()
+                    ),
+                });
+            }
+            let targets: BTreeSet<ItemId> = edges
+                .iter()
+                .filter(|e| e.from == u.id)
+                .filter_map(|e| ctr(&e.to))
+                .filter(|c| Some(c) != own.as_ref())
+                .collect();
+            if targets.len() >= k {
+                out.push(Suggestion {
+                    word: "split",
+                    unit: u.id.clone(),
+                    to: String::new(),
+                    why: format!("its edges reach {} other containers", targets.len()),
+                });
+            }
+            let exported = field(&u.id, "vis").as_deref() == Some("public")
+                || field(&u.id, "etype").as_deref() == Some("export");
+            if let Some(implied) = self.implied_layer(&u.id, edges, h)
+                && !exported
+                && let Some(declared) = u.layer.as_deref()
+                && let (Some((ld, rd)), Some((li, ri))) = (h.rank(declared), h.rank(&implied))
+                && ld == li
+            {
+                let ranks: Vec<u32> = h
+                    .ladders
+                    .get(ld)
+                    .map(|m| {
+                        let mut v: Vec<u32> = m.values().copied().collect();
+                        v.sort_unstable();
+                        v
+                    })
+                    .unwrap_or_default();
+                let pos = |r: u32| ranks.iter().position(|x| *x == r);
+                if let (Some(pd), Some(pi)) = (pos(rd), pos(ri))
+                    && pd > pi + 1
+                {
+                    out.push(Suggestion {
+                        word: "demote",
+                        unit: u.id.clone(),
+                        to: implied,
+                        why: format!("declared {declared}, more than one layer above what it uses"),
+                    });
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// R-HIER-070: the layer above the highest layer a unit uses in its own ladder; the lowest
+    /// layer when it uses nothing there.
+    pub fn implied_layer(&self, u: &ItemId, edges: &[UnitEdge], h: &HierConfig) -> Option<String> {
+        let (ladder, _) = h.rank(self.units.get(u)?.layer.as_deref()?)?;
+        let ranks = h.ladders.get(ladder)?;
+        let mut by_rank: Vec<(&u32, &String)> = ranks.iter().map(|(n, r)| (r, n)).collect();
+        by_rank.sort();
+        let top = edges
+            .iter()
+            .filter(|e| e.from == *u)
+            .filter_map(|e| self.units.get(&e.to)?.layer.as_deref())
+            .filter_map(|l| h.rank(l))
+            .filter(|(l, _)| *l == ladder)
+            .map(|(_, r)| r)
+            .max();
+        let next = match top {
+            None => by_rank.first(),
+            Some(t) => by_rank.iter().find(|(r, _)| **r > t).or(by_rank.last()),
+        }?;
+        Some(format!("{ladder}.{}", next.1))
+    }
+}
+
+/// The `gen/hier.suggest` shard of one scope (R-HIER-072): one line per suggestion of its units.
+pub fn suggest_body(s: &[Suggestion], scope: &crate::registry::ScopeId) -> String {
+    let mut lines: Vec<String> = s
+        .iter()
+        .filter(|x| x.unit.scope == *scope)
+        .map(|x| {
+            let to = if x.to.is_empty() {
+                String::new()
+            } else {
+                format!(" to={}", x.to)
+            };
+            format!(
+                "{} {}.{}{to} -- {}\n",
+                x.word,
+                x.unit.kind.as_str(),
+                x.unit.name.as_str(),
+                x.why
+            )
+        })
+        .collect();
+    lines.sort();
+    lines.concat()
+}
+
 /// Strongly connected components with more than one node (Tarjan), each sorted, in the order of
 /// their smallest node. Deterministic: nodes and successors are visited in `Ord` order.
 pub fn cycles<T: Ord + Clone>(graph: &BTreeMap<T, BTreeSet<T>>) -> Vec<Vec<T>> {

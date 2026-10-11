@@ -12,9 +12,9 @@ pub struct HierCheck;
 
 /// A container edge: from, to, why (for the cycle report), and where it is written.
 type ContainerEdge = (ItemId, ItemId, String, (crate::path::RepoPath, u32, u32));
-const CODES: [DiagCode; 14] = [
+const CODES: [DiagCode; 17] = [
     HN_H001, HN_H002, HN_H003, HN_H004, HN_H005, HN_H006, HN_H007, HN_H008, HN_H009, HN_H010,
-    HN_H011, HN_H012, HN_H017, HN_H023,
+    HN_H011, HN_H012, HN_H013, HN_H014, HN_H015, HN_H017, HN_H023,
 ];
 
 fn at(
@@ -783,6 +783,29 @@ impl Check for HierCheck {
             visibility(cx, &m, scope, out);
             evidence(cx, &m, &files, scope, out);
             maturity(cx, &edges, scope, out);
+            for sg in m
+                .suggestions(cx.registry, &edges, h)
+                .iter()
+                .filter(|x| x.unit.scope == *scope)
+            {
+                let code = match sg.word {
+                    "promote" => HN_H013,
+                    "demote" => HN_H014,
+                    _ => HN_H015,
+                };
+                let to = if sg.to.is_empty() {
+                    String::new()
+                } else {
+                    format!(" to {}", sg.to)
+                };
+                out.extend(at(
+                    cx,
+                    &sg.unit,
+                    code,
+                    format!("suggest {} {}{to}: {}", sg.word, bare_id(&sg.unit), sg.why),
+                    "a suggestion only; sync lists them in gen/hier.suggest (R-HIER-072)",
+                ));
+            }
         }
         sym_ambiguous(cx, &m, scope, out);
         // L1: a unit's layer, its single container and its single binding.
@@ -1539,6 +1562,74 @@ fn app() {
                     .contains("reaches prod where un.lib does not exist"),
             "{}",
             d[0].message
+        );
+    }
+
+    #[test]
+    fn r_hier_071__promote_split_and_demote_are_suggested() {
+        let mut root = L2.replace(
+            "level = 2
+",
+            "level = 2
+promote = { fan-in-containers = 2 }
+",
+        );
+        root.push_str(
+            "[kinds.cx]
+shape = \"code\"
+",
+        );
+        let ds = World::new()
+            .root(&root)
+            .file(
+                "src/ctr.rs",
+                "// fairlead: def cx.top
+// fairlead: def cx.leaf parent=cx.top
+// fairlead: def cx.b parent=cx.top
+// fairlead: def cx.c parent=cx.top
+fn d() {}
+",
+            )
+            .file(
+                "src/a.rs",
+                &[
+                    unit("un.shared", "core.primitive", "cx.leaf", "", &[]),
+                    unit("un.b", "core.engine", "cx.b", "", &["un.shared"]),
+                    unit("un.c", "core.engine", "cx.c", "", &["un.shared"]),
+                    unit("un.hub", "core.service", "cx.top", "", &["un.b", "un.c"]),
+                    unit("un.lofty", "core.service", "cx.top", "", &[]),
+                    unit("un.api", "core.service", "cx.top", " vis=public", &[]),
+                ]
+                .concat(),
+            )
+            .build()
+            .run_check(&HierCheck);
+        let p = of(&ds, c::HN_H013);
+        assert_eq!(p.len(), 1, "{ds:#?}");
+        assert!(
+            p[0].message.contains("promote un.shared to cx.top"),
+            "{}",
+            p[0].message
+        );
+        assert!(
+            of(&ds, c::HN_H015)
+                .iter()
+                .any(|d| d.message.contains("split un.hub"))
+        );
+        let d = of(&ds, c::HN_H014);
+        assert!(
+            d.iter()
+                .any(|x| x.message.contains("demote un.lofty to core.primitive")),
+            "{d:#?}"
+        );
+        assert!(
+            !d.iter().any(|x| x.message.contains("un.api")),
+            "vis=public is never demoted (R-HIER-072)"
+        );
+        assert!(
+            ds.iter()
+                .filter(|x| [c::HN_H013, c::HN_H014, c::HN_H015].contains(&x.code))
+                .all(|x| x.severity == fairlead_syntax::diag::Severity::Info)
         );
     }
 
