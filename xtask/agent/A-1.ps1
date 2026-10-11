@@ -5,13 +5,14 @@
 # recorded exception as stale, expired or live. Pass: stale or expired at most 30%.
 #
 #   cargo build --release -p fairlead
-#   powershell -File xtask\agent\A-1.ps1 -Repos <url-or-path>,<url-or-path>,<url-or-path> `
+#   powershell -File xtask\agent\A-1.ps1 -Repos "<url>,<url>,<url>" `
 #       -Bin target\release\fairlead.exe [-Weeks 8] [-PerWeek 5] [-Seed 1] [-Start 2026-10-12]
 #
 # Cloning the three repositories downloads them; whoever starts the run approves that. Subject
 # sessions run with --auto inside a copy outside this repository and see only that copy.
 param(
-    [Parameter(Mandatory)][string[]]$Repos,
+    # One comma-separated string, quoted on the command line: "url1,url2,url3".
+    [Parameter(Mandatory)][string]$Repos,
     [Parameter(Mandatory)][string]$Bin,
     [string]$Tasks = '',
     [int]$Weeks = 8,
@@ -24,8 +25,8 @@ param(
 # Windows PowerShell 5.1 leaves $PSScriptRoot empty in parameter defaults, so the default is set
 # here; and `powershell -File` passes `a,b,c` as one string, so the list is split here.
 if (-not $Tasks) { $Tasks = Join-Path $PSScriptRoot 'a1-tasks.json' }
-$Repos = @($Repos | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-if ($Repos.Count -ne 3) { throw 'A-1 runs on exactly three repositories (TS/React, Rust, mixed)' }
+$RepoList = @($Repos | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if ($RepoList.Count -ne 3) { throw 'A-1 runs on exactly three repositories (TS/React, Rust, mixed)' }
 $bin = (Resolve-Path $Bin).Path
 $env:PATH = (Split-Path -Parent $bin) + [System.IO.Path]::PathSeparator + $env:PATH
 $run = New-RunDir 'A-1'
@@ -52,7 +53,7 @@ function FL([string]$Dir, [string[]]$A) {
 }
 
 $repoDirs = @()
-foreach ($src in (Get-Shuffled $Repos $Seed)) {
+foreach ($src in (Get-Shuffled $RepoList $Seed)) {
     $rid = Get-OpaqueId $Seed "repo|$src"
     $map += "$rid,repo,$src,"
     $dir = Join-Path $run "work\$rid"
