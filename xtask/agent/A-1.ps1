@@ -5,27 +5,44 @@
 # recorded exception as stale, expired or live. Pass: stale or expired at most 30%.
 #
 #   cargo build --release -p fairlead
-#   powershell -File xtask\agent\A-1.ps1 -Repos "<url>,<url>,<url>" `
-#       -Bin target\release\fairlead.exe [-Weeks 8] [-PerWeek 5] [-Seed 1] [-Start 2026-10-12]
+#   powershell -ExecutionPolicy Bypass -File xtask\agent\A-1.ps1
+#
+# Defaults: the three repositories below and target\release\fairlead.exe. Other repositories go in
+# -Repos, comma-separated; any spelling a shell produces (one string, an array, separate words) is
+# accepted. Optional: -Weeks 8 -PerWeek 5 -Seed 1 -Start 2026-10-12.
 #
 # Cloning the three repositories downloads them; whoever starts the run approves that. Subject
 # sessions run with --auto inside a copy outside this repository and see only that copy.
 param(
-    # One comma-separated string, quoted on the command line: "url1,url2,url3".
-    [Parameter(Mandatory)][string]$Repos,
-    [Parameter(Mandatory)][string]$Bin,
+    [string[]]$Repos = @(),
+    [string]$Bin = '',
     [string]$Tasks = '',
     [int]$Weeks = 8,
     [int]$PerWeek = 5,
     [int]$Seed = 1,
-    [string]$Start = '2026-10-12'
+    [string]$Start = '2026-10-12',
+    # Print what would run, then stop.
+    [switch]$Check,
+    # Words after the known parameters (a list a shell split apart) are more repositories.
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$More = @()
 )
 . "$PSScriptRoot\common.ps1"
 
-# Windows PowerShell 5.1 leaves $PSScriptRoot empty in parameter defaults, so the default is set
-# here; and `powershell -File` passes `a,b,c` as one string, so the list is split here.
+# Windows PowerShell 5.1 leaves $PSScriptRoot empty in parameter defaults, so defaults are set here.
 if (-not $Tasks) { $Tasks = Join-Path $PSScriptRoot 'a1-tasks.json' }
-$RepoList = @($Repos | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+if (-not $Bin) { $Bin = Join-Path (Get-RepoRoot) 'target\release\fairlead.exe' }
+$RepoList = @(@($Repos) + @($More) | ForEach-Object { "$_" -split '[,\s]+' } | Where-Object { $_ })
+if ($RepoList.Count -eq 0) {
+    # Suggested on 2026-10-11: a TypeScript/React, a Rust and a mixed (Rust, TypeScript, Python) project.
+    $RepoList = @('https://github.com/pmndrs/zustand', 'https://github.com/sharkdp/hyperfine', 'https://github.com/ast-grep/ast-grep')
+}
+if (-not (Test-Path $Bin)) { throw "no fairlead binary at $Bin; run: cargo build --release -p fairlead" }
+if ($Check) {
+    Write-Host "repositories: $($RepoList -join ' | ')"
+    Write-Host "fairlead: $Bin"
+    Write-Host "weeks: $Weeks x $PerWeek tasks, seed $Seed, from $Start"
+    return
+}
 if ($RepoList.Count -ne 3) { throw 'A-1 runs on exactly three repositories (TS/React, Rust, mixed)' }
 $bin = (Resolve-Path $Bin).Path
 $env:PATH = (Split-Path -Parent $bin) + [System.IO.Path]::PathSeparator + $env:PATH

@@ -1,4 +1,4 @@
-# Agent protocol runners (0.2)
+﻿# Agent protocol runners (0.2)
 
 Runners for the agent protocols of [docs/plans/agent-runbook.md](../../docs/plans/agent-runbook.md)
 (decision D-59). Windows PowerShell 5.1 or later, `opencode` on the PATH. Each sample is a fresh
@@ -9,7 +9,7 @@ repository; only their hashes are recorded.
 
 | Script | Protocol | Run it |
 |---|---|---|
-| `A-1.ps1` | eight-week pilot on three public repositories | `-Repos a,b,c -Bin target\release\fairlead.exe` (clones the repositories) |
+| `A-1.ps1` | eight-week pilot on three public repositories | no arguments needed: three suggested repositories and the release build; `-Check` shows what would run (clones the repositories) |
 | `A-2.ps1` | label the coverage-replay CSV | after `cargo xtask coverage-replay`; `-Csv <csv> -Repo <path>` |
 | `A-3.ps1` | threshold amendment draft | after A-1 and A-2; `-A1 <result.md> -A2 <result.md>` |
 | `A-4.ps1` | changelog review | after the release seal, before the owner tags |
