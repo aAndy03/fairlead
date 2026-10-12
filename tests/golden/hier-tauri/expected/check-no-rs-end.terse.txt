@@ -1,4 +1,4 @@
-fairlead check 0.2.2 edition=1 as-of=2026-10-12 scopes=1 files=13 rules=0
+fairlead check 0.3.0 edition=1 as-of=2026-10-12 scopes=1 files=13 rules=0
 errors 2 warn 1 info 0 | baselined 0 | waived 0 | observe 0 | accepted 0
 HN-H021 error fairlead/decl/bridges.md:2:16 bridge brg.sync-run: the rs end src-tauri/src/commands.rs does not exist | fix: fix the path, or restore the file (R-HIER-062)
 HN-G001 error fairlead/gen/reg/un.reg generated file differs from sync output: -un.sync-cmd pol=needs-exception container=ctr.cmds layer=co | fix: run fairlead sync

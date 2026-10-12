@@ -1,7 +1,7 @@
 +++
 id = "d-a23srma6"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "add"
 scope = "root"
 title = "Hierarchy: entries, reachability and bridges"

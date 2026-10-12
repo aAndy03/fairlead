@@ -1,4 +1,4 @@
-fairlead check 0.2.2 edition=1 as-of=2026-10-12 scopes=1 files=14 rules=0
+fairlead check 0.3.0 edition=1 as-of=2026-10-12 scopes=1 files=14 rules=0
 errors 4 warn 1 info 0 | baselined 0 | waived 0 | observe 3 | accepted 0
 HN-H007 error crates/engine/Cargo.toml container ctr.engine (up to core.engine) depends on ctr.service (up to core.service): crate crates/engine depends on crates/service (evidence=cargo) | fix: move the shared part into a lower container, or invert the dependency (R-HIER-027)
 HN-H007 error crates/service/src/lib.rs:3:4 un.service (core.service) uses un.shell (core.shell): core.shell is reached only from entries (R-HIER-006) | fix: invert it through a lower port that this side implements, or waive rule.hier-rank with until= (R-HIE

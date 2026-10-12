@@ -1,11 +1,11 @@
 +++
 id = "d-q7a1rz3b"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "fix"
 scope = "root"
 title = "0.3 quality checks and the v1 API snapshot"
-covers = ["crates/**", "tests/**", "xtask/**", "docs/**", ".github/workflows/**"]
+covers = ["Cargo.toml", "crates/**", "tests/**", "xtask/**", "docs/**", ".github/workflows/**"]
 created = "0.2.3"
 +++
 

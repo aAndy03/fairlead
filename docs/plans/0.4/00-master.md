@@ -96,9 +96,9 @@ P1 is first: every other phase reads objects, and the benchmarks gate the design
 
 | # | Question | Recommended default |
 |---|---|---|
-| Q4-4 | Allow the tree-sitter core and grammar crates (new downloads) and the MSRV rise to 1.90 at the start of P1? | Yes, after the weekly gate of 0.3 (E3-36) has passed once. |
-| Q4-5 | Allow `rmcp` for the MCP transport (G-1)? | Yes, in P9, pinned to an exact minor; the tool surface does not change. |
-| Q4-6 | The `query` rule language: a small path-and-predicate syntax in TOML strings, or structured TOML tables? | Structured TOML tables, with a one-line string form for the simple cases (P5-T1 writes both and the owner picks). |
-| Q4-7 | Publish `fairlead-mcp` on crates.io from 0.4? | Yes, beside the three crates. |
+| Q4-4 | Allow the tree-sitter core and grammar crates (new downloads) and the MSRV rise to 1.90 at the start of P1? | Yes, after the weekly gate of 0.3 (E3-36) has passed once. (answered yes, E4-1) |
+| Q4-5 | Allow `rmcp` for the MCP transport (G-1)? | Yes, in P9, pinned to an exact minor; the tool surface does not change. (answered yes, E4-1) |
+| Q4-6 | The `query` rule language: a small path-and-predicate syntax in TOML strings, or structured TOML tables? | Structured TOML tables, with a one-line string form for the simple cases (P5-T1 writes both and the owner picks). (answered: tables first, E4-1) |
+| Q4-7 | Publish `fairlead-mcp` on crates.io from 0.4? | Yes, beside the three crates. (answered yes, E4-1) |
 
 Q4-1 to Q4-3 were answered in D-64.

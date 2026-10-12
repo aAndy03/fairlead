@@ -1,7 +1,7 @@
 +++
 id = "d-r5tq9mcx"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "add"
 scope = "root"
 title = "Retention and compaction"

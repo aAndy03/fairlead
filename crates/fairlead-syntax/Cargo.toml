@@ -6,6 +6,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+exclude = ["fairlead/"]   # the crate's managerial folder is not shipped (HN-M009, R-PORT-054)
 repository.workspace = true
 readme = "README.md"
 keywords.workspace = true

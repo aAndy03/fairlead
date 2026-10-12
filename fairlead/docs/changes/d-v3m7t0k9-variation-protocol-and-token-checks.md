@@ -1,7 +1,7 @@
 +++
 id = "d-v3m7t0k9"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "add"
 scope = "root"
 title = "Variation protocol and richer token checks"

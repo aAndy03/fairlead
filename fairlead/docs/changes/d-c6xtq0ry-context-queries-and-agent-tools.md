@@ -1,7 +1,7 @@
 +++
 id = "d-c6xtq0ry"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "add"
 scope = "root"
 title = "Context queries and agent tools"

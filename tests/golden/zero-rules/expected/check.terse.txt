@@ -1,4 +1,4 @@
-fairlead check 0.2.2 edition=1 as-of=2026-10-09 scopes=1 files=4 rules=0
+fairlead check 0.3.0 edition=1 as-of=2026-10-09 scopes=1 files=4 rules=0
 errors 0 warn 0 info 1 | baselined 0 | waived 0 | observe 0 | accepted 0
 HN-N001 info fairlead/control.toml 0 rules declared, 0 IDs: nothing verified | fix: declare a rule or an ID: fairlead new rule, fairlead new <kind>
 waivers: none | relaxations: none

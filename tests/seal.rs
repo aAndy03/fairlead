@@ -15,6 +15,12 @@ use testkit::{RepoBuilder, TempRepo};
 
 const AS_OF: &str = "2026-10-10";
 
+/// The pin `init` writes: the running version's major.minor.
+fn pin() -> String {
+    let v = env!("CARGO_PKG_VERSION");
+    v[..v.rfind('.').unwrap()].to_string()
+}
+
 fn ready_repo() -> TempRepo {
     let repo = RepoBuilder::new()
         .file("src/a.rs", "fn a() {}\n")
@@ -606,7 +612,7 @@ fn r_edn_006__lowered_pin_is_relaxation_without_approval() {
     );
     let version = std::fs::read_to_string(repo.path().join("fairlead/versions/0.1.0.md")).unwrap();
     assert!(
-        version.contains("edition = 1\nfairlead-version = \"0.2\"\n"),
+        version.contains(&format!("edition = 1\nfairlead-version = \"{}\"\n", pin())),
         "{version}"
     );
     repo.git(&["add", "-A"]);
@@ -615,14 +621,17 @@ fn r_edn_006__lowered_pin_is_relaxation_without_approval() {
     let text = std::fs::read_to_string(&control).unwrap();
     std::fs::write(
         &control,
-        text.replace("fairlead-version = \"0.2\"", "fairlead-version = \"0.0\""),
+        text.replace(
+            &format!("fairlead-version = \"{}\"", pin()),
+            "fairlead-version = \"0.0\"",
+        ),
     )
     .unwrap();
     let check = repo.run(&["check", "--as-of", AS_OF]);
     assert!(
         check
             .stdout
-            .contains("pin fairlead-version=0.0 (sealed 0.2)"),
+            .contains(&format!("pin fairlead-version=0.0 (sealed {})", pin())),
         "{}{}",
         check.stdout,
         check.stderr
@@ -834,7 +843,10 @@ fn r_agt_014__since_flags_pin_decrease_and_ovr_changes() {
     let text = std::fs::read_to_string(&control).unwrap();
     std::fs::write(
         &control,
-        text.replace("fairlead-version = \"0.2\"", "fairlead-version = \"0.0\""),
+        text.replace(
+            &format!("fairlead-version = \"{}\"", pin()),
+            "fairlead-version = \"0.0\"",
+        ),
     )
     .unwrap();
     std::fs::write(
