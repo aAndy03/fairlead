@@ -134,7 +134,7 @@ fn ledger_continuity(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
         let mut push = |line: u32, msg: String| {
             out.push(
                 DiagB::new(HN_G003, path, line, 1, msg.clone())
-                    .hint("a ledger is never edited by hand; reseal the later seal (fairlead seal --reseal) or restore the file from git")
+                    .hint("reseal the later seal (fairlead seal --reseal) or restore the ledger from git; never edit it")
                     .text(msg)
                     .build(),
             );
@@ -275,7 +275,7 @@ fn incomplete_writes(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
                 out.push(
                     DiagB::new(HN_V005, path, line, 1, msg.clone())
                         .hint(
-                            "if a seal was interrupted, run fairlead seal again; if a seal commit was cherry-picked or merged alone, take its change docs instead, or restore the ledger from git",
+                            "rerun an interrupted seal; for a seal commit picked alone, take its docs or restore the ledger",
                         )
                         .text(msg)
                         .build(),

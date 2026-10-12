@@ -147,7 +147,7 @@ fn unsatisfied(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
         } else {
             out.push(
                 DiagB::new(HN_M005, lock.0, 0, 0, format!("required {id} is not provided here (UNSATISFIED)"))
-                    .hint("declare it in an ancestor, mark the scope portable before moving it, or drop the requirement (R-PORT-041)")
+                    .hint("provide it from an ancestor, make the scope portable first, or drop the requirement (R-PORT-041)")
                     .text(id)
                     .build(),
             );

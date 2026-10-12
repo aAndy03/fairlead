@@ -31,7 +31,9 @@ impl Check for VendorCheck {
                     1,
                     format!("the {id} region lost its anchors (it was at line {line} in HEAD)"),
                 )
-                .hint("restore the `def foreign.<tool> +end ... end` comments around the tool's text; the declarations in the managerial folder are unaffected")
+                .hint(
+                    "restore the `def foreign.<tool> +end ... end` comments around the tool's text",
+                )
                 .text(id.clone())
                 .build(),
             );

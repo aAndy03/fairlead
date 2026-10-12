@@ -62,7 +62,8 @@ fn claims(cx: &CheckCx<'_>, m: &Model, c: &ItemId) -> Vec<String> {
 }
 
 /// R-HIER-034: every verdict on `use` edges is a lower bound until an import extractor exists.
-pub(crate) const LOWER_BOUND: &str = "a lower bound: declared edges only (R-HIER-034)";
+/// It ends the message, not the hint, so a capped terse hint never cuts it off.
+pub(crate) const LOWER_BOUND: &str = " (a lower bound: declared edges only, R-HIER-034)";
 
 /// R-HIER-002, R-HIER-005, R-HIER-006, R-HIER-020, R-HIER-023: the direction of each `use` edge.
 fn rank_edges(
@@ -91,9 +92,9 @@ fn rank_edges(
         let edge = format!("{} ({ls}) uses {} ({lt})", bare_id(&e.from), bare_id(&e.to));
         if let Some(why) = edge_problem(h, ls, lt, su.container == tu.container) {
             out.push(
-                DiagB::new(HN_H007, &e.path, e.line, e.col, format!("{edge}: {why}"))
+                DiagB::new(HN_H007, &e.path, e.line, e.col, format!("{edge}: {why}{LOWER_BOUND}"))
                     .rule("hier-rank")
-                    .hint(format!("invert it through a lower port that this side implements, or waive rule.hier-rank with until= (R-HIER-024); {LOWER_BOUND}"))
+                    .hint("invert it through a lower port, or waive rule.hier-rank with until= (R-HIER-024)")
                     .related(bare_id(&e.to))
                     .text(bare_id(&e.to))
                     .build(),
@@ -135,9 +136,9 @@ fn cycle_edges(
                     &e.path,
                     e.line,
                     e.col,
-                    format!("units in a use cycle: {}", names.join(", ")),
+                    format!("units in a use cycle: {}{LOWER_BOUND}", names.join(", ")),
                 )
-                .hint(format!("the unit graph must be a DAG: extract the shared part into a lower unit, or invert one edge (R-HIER-021); {LOWER_BOUND}"))
+                .hint("extract the shared part into a lower unit, or invert one edge; units form a DAG (R-HIER-021)")
                 .related(bare_id(first))
                 .text(bare_id(first))
                 .build(),
@@ -187,15 +188,15 @@ fn cycle_edges(
                 *line,
                 *col,
                 format!(
-                    "containers in a cycle: {}; caused by {}",
+                    "containers in a cycle: {}; caused by {}{LOWER_BOUND}",
                     names.join(", "),
                     why.join(", ")
                 ),
             )
             .rule("hier-cycle")
-            .hint(format!(
-                "extract the shared piece into a lower container (R-HIER-022), or waive rule.hier-cycle with until= while it is transitional (R-HIER-103); {LOWER_BOUND}"
-            ))
+            .hint(
+                "move the shared piece to a lower container, or waive rule.hier-cycle until= (R-HIER-022)"
+            )
             .related(bare_id(first))
             .text(bare_id(first))
             .build(),
@@ -437,8 +438,8 @@ fn entries(
             cx,
             &u.id,
             HN_H018,
-            format!("{} is reached by no entry", bare_id(&u.id)),
-            &format!("declare an entry that reaches it, use it from a reached unit, or retire it (R-HIER-041); {LOWER_BOUND}"),
+            format!("{} is reached by no entry{LOWER_BOUND}", bare_id(&u.id)),
+            "declare an entry that reaches it, use it from a reached unit, or retire it (R-HIER-041)",
         ));
     }
 }
@@ -489,7 +490,7 @@ fn bridges(cx: &CheckCx<'_>, m: &Model, scope: &ScopeId, out: &mut Vec<Diagnosti
                 &b.id,
                 HN_H021,
                 format!("bridge {id} declares no {}", missing.join(", ")),
-                "a bridge declares proto, dir, wire, ver, params and one ts= and one rs= end as path#symbol (R-HIER-060)",
+                "declare proto, dir, wire, ver, params, one ts= and one rs= end as path#symbol (R-HIER-060)",
             ));
         }
         let ver = b.get("ver");
@@ -905,7 +906,7 @@ fn evidence(
                     e.from.span.col,
                     format!("use {} without its sym {sym} in this file", bare_id(t)),
                 )
-                .hint("call or import the symbol here, or drop the use; mark a dynamic call with use <id> dyn=1 (R-HIER-031)")
+                .hint("call or import the symbol here, drop the use, or mark a dynamic call dyn=1 (R-HIER-031)")
                 .related(bare_id(t))
                 .text(bare_id(t))
                 .build(),
@@ -1261,7 +1262,7 @@ impl Check for HierCheck {
                 {
                     out.push(
                         DiagB::new(HN_H003, f, 0, 0, format!("{p} is governed but bound to no container or unit"))
-                            .hint("cover it with a container's path= claim or a unit's def, or list it in [hier] unbound-ok (R-HIER-051)")
+                            .hint("claim it with a container path= or a unit def, or list it in [hier] unbound-ok (R-HIER-051)")
                             .text(p.to_owned())
                             .build(),
                     );
@@ -1418,7 +1419,7 @@ impl Check for HierCheck {
                     &u.id,
                     HN_H005,
                     format!("{} binds no file", bare_id(&u.id)),
-                    "bind it with a code def next to its symbol or a path= that matches files, or mark it st=proposed (R-HIER-052)",
+                    "bind it with a def next to its symbol or a matching path=, or mark it st=proposed (R-HIER-052)",
                 ));
             }
             if u.container_raw.len() > 1 {
@@ -1781,7 +1782,7 @@ level = 2
             "{}",
             up[0].message
         );
-        assert!(up[0].hint.contains("lower bound"), "R-HIER-034");
+        assert!(up[0].message.contains("lower bound"), "R-HIER-034");
         // R-HIER-024: an upward edge is waived under the named built-in rule.hier-rank.
         let w = World::new().root(L2).build();
         let rules = crate::check::RuleSet::collect(&w.registry);
@@ -1835,7 +1836,7 @@ level = 2
             "{}",
             d[0].message
         );
-        assert!(d[0].hint.contains("lower bound"));
+        assert!(d[0].message.contains("lower bound"));
     }
 
     #[test]
@@ -2108,7 +2109,7 @@ fn e() {}
         for code in [c::HN_H007, c::HN_H008] {
             let d = of(&ds, code);
             assert!(
-                !d.is_empty() && d.iter().all(|x| x.hint.contains("lower bound")),
+                !d.is_empty() && d.iter().all(|x| x.message.contains("lower bound")),
                 "{ds:#?}"
             );
         }
@@ -2315,7 +2316,7 @@ directives = ['def grp.unnamed']
         assert_eq!(d.len(), 1, "{ds:#?}");
         assert!(
             d[0].message.contains("un.lonely is reached by no entry")
-                && d[0].hint.contains("lower bound")
+                && d[0].message.contains("lower bound")
         );
     }
 

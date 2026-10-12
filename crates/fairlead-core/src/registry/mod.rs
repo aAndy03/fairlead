@@ -174,6 +174,13 @@ impl Dg {
     }
     pub(crate) fn hint(mut self, h: impl Into<String>) -> Dg {
         self.0.hint = h.into();
+        // R-CHK-035: a fix hint is at most 100 characters; every unit test that builds one checks it.
+        #[cfg(test)]
+        assert!(
+            self.0.hint.chars().count() <= crate::render::sanitize::FIX_CAP,
+            "fix hint over 100 characters: {}",
+            self.0.hint
+        );
         self
     }
     pub(crate) fn text(mut self, t: impl Into<String>) -> Dg {

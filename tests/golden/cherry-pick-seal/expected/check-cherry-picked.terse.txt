@@ -1,7 +1,7 @@
 fairlead check 0.3.0 edition=1 as-of=2026-10-10 scopes=1 files=14 rules=0
 errors 2 warn 1 info 0 | baselined 2 | waived 0 | observe 0 | accepted 0
 HN-G001 error fairlead/gen/alias generated file differs from sync output: -# scope root edition=1 body=ktnwkwj6v5jmfyg83vmb / -======= / -# scope root edition=1 body=c41pbsqbcpggws0hc471 | fix: run fairlead sync
-HN-V005 error fairlead/ledger/hist/2026.hl:7:1 ledger checkpoint for 0.1.1 has no version file: an interrupted seal, or a seal's ledger brought in without its version file | fix: if a seal was interrupted, run fairlead seal again; if a seal commit was cherry-picked or merged alo
+HN-V005 error fairlead/ledger/hist/2026.hl:7:1 ledger checkpoint for 0.1.1 has no version file: an interrupted seal, or a seal's ledger brought in without its version file | fix: rerun an interrupted seal; for a seal commit picked alone, take its docs or restore the ledger
 HN-V002 warn fairlead/versions/0.1.2.md:1:1 version 0.1.2 follows 0.1.1 but the version line holds 0.1.0 | fix: cherry-pick the change docs, not the seal commit; or reseal (R-GIT-032)
 waivers: none | relaxations: none
 exceptions: +0

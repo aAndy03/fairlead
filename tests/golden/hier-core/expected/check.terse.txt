@@ -1,9 +1,9 @@
 fairlead check 0.3.0 edition=1 as-of=2026-10-12 scopes=1 files=14 rules=0
 errors 4 warn 1 info 0 | baselined 0 | waived 0 | observe 3 | accepted 0
 HN-H007 error crates/engine/Cargo.toml container ctr.engine (up to core.engine) depends on ctr.service (up to core.service): crate crates/engine depends on crates/service (evidence=cargo) | fix: move the shared part into a lower container, or invert the dependency (R-HIER-027)
-HN-H007 error crates/service/src/lib.rs:3:4 un.service (core.service) uses un.shell (core.shell): core.shell is reached only from entries (R-HIER-006) | fix: invert it through a lower port that this side implements, or waive rule.hier-rank with until= (R-HIE
-HN-H008 error crates/service/src/lib.rs:3:4 units in a use cycle: un.service, un.shell | fix: the unit graph must be a DAG: extract the shared part into a lower unit, or invert one edge (R-HIER-
-HN-H009 error crates/service/src/lib.rs:3:4 containers in a cycle: ctr.service, ctr.shell; caused by un.service -> un.shell (crates/service/src/lib.rs:3), un.shell -> un.service (crates/shell/src/main.rs:3), crate crates/shell depends on crates/service (evidence=cargo) | fix: extract the shared piece into a lower container (R-HIER-022), or waive rule.hier-cycle with until= w
-HN-H018 warn crates/engine/src/lib.rs:2:4 un.engine is reached by no entry | fix: declare an entry that reaches it, use it from a reached unit, or retire it (R-HIER-041); a lower bou
+HN-H007 error crates/service/src/lib.rs:3:4 un.service (core.service) uses un.shell (core.shell): core.shell is reached only from entries (R-HIER-006) (a lower bound: declared edges only, R-HIER-034) | fix: invert it through a lower port, or waive rule.hier-rank with until= (R-HIER-024)
+HN-H008 error crates/service/src/lib.rs:3:4 units in a use cycle: un.service, un.shell (a lower bound: declared edges only, R-HIER-034) | fix: extract the shared part into a lower unit, or invert one edge; units form a DAG (R-HIER-021)
+HN-H009 error crates/service/src/lib.rs:3:4 containers in a cycle: ctr.service, ctr.shell; caused by un.service -> un.shell (crates/service/src/lib.rs:3), un.shell -> un.service (crates/shell/src/main.rs:3), crate crates/shell depends on crates/service (evidence=cargo) (a lower bo... | fix: move the shared piece to a lower container, or waive rule.hier-cycle until= (R-HIER-022)
+HN-H018 warn crates/engine/src/lib.rs:2:4 un.engine is reached by no entry (a lower bound: declared edges only, R-HIER-034) | fix: declare an entry that reaches it, use it from a reached unit, or retire it (R-HIER-041)
 waivers: none | relaxations: none
 exceptions: +0

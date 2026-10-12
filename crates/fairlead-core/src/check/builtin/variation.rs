@@ -183,7 +183,7 @@ fn variants(
                         base.scope.0.as_str()
                     ),
                 )
-                .hint("request the variant from the home scope (fairlead new request), or wrap it locally with wraps= (R-VAR-012)")
+                .hint("ask the home scope (fairlead new request), or wrap it locally with wraps= (R-VAR-012)")
                 .text(bare_id(&it.id))
                 .build(),
             );
@@ -261,7 +261,7 @@ fn variants(
             if !answers.iter().any(|a| named(&a) && !a.rejected()) {
                 out.push(
                     DiagB::new(HN_X002, &p, l, c, format!("variant {name} of {} goes through a request: no change doc answers one for it", bare_id(&base)))
-                        .hint("the consumer files `fairlead new request`; the home scope answers it with a change doc listing the variant in result, adds or touches (R-VAR-020)")
+                        .hint("file `fairlead new request`; the home scope answers with a change doc adding the variant (R-VAR-020)")
                         .text(name.clone())
                         .build(),
                 );
@@ -522,11 +522,24 @@ fn requests_of(
             for g in &graves {
                 if !crate::graveyard::text_hits(g, want).is_empty() {
                     out.push(
-                        DiagB::new(HN_L002, p, 1, 1, format!("request {} asks for what graveyard entry {} rejected", id.as_str(), g.id))
-                            .hint(format!("read {} first; a rejected want is filed again only with new reasons (R-VAR-042)", g.path.as_str()))
-                            .related(g.id.clone())
-                            .text(id.as_str().to_owned())
-                            .build(),
+                        DiagB::new(
+                            HN_L002,
+                            p,
+                            1,
+                            1,
+                            format!(
+                                "request {} asks for what graveyard entry {} rejected",
+                                id.as_str(),
+                                g.id
+                            ),
+                        )
+                        .hint(format!(
+                            "read {} first; refile only with new reasons (R-VAR-042)",
+                            g.path.as_str()
+                        ))
+                        .related(g.id.clone())
+                        .text(id.as_str().to_owned())
+                        .build(),
                     );
                 }
             }
@@ -919,7 +932,9 @@ fn forks(cx: &CheckCx<'_>, scope: &ScopeId, mode: ForkDetect, out: &mut Vec<Diag
                         others.join(", ")
                     ),
                 )
-                .hint(format!("declare it (ovr rule.var-fork of={name} why= owner= until=), dismiss the pair (dismiss=true pair={hash}), or use the original (R-VAR-080, R-VAR-082)"))
+                .hint(format!(
+                    "use the original, or ovr rule.var-fork of={name} or dismiss=true pair={hash}"
+                ))
                 .stage(stage)
                 .text(format!("{name}:{key}"))
                 .build(),

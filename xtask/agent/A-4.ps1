@@ -6,7 +6,8 @@
 # Run it after the release seal (`fairlead seal --yes --commit` on main), before the owner tags.
 param(
     [string]$Changelog = 'CHANGELOG.md',
-    [int]$Seed = 1
+    [int]$Seed = 1,
+    [string]$Milestone = '0.3'
 )
 . "$PSScriptRoot\common.ps1"
 
@@ -35,6 +36,6 @@ $label = Get-Label $answer @('clean', 'issues')
 $settings = Get-Settings 'A-4' $Seed
 $verdict = if ($label -eq 'clean' -and $items.Count -eq 0) { 'PASS: zero items' } else { "OPEN: $($items.Count) item(s), label $label; resolve each or record why it stands, then re-run" }
 $out = Write-Result -Settings $settings -Counts ("sealed docs=$($sealed.Count) items=$($items.Count)`n" + (($items | ForEach-Object { "- $_" }) -join "`n")) `
-    -Verdict $verdict -Hashes (Get-AnswerHashes $run) `
+    -Verdict $verdict -Hashes (Get-AnswerHashes $run) -Milestone $Milestone `
     -Threats 'One reviewer session; the checklist cannot judge whether a sealed doc should exist at all.'
 Write-Host "result: $out"

@@ -6,7 +6,8 @@
 param(
     [string[]]$Goldens = @('rebase-after-seal', 'shallow-clone', 'squash-merge', 'cherry-pick-seal', 'revert-seal', 'merge-conflict-gen'),
     [string[]]$Chapters = @('docs\23-git-integration.md', 'docs\20-versions-and-seal.md'),
-    [int]$Seed = 1
+    [int]$Seed = 1,
+    [string]$Milestone = '0.3'
 )
 . "$PSScriptRoot\common.ps1"
 
@@ -40,6 +41,6 @@ Write-Utf8 (Join-Path $run 'private\map.csv') (($map -join "`n") + "`n")
 $settings = Get-Settings 'A-5' $Seed
 $verdict = if ($all.Count -eq 0) { 'PASS: no difference reported' } else { "OPEN: $($all.Count) difference(s); resolve each in the code or log it in the errata (E-34 practice)" }
 $out = Write-Result -Settings $settings -Counts ("goldens=$($Goldens.Count) items=$($all.Count)`n" + ($all -join "`n")) `
-    -Verdict $verdict -Hashes (Get-AnswerHashes $run) `
+    -Verdict $verdict -Hashes (Get-AnswerHashes $run) -Milestone $Milestone `
     -Threats 'The reviewer reads two chapters, not every rule an output touches; a golden name hints at its scenario, which the review needs.'
 Write-Host "result: $out"

@@ -104,18 +104,17 @@ impl Check for GraveCheck {
                         1,
                         1,
                         format!(
-                            "{} matches the graveyard entry {} ({})",
+                            "{} matches the graveyard entry {} ({}), {}: {}",
                             d.id,
                             e.id,
-                            terms.join(", ")
+                            terms.join(", "),
+                            e.state.as_str(),
+                            e.why
                         ),
                     )
                     .hint(format!(
-                        "add revisits = \"{}\" with a reason, or drop the proposal; {} was {}: {}",
-                        e.id,
-                        e.id,
-                        e.state.as_str(),
-                        e.why
+                        "add revisits = \"{}\" with a reason, or drop the proposal",
+                        e.id
                     ))
                     .related(e.id.clone())
                     .text(e.id.clone())
