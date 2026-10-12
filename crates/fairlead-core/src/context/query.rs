@@ -198,6 +198,12 @@ pub fn build(
             });
         }
     }
+    // R-CTX-063: a scope's own name is a term of every document in it, so naming the scope in
+    // the query boosts it
+    for d in &mut docs {
+        let words = tokens(d.scope.0.as_str());
+        d.terms.extend(words);
+    }
     let mut df: BTreeMap<String, u32> = BTreeMap::new();
     let mut total = 0usize;
     for d in &docs {

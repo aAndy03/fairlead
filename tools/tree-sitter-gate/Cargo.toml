@@ -1,0 +1,15 @@
+# The tree-sitter gate (R-ARCH-154, R-HIER-035, owner question Q-2): a throwaway crate, outside
+# the workspace, that loads the pinned tree-sitter core and TypeScript grammar and parses the TS
+# fixture corpus. It is never a dependency of fairlead; CI runs it weekly and reports pass or
+# fail. Adopting tree-sitter is a separate owner decision (it raises the MSRV to 1.90, R-REL-006).
+[package]
+name = "tree-sitter-gate"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+tree-sitter = "=0.27.0"
+tree-sitter-typescript = "=0.23.2"

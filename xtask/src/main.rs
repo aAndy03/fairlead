@@ -9,6 +9,7 @@ mod coverage_replay;
 mod docs;
 mod golden;
 mod merge_sim;
+mod query_recall;
 mod sarif;
 mod syntax_card;
 
@@ -250,6 +251,40 @@ fn main() -> ExitCode {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("xtask docs-check: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Some("query-recall") => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            let mut o = query_recall::Options {
+                set: std::path::PathBuf::new(),
+                repo: std::path::PathBuf::from("."),
+                bin: None,
+            };
+            while let Some(a) = args.next() {
+                let v = args.next().unwrap_or_default();
+                match a.as_str() {
+                    "--set" => o.set = std::path::PathBuf::from(v),
+                    "--repo" => o.repo = std::path::PathBuf::from(v),
+                    "--bin" => o.bin = Some(std::path::PathBuf::from(v)),
+                    _ => {
+                        eprintln!("xtask query-recall: unknown option {a}");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            match query_recall::run(root, &o) {
+                Ok((lines, _)) => {
+                    for l in lines {
+                        println!("{l}");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("xtask query-recall: {e}");
                     ExitCode::from(1)
                 }
             }

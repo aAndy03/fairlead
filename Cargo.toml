@@ -1,7 +1,7 @@
 # Cargo workspace of fairlead (contract section 1). A virtual manifest: no package at the root.
 [workspace]
 members = ["crates/*", "xtask"]
-exclude = ["fuzz", "tests/golden", "fixtures"]
+exclude = ["fuzz", "tests/golden", "fixtures", "tools"]
 resolver = "3"
 
 [workspace.package]

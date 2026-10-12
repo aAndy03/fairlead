@@ -1,0 +1,20 @@
+# The tree-sitter gate (0.3 P6-T6; R-ARCH-154, R-HIER-035): weekly only, never on a PR. A
+# throwaway crate outside the workspace loads the pinned tree-sitter core and TypeScript grammar
+# and parses the TS fixture corpus. The result is recorded in docs/plans/0.3/errata.md; adopting
+# tree-sitter is a separate owner decision.
+name: tree-sitter gate
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Parse the TS fixture corpus with the pinned grammar
+        working-directory: tools/tree-sitter-gate
+        run: cargo run --release -- ../../tests/golden ../../fixtures
