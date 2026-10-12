@@ -1,7 +1,7 @@
 +++
 id = "d-r8xnryey"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 sum = "the agent block, explain, new --help and new request lead an agent to the variation protocol"
 out = "shipped"
@@ -10,6 +10,9 @@ scope = "root"
 title = "Agents are told how to vary a unit another scope owns"
 covers = ["crates/fairlead-core/src/explain/**", "crates/fairlead-core/src/explain.rs", "crates/fairlead-core/src/write/init.rs", "crates/fairlead-core/src/check/builtin/agents.rs", "crates/fairlead-core/src/registry/item.rs", "crates/fairlead/src/**"]
 created = "0.3.1"
+sealed = "0.3.1"
+body-hash = "b3:yer57enwejcxv4nj9pas"
+ordinal = 34
 +++
 
 # Agents are told how to vary a unit another scope owns

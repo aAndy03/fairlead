@@ -1,7 +1,7 @@
 +++
 id = "d-kvp5nv81"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 sum = "upgrade --dry-run prints the plan, writes nothing and exits 0, like every other writer"
 out = "shipped"
@@ -10,6 +10,9 @@ scope = "root"
 title = "upgrade accepts --dry-run"
 covers = ["crates/fairlead/src/**"]
 created = "0.3.1"
+sealed = "0.3.1"
+body-hash = "b3:r50dvtf07apxda0cg8g9"
+ordinal = 33
 +++
 
 # upgrade accepts --dry-run

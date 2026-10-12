@@ -1,7 +1,7 @@
 +++
 id = "d-xqhjbsf3"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 sum = "fix hints fit 100 characters, so terse output never cuts one off; the hierarchy lower-bound note moved to the message"
 out = "shipped"
@@ -10,6 +10,9 @@ scope = "root"
 title = "Fix hints are never cut off"
 covers = ["crates/fairlead-core/src/**"]
 created = "0.3.1"
+sealed = "0.3.1"
+body-hash = "b3:7jjad58tndfw7fz7nbfs"
+ordinal = 37
 +++
 
 # Fix hints are never cut off

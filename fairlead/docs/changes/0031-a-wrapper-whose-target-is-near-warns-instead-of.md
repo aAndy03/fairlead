@@ -1,7 +1,7 @@
 +++
 id = "d-2bhm0jjk"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 sum = "an interim wrapper near its target version warns (HN-W001) and fails only once the target is reached (HN-X001)"
 out = "shipped"
@@ -10,6 +10,9 @@ scope = "root"
 title = "A wrapper whose target is near warns instead of failing"
 covers = ["crates/fairlead-core/src/check/builtin/variation.rs"]
 created = "0.3.1"
+sealed = "0.3.1"
+body-hash = "b3:99p1hp0x59h9qpn8xt9n"
+ordinal = 31
 +++
 
 # A wrapper whose target is near warns instead of failing

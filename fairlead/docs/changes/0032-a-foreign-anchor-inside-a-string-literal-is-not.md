@@ -1,7 +1,7 @@
 +++
 id = "d-crr9mnfs"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 sum = "the lost-anchor check reads the committed copy with the directive extractor, not by text search"
 out = "shipped"
@@ -10,6 +10,9 @@ scope = "root"
 title = "A foreign anchor inside a string literal is not reported lost"
 covers = ["crates/fairlead-core/src/**"]
 created = "0.3.1"
+sealed = "0.3.1"
+body-hash = "b3:8y5r8rw3tw5r434kf75q"
+ordinal = 32
 +++
 
 # A foreign anchor inside a string literal is not reported lost

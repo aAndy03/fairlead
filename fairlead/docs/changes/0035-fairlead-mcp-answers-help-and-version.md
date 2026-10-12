@@ -1,7 +1,7 @@
 +++
 id = "d-s3ecaheq"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 sum = "fairlead-mcp --help explains how a client starts it; --version prints the version"
 out = "shipped"
@@ -10,6 +10,9 @@ scope = "root"
 title = "fairlead-mcp answers --help and --version"
 covers = ["crates/fairlead-mcp/**", "README.md", "Cargo.toml", "crates/fairlead-core/Cargo.toml"]
 created = "0.3.1"
+sealed = "0.3.1"
+body-hash = "b3:kye5p60cs8d2mteyfasm"
+ordinal = 35
 +++
 
 # fairlead-mcp answers --help and --version

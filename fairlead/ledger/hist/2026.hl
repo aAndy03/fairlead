@@ -37,3 +37,12 @@ d-v3m7t0k9 kind=change ord=0029 impact=add title="Variation protocol and richer 
 d-x32fmkx0 kind=change ord=0030 impact=add title="Hierarchy: ladders, containers, units and the use graph" d=twk3wpwr
 rollup.0.3.0 kind=rollup waivers=0 subtree-waivers=0 digest=8tnq1apn5aaa0ytncbh9 d=954jr4t1
 # ckpt v=0.3.0 n=9 d=qwyh4fet
+d-2bhm0jjk kind=change ord=0031 impact=fix title="A wrapper whose target is near warns instead of failing" d=hx071s2a
+d-crr9mnfs kind=change ord=0032 impact=fix title="A foreign anchor inside a string literal is not reported lost" d=ggw0hj7a
+d-kvp5nv81 kind=change ord=0033 impact=fix title="upgrade accepts --dry-run" d=nvc8kf4c
+d-r8xnryey kind=change ord=0034 impact=fix title="Agents are told how to vary a unit another scope owns" d=02dhq8jg
+d-s3ecaheq kind=change ord=0035 impact=fix title="fairlead-mcp answers --help and --version" d=qa9jdr3k
+d-vm20ca0a kind=change ord=0036 impact=fix title="A renamed local copy of another scope's unit is reported" d=1ebv8v8f
+d-xqhjbsf3 kind=change ord=0037 impact=fix title="Fix hints are never cut off" d=r70cwf4w
+rollup.0.3.1 kind=rollup waivers=0 subtree-waivers=0 digest=z06ne5b95jx9awdcxbj4 d=j6tt2zej
+# ckpt v=0.3.1 n=8 d=rkszcvnf

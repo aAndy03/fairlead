@@ -1,7 +1,7 @@
 +++
 id = "d-vm20ca0a"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 sum = "of= on a unit is reported, and with fork-detect a renamed local copy of another scope's unit is a fork suspect"
 out = "shipped"
@@ -10,6 +10,9 @@ scope = "root"
 title = "A renamed local copy of another scope's unit is reported"
 covers = ["crates/fairlead-core/src/check/builtin/variation.rs"]
 created = "0.3.1"
+sealed = "0.3.1"
+body-hash = "b3:j2fbrv74s4a8h4n00j8e"
+ordinal = 36
 +++
 
 # A renamed local copy of another scope's unit is reported
