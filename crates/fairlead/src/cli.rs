@@ -300,6 +300,10 @@ pub struct ContextArgs {
     /// Only what changed since a version, a git revision or a digest (R-CTX-051).
     #[arg(long, value_name = "VERSION|REV|DIGEST")]
     pub since: Option<String>,
+    /// A dictionary-aliased form of the terse brief, for very large L0 dumps; never the
+    /// default, the dictionary comes first (R-CTX-034).
+    #[arg(long)]
+    pub dense: bool,
 }
 
 #[derive(Args, Debug, Clone)]

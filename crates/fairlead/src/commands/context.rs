@@ -72,9 +72,12 @@ fn context(global: &GlobalArgs, args: &ContextArgs) -> Result<CommandResult, Err
         output = context_loaded(&loaded, &registry, &report, &request)?;
     }
     let format = context_format(global.format, stdout_is_tty());
-    let stdout = renderer(format)
+    let mut stdout = renderer(format)
         .context(&output)
         .ok_or_else(|| Error::Internal("the renderer produced no context text".to_string()))?;
+    if args.dense && format == OutputFormat::Terse {
+        stdout = fairlead_core::render::dense::compress(&stdout);
+    }
     Ok(CommandResult {
         stdout,
         stderr: String::new(),

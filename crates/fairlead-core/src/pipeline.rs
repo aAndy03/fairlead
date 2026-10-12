@@ -3382,9 +3382,11 @@ fn graveyard_gate(loaded: &Loaded, registry: &Registry, request: &NewRequest) ->
 /// `do-not-reintroduce`, and the approvals file) and ask `git verify-commit` about it. Without
 /// the setting nothing runs and no subprocess starts.
 pub fn verify_authority(loaded: &mut Loaded) -> Result<(), Error> {
-    if !loaded.root_control.authority.signed_records {
+    let auth = &loaded.root_control.authority;
+    if !auth.signed_records && !auth.verify_signatures {
         return Ok(());
     }
+    let every = auth.verify_signatures;
     let mut paths: Vec<RepoPath> = Vec::new();
     let (entries, _) = crate::graveyard::collect(&loaded.corpus);
     for e in &entries {
@@ -3408,6 +3410,32 @@ pub fn verify_authority(loaded: &mut Loaded) -> Result<(), Error> {
         .map_err(|e| Error::Internal(format!("approvals path: {e}")))?;
     if !loaded.facts.approvals.approvals.is_empty() {
         paths.push(approvals);
+    }
+    // R-AGT-027 (0.3): every authority-bearing record under `authority.verify-signatures`
+    if every {
+        for (p, rec) in &loaded.corpus.records {
+            let has_ovr = rec.extraction.as_ref().is_some_and(|x| {
+                x.directives
+                    .iter()
+                    .any(|d| d.verb == fairlead_syntax::directive::Verb::Ovr)
+            });
+            let rejection = rec
+                .extraction
+                .as_ref()
+                .and_then(|x| x.frontmatter.as_ref())
+                .is_some_and(|f| {
+                    f.table.get("type").and_then(|v| v.as_str()) == Some("rejected")
+                        || f.table.get("result").and_then(|v| v.as_str()) == Some("rejected")
+                });
+            if has_ovr || rejection {
+                paths.push(p.clone());
+            }
+        }
+        for c in loaded.controls.ok_files().filter(|c| !c.ovrs.is_empty()) {
+            paths.push(c.path.clone());
+        }
+        paths.sort();
+        paths.dedup();
     }
     let Some(repo) = crate::git::GitRepo::open(&loaded.root) else {
         return Ok(());

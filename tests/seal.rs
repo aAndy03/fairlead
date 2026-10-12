@@ -1140,3 +1140,36 @@ fn r_arch_076__a_line_ending_rewrite_is_not_a_changed_file() {
         real.stdout
     );
 }
+
+#[test]
+fn r_agt_027__verify_signatures_covers_ovr_records() {
+    let repo = ready_repo();
+    let control = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&control).unwrap();
+    std::fs::write(
+        &control,
+        format!("{text}\n[authority]\nverify-signatures = true\n"),
+    )
+    .unwrap();
+    std::fs::write(
+        repo.path().join("src/b.rs"),
+        "// fairlead: ovr rule.some why=\"migrating\" owner=@platform exp=2026-12-01\nfn b() {}\n",
+    )
+    .unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git(&[
+        "-c",
+        "commit.gpgsign=false",
+        "commit",
+        "-q",
+        "-m",
+        "an unsigned ovr",
+    ]);
+    let ci = repo.run(&["check", "--ci", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        ci.stdout.contains("HN-X015") && ci.stdout.contains("src/b.rs"),
+        "{}{}",
+        ci.stdout,
+        ci.stderr
+    );
+}

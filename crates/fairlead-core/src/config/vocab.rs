@@ -52,6 +52,10 @@ impl Default for LcConfig {
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct AuthorityConfig {
     pub signed_records: bool,
+    /// R-AGT-027 (0.3): `verify-signatures` extends `signed-records` to every authority-bearing
+    /// record: files with `ovr` directives, control files with `[[ovr]]` tables, and rejection
+    /// records (answers of `type = "rejected"`).
+    pub verify_signatures: bool,
 }
 
 /// `[graveyard]`: match thresholds in percent (R-LC-031: ids 60, shingles 50).
@@ -422,6 +426,8 @@ pub(crate) fn parse_authority(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Autho
     let mut out = AuthorityConfig::default();
     if let Some(mut t) = take_table(cx, root, "", "authority") {
         out.signed_records = take_bool(cx, &mut t, "authority", "signed-records").unwrap_or(false);
+        out.verify_signatures =
+            take_bool(cx, &mut t, "authority", "verify-signatures").unwrap_or(false);
         cx.unknown_in("authority", &t);
     }
     out

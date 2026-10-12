@@ -41,6 +41,9 @@ the owner and an agent may share a git author, so fairlead cannot verify who rej
 Protection is CODEOWNERS review of the managerial folder plus `fairlead approve` at a terminal (D-03).
 Optional: authority.signed-records = true makes `check --ci` run `git verify-commit` on the commit that last wrote
 each record; an unsigned one is H-AUTH-UNSIGNED (HN-X015). That proves a key signed it, not whose decision it was.
+0.3: authority.verify-signatures = true extends it to every authority-bearing record: files with `ovr` lines,
+control files with [[ovr]] tables and rejection docs. Limits: only the last commit that wrote a file is checked,
+a signature names a key not a role, and an unsigned history before the setting is reported, never repaired.
 Graveyard matching is lexical and fingerprint-based: synonyms and rewritten code evade it.
 ";
 

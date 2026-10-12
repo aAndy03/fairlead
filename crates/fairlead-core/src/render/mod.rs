@@ -1,4 +1,5 @@
 //! Output formats (R-CHK-035..039, R-ARCH-052, R-ARCH-054). Pure: a report in, a string out.
+pub mod dense;
 pub mod human;
 pub mod json;
 pub mod line;
