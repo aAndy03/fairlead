@@ -75,8 +75,19 @@ foreach ($pos in 1..$Tasks) {
 Write-Utf8 (Join-Path $runDir 'plan.json') ($plan | ConvertTo-Json -Depth 4)
 $sessionsFile = Join-Path $runDir 'sessions.jsonl'
 $done = @{}
+# M2 counts a regression only: the hidden tests of an earlier task that passed when it was done
+# (pilot finding: a task correctly left undone was counted as broken again in every later task).
+$passedTasks = @{}
+function Note-Passed($rec) {
+    if ($rec.m1_judge -eq 'hidden-tests' -and $rec.score.m1_task_done -eq $true) {
+        if (-not $passedTasks[$rec.chain]) { $passedTasks[$rec.chain] = @() }
+        $passedTasks[$rec.chain] += $rec.task
+    }
+}
 if (Test-Path $sessionsFile) {
-    foreach ($l in Get-Content $sessionsFile) { if ($l) { $done[($l | ConvertFrom-Json).id] = $true } }
+    foreach ($l in Get-Content $sessionsFile) {
+        if ($l) { $rec = $l | ConvertFrom-Json; $done[$rec.id] = $true; Note-Passed $rec }
+    }
 }
 Write-Host "run $Name : $($plan.Count) sessions, $($done.Count) already done. Results: $runDir"
 
@@ -100,7 +111,7 @@ foreach ($s in $plan) {
     Invoke-Sample -PromptFile $promptFile -WorkDir $work -OutFile $events -Auto -TimeoutMinutes $TimeoutMinutes -Attempts 1 | Out-Null
     $env:PATH = $basePath
 
-    $earlier = @($plan | Where-Object { $_.chain -eq $s.chain -and $_.pos -lt $s.pos } | ForEach-Object { $_.task })
+    $earlier = @($passedTasks[$s.chain] | Where-Object { $_ })
     if ($s.track -eq 'maint') { $earlier = @('_base') + $earlier }
     $scoreArgs = @('score', '--project', $project, '--dir', $work, '--team', $s.team, '--task', $s.task, '--events', $events)
     if ($earlier.Count) { $scoreArgs += @('--earlier', ($earlier -join ',')) }
@@ -135,6 +146,7 @@ foreach ($s in $plan) {
         events_sha256 = (Get-Sha256 $events); score = $score
     }
     Add-Content -Path $sessionsFile -Value ($record | ConvertTo-Json -Depth 8 -Compress) -Encoding UTF8
+    Note-Passed ([pscustomobject]@{ chain = $s.chain; task = $s.task; m1_judge = $judge; score = $score })
     Write-Host ("{0}: M1={1} M2={2} M3 new={3} tokens={4}" -f $s.id, $score.m1_task_done, $score.m2_nothing_broken, $score.m3_new,
         ($score.cost.tokens_in + $score.cost.tokens_out))
 }

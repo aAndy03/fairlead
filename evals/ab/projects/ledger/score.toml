@@ -37,7 +37,8 @@ regex = 'ledger[_-]engine'
 [[contract]]
 id = "error-codes"
 category = "contracts"
-files = ["crates/core/src/error.rs", "docs/errors.md"]
+# Each entry is one side, a glob.
+files = ["crates/core/src/**/*.rs", "docs/errors.md"]
 capture = '\b(E\d{3})\b'
 
 [owned]

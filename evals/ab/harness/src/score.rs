@@ -40,6 +40,9 @@ struct Contract {
     category: String,
     files: Vec<String>,
     capture: String,
+    /// Captured names that are not contract names (file names such as `notes.rs`).
+    #[serde(default)]
+    ignore: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -94,10 +97,16 @@ fn working_tree(dir: &Path) -> Tree {
     out
 }
 
+/// Build output and tool folders an agent may have committed (`target/` in the pilot) are not
+/// part of the product, on either side of the comparison.
+fn skipped(path: &str) -> bool {
+    path.split('/').any(|seg| SKIP_DIRS.contains(&seg))
+}
+
 fn tree_at(dir: &Path, rev: &str) -> Tree {
     let mut out = Tree::new();
     let Ok(list) = git(dir, &["ls-tree", "-r", "--name-only", rev]) else { return out };
-    for path in list.lines() {
+    for path in list.lines().filter(|p| !skipped(p)) {
         if let Ok(text) = git(dir, &["show", &format!("{rev}:{path}")]) {
             out.insert(path.to_owned(), text);
         }
@@ -105,18 +114,33 @@ fn tree_at(dir: &Path, rev: &str) -> Tree {
     out
 }
 
+/// Test code is not product code: tests must write literal values (pilot finding), so test folders
+/// and Rust test modules are outside every forbid rule.
+fn product_text<'a>(path: &str, text: &'a str) -> Option<&'a str> {
+    if path.starts_with("tests/") || path.contains("/tests/") || path.ends_with(".test.ts") {
+        return None;
+    }
+    Some(if path.ends_with(".rs") { text.split("#[cfg(test)]").next().unwrap_or(text) } else { text })
+}
+
 fn count(tree: &Tree, rule: &Forbid, re: &regex::Regex) -> i64 {
     let (inc, exc) = (Set::new(&rule.glob), Set::new(&rule.exclude));
     tree.iter()
         .filter(|(p, _)| inc.matches(p) && !exc.matches(p))
-        .map(|(_, t)| re.find_iter(t).count() as i64)
+        .filter_map(|(p, t)| product_text(p, t))
+        .map(|t| re.find_iter(t).count() as i64)
         .sum()
 }
 
-fn names(tree: &Tree, file: &str, re: &regex::Regex) -> BTreeSet<String> {
-    tree.get(file)
-        .map(|t| re.captures_iter(t).filter_map(|c| c.get(1)).map(|m| m.as_str().to_owned()).collect())
-        .unwrap_or_default()
+/// The names captured in every file of one side (a glob: `backend/src/**/*.rs`).
+fn names(tree: &Tree, side: &str, re: &regex::Regex) -> BTreeSet<String> {
+    let set = Set::new(&[side.to_owned()]);
+    tree.iter()
+        .filter(|(p, _)| set.matches(p))
+        // Rust test modules mention made-up commands to test rejection; they are not the contract.
+        .map(|(p, t)| if p.ends_with(".rs") { t.split("#[cfg(test)]").next().unwrap_or(t) } else { t.as_str() })
+        .flat_map(|t| re.captures_iter(t).filter_map(|c| c.get(1)).map(|m| m.as_str().to_owned()).collect::<Vec<_>>())
+        .collect()
 }
 
 /// Runs the tests command in a throwaway copy of `dir` with `hidden` test folders laid over it.
@@ -232,7 +256,11 @@ pub fn run(args: &Args) -> Result<(), String> {
     let mut contracts = Vec::new();
     for c in &config.contract {
         let re = regex::Regex::new(&c.capture).map_err(|e| format!("{}: {e}", c.id))?;
-        let sets: Vec<BTreeSet<String>> = c.files.iter().map(|f| names(&after, f, &re)).collect();
+        let sets: Vec<BTreeSet<String>> = c
+            .files
+            .iter()
+            .map(|f| names(&after, f, &re).into_iter().filter(|n| !c.ignore.contains(n)).collect())
+            .collect();
         let all: BTreeSet<String> = sets.iter().flatten().cloned().collect();
         let mismatched: Vec<String> = all.into_iter().filter(|n| !sets.iter().all(|s| s.contains(n))).collect();
         contracts.push(ContractResult { id: c.id.clone(), category: c.category.clone(), ok: mismatched.is_empty(), mismatched });
@@ -289,7 +317,8 @@ pub fn run(args: &Args) -> Result<(), String> {
     for v in &violations {
         *by_category.entry(v.category.clone()).or_default() += v.new;
     }
-    let contract_breaks = contracts.iter().filter(|c| !c.ok).count() as i64;
+    // A setup step builds a skeleton; its contracts are partial by design (pilot finding).
+    let contract_breaks = if setup { 0 } else { contracts.iter().filter(|c| !c.ok).count() as i64 };
     if contract_breaks > 0 {
         *by_category.entry("contracts".into()).or_default() += contract_breaks;
     }

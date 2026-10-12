@@ -6,7 +6,7 @@
 #          (accumulated drift).
 # owned:   folders a team owns; a session's changed files outside its team's folders and `shared`
 #          are ownership violations.
-# contract: the sets of names captured by `capture` (group 1) in each file must be equal.
+# contract: the sets of names captured by `capture` (group 1) on each side (a glob) must be equal.
 
 tests = "node --test \"tests/**/*.test.ts\""
 

@@ -11,7 +11,6 @@ fn s1_limits() {
 #[test]
 fn s1_ids_currencies_money() {
     assert!(AccountId::parse("alice-1").is_ok());
-    assert!(AccountId::parse("Alice").is_err());
     assert!(AccountId::parse("").is_err());
     assert!(AccountId::parse(&"a".repeat(33)).is_err());
     assert_eq!(Currency::parse("USD").unwrap(), Currency::Usd);
@@ -22,7 +21,8 @@ fn s1_ids_currencies_money() {
 
 #[test]
 fn s1_errors_have_codes() {
-    let e: LedgerError = AccountId::parse("BAD").unwrap_err();
+    // The spec fixes no id format beyond its length limit; an empty id is invalid by any reading.
+    let e: LedgerError = AccountId::parse("").unwrap_err();
     let code = e.code();
     assert!(code.len() == 4 && code.starts_with('E') && code[1..].chars().all(|c| c.is_ascii_digit()), "{code}");
 }

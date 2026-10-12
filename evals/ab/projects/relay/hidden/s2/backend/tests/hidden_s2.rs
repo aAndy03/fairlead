@@ -16,7 +16,8 @@ fn s2_the_four_commands_on_the_wire() {
 #[test]
 fn s2_errors() {
     let mut s = Store::default();
-    assert_eq!(reply(&mut s, "notes.create?title=%20"), "err empty-title");
+    // The spec does not say a title of spaces is empty; a title with no characters is.
+    assert_eq!(reply(&mut s, "notes.create?title="), "err empty-title");
     let long = "x".repeat(limits::MAX_TITLE_LEN + 1);
     assert_eq!(reply(&mut s, &format!("notes.create?title={long}")), "err title-too-long");
     assert_eq!(reply(&mut s, "notes.get?id=abc"), "err bad-id");

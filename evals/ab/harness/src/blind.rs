@@ -8,7 +8,8 @@ use crate::prepare::git;
 
 fn hidden_path(p: &str) -> bool {
     let name = p.rsplit('/').next().unwrap_or(p);
-    p.starts_with("fairlead/")
+    p.split('/').any(|s| ["target", "node_modules"].contains(&s))
+        || p.starts_with("fairlead/")
         || p.contains("/fairlead/")
         || p.starts_with(".fairlead/")
         || ["AGENTS.md", "CLAUDE.md", ".gitattributes"].contains(&name)

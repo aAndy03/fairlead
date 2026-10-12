@@ -21,8 +21,13 @@ regex = '\b(?:80|2000)\b'
 [[contract]]
 id = "commands"
 category = "contracts"
-files = ["frontend/src/api.ts", "backend/src/commands.rs", "contract/commands.md"]
-capture = '(?m)(?:^\| `|")([a-z]+\.[a-z][a-z-]*)(?:`|")'
+# Each entry is one side, a glob: a name counts for a side if any of its files mentions it.
+files = ["frontend/src/**/*.ts", "backend/src/**/*.rs", "contract/**/*.md"]
+# Every command is `notes.<name>` (spec); a name counts where a file states it: in a quoted
+# string, in backticks, as a heading or in a table cell (the notations agents used in the pilot).
+# Code that reads a field (`self.notes.insert`) and file names are not command names.
+capture = '''(?m)(?:["'`]|^#+\s+|\|\s*)(notes\.[a-z][a-z-]*)\b'''
+ignore = ["notes.rs", "notes.ts", "notes.md", "notes.js"]
 
 [owned]
 frontend = ["frontend/"]

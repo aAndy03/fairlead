@@ -13,10 +13,15 @@ test("s3: the client covers the four commands", async () => {
   await assert.rejects(api.getNote(id), (e: unknown) => e instanceof BackendError && (e as BackendError).code === "not-found");
 });
 
-test("s3: title checks and an escaped list", () => {
-  assert.equal(titleProblem("Fine"), null);
-  assert.notEqual(titleProblem("   "), null);
-  assert.notEqual(titleProblem("x".repeat(81)), null);
-  const html = renderNoteList([{ id: 1, title: "<b>x</b>" }]);
+test("s3: title checks and an escaped list", async () => {
+  // The spec names titleProblem without fixing its return type: a fine title has no problem
+  // (falsy), a bad one has one (truthy).
+  assert.ok(!titleProblem("Fine"));
+  assert.ok(titleProblem(""));
+  assert.ok(titleProblem("x".repeat(81)));
+  // The spec fixes no id type: render the list the client itself returns.
+  const api = createApi(fakeBackend());
+  await api.createNote("<b>x</b>");
+  const html = renderNoteList(await api.listNotes());
   assert.equal(html.includes("<b>x</b>"), false, html);
 });
