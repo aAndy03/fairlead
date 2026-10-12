@@ -344,6 +344,31 @@ pub fn ledger_ordinals(
     out
 }
 
+/// R-RET-027: whether a rollup line of `scope`'s ledgers covers ordinal `ord` (the record was
+/// folded; rollup lines carry ordinal ranges, not draft IDs).
+pub fn rolled_up(ledgers: &BTreeMap<RepoPath, std::sync::Arc<str>>, scope: &str, ord: u32) -> bool {
+    ledgers.values().any(|t| {
+        let Ok(f) = crate::hist::YearFile::parse(t) else {
+            return false;
+        };
+        f.scope == scope
+            && f.lines.iter().any(|l| {
+                let crate::hist::HistLine::Record { text, .. } = l else {
+                    return false;
+                };
+                let Ok(tl) = TerseLine::parse(text) else {
+                    return false;
+                };
+                tl.id.starts_with("roll.")
+                    && tl
+                        .get("ord")
+                        .and_then(|o| o.split_once(".."))
+                        .and_then(|(a, b)| Some((a.parse::<u32>().ok()?, b.parse::<u32>().ok()?)))
+                        .is_some_and(|(a, b)| (a..=b).contains(&ord))
+            })
+    })
+}
+
 /// The quarter (`2031q2`) of a date (R-RET-026: the closing seal's recorded timestamp, UTC).
 pub fn quarter(d: jiff::civil::Date) -> String {
     format!("{}q{}", d.year(), (d.month() - 1) / 3 + 1)

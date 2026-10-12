@@ -110,6 +110,17 @@ fn in_scope(cx: &CheckCx<'_>, d: &ChangeDoc, scope: &ScopeId) -> bool {
     cx.registry.scope_of(&d.path) == Some(scope)
 }
 
+/// The `(scope, ordinal)` a version file's body gives a doc: `- <impact>: <title> (<scope>,
+/// <draft> <ord>)`.
+fn folded(text: &str, id: &str) -> Option<(String, u32)> {
+    text.lines().find_map(|l| {
+        let inner = l.rsplit_once('(')?.1.strip_suffix(')')?;
+        let (scope, rest) = inner.split_once(", ")?;
+        let (d, ord) = rest.split_once(' ')?;
+        (d == id).then(|| Some((scope.to_owned(), ord.parse().ok()?)))?
+    })
+}
+
 /// R-RET-036, R-GIT-015: every ledger year file of this scope keeps its checkpoint chain, and the
 /// years of one ledger folder chain through `# end` and `prev=`. A break is never auto-fixed.
 fn ledger_continuity(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
@@ -275,6 +286,9 @@ fn incomplete_writes(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
     // R-VER-057: every doc a version file lists is sealed at that version.
     if scope == cx.registry.root_scope() {
         let (docs, _) = crate::docs::collect_change_docs(cx.corpus);
+        // R-RET-025 (0.3): a compacted doc is gone from the tree; its summary line, closed at
+        // that version, stands for it
+        let compacted = crate::retention::compacted(&cx.facts.ledgers);
         for (path, text) in &cx.facts.version_texts {
             let Some(v) = crate::version::version_of_file_name(path.file_name()) else {
                 continue;
@@ -293,7 +307,12 @@ fn incomplete_writes(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic
                     d.id.as_str() == id
                         && d.status == crate::docs::Status::Sealed
                         && d.sealed == Some(v)
-                });
+                }) || compacted
+                    .get(&id)
+                    .is_some_and(|c| c.line.contains(&format!(" closed={v} ")))
+                    || folded(text, &id).is_some_and(|(scope, ord)| {
+                        crate::retention::rolled_up(&cx.facts.ledgers, &scope, ord)
+                    });
                 if !ok {
                     let msg = format!("version {v} lists {id}, which is not a doc sealed at {v}");
                     out.push(
@@ -1064,5 +1083,34 @@ mod tests {
         let v = of(&d, c::HN_V009);
         assert_eq!(v.len(), 1);
         assert!(v[0].message.contains("`id`"), "{}", v[0].message);
+    }
+
+    #[test]
+    fn r_ret_027__a_doc_folded_into_a_rollup_still_satisfies_its_version_file() {
+        let body = "+++
+version = \"0.1.3\"
+docs = [\"d-4cz8fdqv\"]
++++
+
+# 0.1.3
+
+- fix: Change 9 (web, d-4cz8fdqv 0007)
+";
+        assert_eq!(folded(body, "d-4cz8fdqv"), Some(("web".to_owned(), 7)));
+        assert_eq!(folded(body, "d-00000000"), None);
+        let roll = "roll.2026q2 kind=change n=3 ord=0005..0009 dec=0 dg=x";
+        let mut ledgers = std::collections::BTreeMap::new();
+        ledgers.insert(
+            crate::path::RepoPath::new("web/fairlead/ledger/hist/2026.hl").unwrap(),
+            std::sync::Arc::from(format!(
+                "# scope=web year=2026 prev=- edition=1
+{roll} d={}
+",
+                crate::hist::record_digest(roll)
+            )),
+        );
+        assert!(crate::retention::rolled_up(&ledgers, "web", 7));
+        assert!(!crate::retention::rolled_up(&ledgers, "web", 10));
+        assert!(!crate::retention::rolled_up(&ledgers, "root", 7));
     }
 }

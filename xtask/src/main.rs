@@ -10,6 +10,7 @@ mod docs;
 mod golden;
 mod merge_sim;
 mod query_recall;
+mod retention_sim;
 mod sarif;
 mod syntax_card;
 
@@ -251,6 +252,44 @@ fn main() -> ExitCode {
                 Ok(()) => ExitCode::SUCCESS,
                 Err(e) => {
                     eprintln!("xtask docs-check: {e}");
+                    ExitCode::from(1)
+                }
+            }
+        }
+        Some("retention-sim") => {
+            let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .unwrap_or(std::path::Path::new("."));
+            let mut o = retention_sim::Options {
+                years: 5,
+                per_year: 12,
+                seed: 1,
+                bin: None,
+                digest_out: None,
+            };
+            while let Some(a) = args.next() {
+                let v = args.next().unwrap_or_default();
+                match a.as_str() {
+                    "--years" => o.years = v.parse().unwrap_or(5),
+                    "--seals-per-year" => o.per_year = v.parse().unwrap_or(12),
+                    "--seed" => o.seed = v.parse().unwrap_or(1),
+                    "--bin" => o.bin = Some(std::path::PathBuf::from(v)),
+                    "--digest-out" => o.digest_out = Some(std::path::PathBuf::from(v)),
+                    _ => {
+                        eprintln!("xtask retention-sim: unknown option {a}");
+                        return ExitCode::from(2);
+                    }
+                }
+            }
+            match retention_sim::run(root, &o) {
+                Ok(lines) => {
+                    for l in lines {
+                        println!("{l}");
+                    }
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("xtask retention-sim: {e}");
                     ExitCode::from(1)
                 }
             }

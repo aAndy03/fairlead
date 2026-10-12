@@ -736,6 +736,8 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
         .cloned()
         .collect();
     docs_after.extend(sealed_now);
+    // R-RET-025 (0.3): compacted docs leave the tree, and with it the alias map, as `sync` sees it
+    docs_after.retain(|d| !cx.compact.iter().any(|c| c.path == d.path));
     for scope in cx.reg.scopes() {
         if !matches!(scope.state, crate::registry::ScopeState::Resolved) {
             continue;

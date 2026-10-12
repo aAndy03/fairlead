@@ -1,0 +1,37 @@
+# The five-year retention simulation (0.3 P7-T2, exit criterion 2): the same seeded history on
+# Linux and Windows; each run checks byte-identical ledgers across two runs, a no-op second
+# compaction and a constant leaf brief, then the two operating systems' ledger digests are compared.
+name: retention simulation
+on:
+  schedule:
+    - cron: "41 3 * * 2"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sim:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Five years, twelve seals a year
+        shell: bash
+        run: cargo xtask retention-sim --years 5 --seals-per-year 12 --seed 7 --digest-out digest-${{ matrix.os }}.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ matrix.os }}
+          path: digest-${{ matrix.os }}.txt
+  compare:
+    needs: sim
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: digest-*
+          merge-multiple: true
+      - name: The ledgers are byte-identical across operating systems
+        run: diff digest-ubuntu-latest.txt digest-windows-latest.txt
