@@ -367,6 +367,11 @@ fn is_scanned(path: &RepoPath, class: FileClass, plan: &ExtractPlan) -> bool {
     scans_directives(class) && !own_format && !plan.classify.skips(path)
 }
 
+/// The directive extraction of other bytes for `path` (an older copy), as `extract_file` reads it.
+pub(crate) fn extraction_of(path: &RepoPath, bytes: &[u8], plan: &ExtractPlan) -> Extraction {
+    syntax_extract(bytes, &syntax_ext(path), &plan.syntax)
+}
+
 pub fn extract_file(entry: &WalkEntry, bytes: &[u8], plan: &ExtractPlan) -> FileRecord {
     let class = classify(&entry.path, &plan.classify);
     let ext = syntax_ext(&entry.path);

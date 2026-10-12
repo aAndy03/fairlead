@@ -426,6 +426,20 @@ fn r_file_043__prose_and_unscanned_files_are_not_foreign_lost() {
     assert!(!check.stdout.contains("HN-G006"), "{}", check.stdout);
 }
 
+#[test]
+fn r_file_043__an_anchor_inside_a_string_literal_is_not_foreign_lost() {
+    // Seen on fairlead's own tree (E3-44): a test fixture string holding an anchor moved one line.
+    let fixture = "    let s = \"// fairlead: def foreign.specta tool=specta +end\\nx\\n// fairlead: end\\n\";\n";
+    let repo = repo(&[("src/lib.rs", &format!("fn t() {{\n{fixture}}}\n"))]);
+    std::fs::write(
+        repo.path().join("src/lib.rs"),
+        format!("// moved down\nfn t() {{\n{fixture}}}\n"),
+    )
+    .unwrap();
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(!check.stdout.contains("HN-G006"), "{}", check.stdout);
+}
+
 fn three_items() -> TempRepo {
     let r = repo(&[(
         "fairlead/docs/cmp.md",
