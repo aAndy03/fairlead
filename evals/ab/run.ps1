@@ -2,7 +2,7 @@
 # run), runs its tasks one session at a time, scores each session from outside, and writes the
 # results where the dashboard reads them. Watch it live with:
 #
-#   evals\ab\harness\target\release\ab.exe serve --results $env:TEMP\fairlead-ab
+#   evals\ab\harness\target\release\ab.exe serve --results $env:TEMP\ab-eval
 #
 # Pilot (default): first 3 tasks, 1 run, both tracks, 54 sessions.
 #   powershell -File evals\ab\run.ps1
@@ -19,10 +19,14 @@ param(
     [int]$Runs = 1,
     [int]$Seed = 1,
     [int]$TimeoutMinutes = 20,
-    [string]$Results = (Join-Path ([System.IO.Path]::GetTempPath()) 'fairlead-ab'),
+    # A neutral name: arm A and B agents see this folder in their working path (pilot finding).
+    [string]$Results = (Join-Path ([System.IO.Path]::GetTempPath()) 'ab-eval'),
     [string]$Fairlead = ''
 )
 . "$PSScriptRoot\..\..\xtask\agent\common.ps1"
+# Native tools write warnings to stderr (git line endings); they must not stop a long run. Failures
+# that matter are checked by exit code below.
+$ErrorActionPreference = 'Continue'
 
 $Tracks = @($Tracks | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
 $Projects = @($Projects | ForEach-Object { $_ -split ',' } | Where-Object { $_ })
@@ -101,7 +105,8 @@ foreach ($s in $plan) {
     $scoreArgs = @('score', '--project', $project, '--dir', $work, '--team', $s.team, '--task', $s.task, '--events', $events)
     if ($earlier.Count) { $scoreArgs += @('--earlier', ($earlier -join ',')) }
     if ($s.tier -eq 'setup') { $scoreArgs += @('--setup', 'true') }
-    $scoreJson = & $ab @scoreArgs | Out-String
+    $scoreJson = & $ab @scoreArgs 2>$null | Out-String
+    if ($LASTEXITCODE -ne 0 -or -not $scoreJson.Trim()) { Write-Host "score failed for $($s.id); stopping"; break }
     $score = $scoreJson | ConvertFrom-Json
     $judge = 'hidden-tests'
     if ($null -eq $score.m1_task_done) {
@@ -117,8 +122,11 @@ foreach ($s in $plan) {
         $score.m1_task_done = ($label -eq 'done')
         $score | Add-Member -NotePropertyName m1_label -NotePropertyValue $label -Force
     }
-    & git -C $work add -A 2>$null | Out-Null
-    & git -C $work -c user.name=ab -c user.email=ab@example.invalid commit -q --allow-empty -m "after $($s.task)" 2>$null | Out-Null
+    # Native stderr (line-ending warnings) must not stop the run.
+    $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    & git -C $work -c core.autocrlf=false add -A 2>&1 | Out-Null
+    & git -C $work -c core.autocrlf=false -c user.name=ab -c user.email=ab@example.invalid commit -q --allow-empty -m "after $($s.task)" 2>&1 | Out-Null
+    $ErrorActionPreference = $eap
 
     $record = [ordered]@{
         id = $s.id; chain = $s.chain; track = $s.track; project = $s.project; arm = $s.arm; run = $s.run; pos = $s.pos
