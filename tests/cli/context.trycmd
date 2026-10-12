@@ -6,8 +6,9 @@ $ fairlead context --format terse --digest
 ...
 
 $ fairlead context "add a progress bar"
-? 2
-no match: task queries need 0.3; pass a path or an ID
+...
+note: no match: add a progress bar
+...
 
 $ fairlead context --budget abc
 ? 2

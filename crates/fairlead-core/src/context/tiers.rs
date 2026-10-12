@@ -528,6 +528,109 @@ pub(crate) fn gather_graveyard(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
     }
 }
 
+/// R-CTX-015 (0.3): where the hierarchy is adopted, the brief of a path names the units bound to
+/// it with their container chain, the public `use` surface of those containers (units marked
+/// `vis=public`), and the interim wrappers of the scope whose target is near.
+pub(crate) fn gather_hier(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
+    let reg = scene.input.registry;
+    let Some(path) = scene.path.as_ref() else {
+        return;
+    };
+    if !crate::hier::config(reg).is_some_and(|h| h.settings.level.is_some_and(|l| l >= 1)) {
+        return;
+    }
+    let w = &scene.input.config.sev_weight;
+    let mut push = |key: String, text: String| {
+        out.push(Candidate {
+            priority: Priority::P3Items,
+            score: Score::new(w.warn, Relevance::ScopeWide, 0),
+            hint: 0,
+            key,
+            explain: "kinds".to_string(),
+            block: Block::Items,
+            entry: Entry::Note { text },
+        });
+    };
+    let m = crate::hier::Model::build(reg);
+    let files: Vec<&RepoPath> = scene.input.corpus.records.keys().collect();
+    let bound = m.bindings(reg, &files);
+    let bare = |i: &crate::registry::ItemId| format!("{}.{}", i.kind.as_str(), i.name.as_str());
+    let mut containers: std::collections::BTreeSet<crate::registry::ItemId> = Default::default();
+    for (u, ps) in &bound {
+        if !ps.iter().any(|p| p == path || p.is_within(path)) {
+            continue;
+        }
+        let Some(unit) = m.units.get(u) else { continue };
+        let mut chain = Vec::new();
+        if let Some(c) = &unit.container {
+            containers.insert(c.clone());
+            chain.push(bare(c));
+            chain.extend(m.ancestors(c).unwrap_or_default().iter().map(bare));
+        }
+        push(
+            format!("3hier-unit-{}", bare(u)),
+            format!(
+                "unit {}{}{}",
+                bare(u),
+                unit.layer
+                    .as_deref()
+                    .map(|l| format!(" layer={l}"))
+                    .unwrap_or_default(),
+                if chain.is_empty() {
+                    String::new()
+                } else {
+                    format!(" in {}", chain.join(" > "))
+                }
+            ),
+        );
+    }
+    for c in &containers {
+        let public: Vec<String> = m
+            .units
+            .values()
+            .filter(|u| u.container.as_ref() == Some(c))
+            .filter(|u| {
+                reg.item(&u.id).is_some_and(|it| {
+                    matches!(it.fields.get("vis"), Some(FieldValue::Scalar(v)) if v == "public")
+                })
+            })
+            .map(|u| bare(&u.id))
+            .collect();
+        if !public.is_empty() {
+            push(
+                format!("3hier-public-{}", bare(c)),
+                format!("public surface of {}: {}", bare(c), public.join(", ")),
+            );
+        }
+    }
+    // expiring interim wrappers of the scope (R-VAR-061)
+    let open = crate::check::builtin::plans::due_cx_of(reg, scene.input.corpus, &BTreeMap::new())
+        .map(|d| d.line.open);
+    for a in crate::variation::awaiting(reg, scene.input.corpus)
+        .iter()
+        .filter(|a| reg.scope_of(&a.path) == Some(&scene.scope))
+    {
+        let (Some(o), Some(t)) = (
+            open,
+            a.target.as_deref().and_then(crate::version::Version::parse),
+        ) else {
+            continue;
+        };
+        if t.major == o.major && t.minor <= o.minor + 2 {
+            push(
+                format!("3hier-await-{}-{}", a.path.as_str(), a.line),
+                format!(
+                    "wrapper {} awaits {} target {t}",
+                    a.wrapper
+                        .as_ref()
+                        .map_or_else(|| a.path.as_str().to_owned(), bare),
+                    sanitize_data(a.to.as_deref().unwrap_or("?"), 40)
+                ),
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 #[allow(non_snake_case)] // reason: test names start with the rule id
 mod tests {

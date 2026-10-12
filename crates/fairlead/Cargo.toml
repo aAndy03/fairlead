@@ -116,3 +116,7 @@ path = "../../tests/port.rs"
 [[test]]
 name = "retention"
 path = "../../tests/retention.rs"
+
+[[test]]
+name = "query"
+path = "../../tests/query.rs"

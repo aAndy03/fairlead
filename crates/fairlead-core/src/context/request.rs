@@ -82,6 +82,8 @@ pub struct ContextRequest {
     pub exact_tokens: bool,
     pub as_of: AsOf,
     pub since: Option<Since>,
+    /// R-CTX-061 (0.3): the lines of a task query (match line first, then hits), already fenced.
+    pub query: Vec<String>,
 }
 
 pub struct ContextInput<'a> {
@@ -93,7 +95,9 @@ pub struct ContextInput<'a> {
     pub cache: &'a Cache,
 }
 
-pub const NO_MATCH_MESSAGE: &str = "no match: task queries need 0.3; pass a path or an ID";
+/// The classification of free text: neither a path nor an ID. The CLI runs it as a task query
+/// (R-CTX-005, 0.3); callers of `parse_target` alone see a usage error.
+pub const NO_MATCH_MESSAGE: &str = "not a path or an ID: run it as a task query";
 
 impl ContextArgError {
     /// Both variants are class Usage (exit 2).
@@ -288,7 +292,7 @@ mod tests {
         }
         assert_eq!(
             NO_MATCH_MESSAGE,
-            "no match: task queries need 0.3; pass a path or an ID"
+            "not a path or an ID: run it as a task query"
         );
     }
 

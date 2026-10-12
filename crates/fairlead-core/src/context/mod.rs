@@ -5,6 +5,7 @@ pub mod budget;
 pub mod digest;
 pub mod estimate;
 pub mod priority;
+pub mod query;
 pub mod request;
 pub use request::Since;
 pub mod tiers;
@@ -277,6 +278,27 @@ fn gather(
     tiers::gather_ancestors(scene, cands);
     tiers::gather_graveyard(scene, cands);
     tiers::gather_open_work(scene, cands);
+    tiers::gather_hier(scene, cands);
+    // R-CTX-061: a task query's match line and hits come first.
+    for (i, text) in scene.input.request.query.iter().enumerate() {
+        cands.push(priority::Candidate {
+            priority: if i == 0 {
+                priority::Priority::P0Header
+            } else {
+                priority::Priority::P3Items
+            },
+            score: priority::Score::new(
+                u32::MAX - u32::try_from(i).unwrap_or(0),
+                priority::Relevance::ScopeWide,
+                0,
+            ),
+            hint: 0,
+            key: format!("0query-{i:03}"),
+            explain: "kinds".into(),
+            block: Block::Items,
+            entry: Entry::Note { text: text.clone() },
+        });
+    }
     if matches!(scene.input.request.target, ContextTarget::SessionStart) {
         tiers::gather_handoff(scene, cands);
     }

@@ -314,6 +314,7 @@ pub fn request(target: ContextTarget) -> ContextRequest {
         exact_tokens: false,
         as_of: AsOf::parse("2026-10-09").unwrap(),
         since: None,
+        query: Vec::new(),
     }
 }
 

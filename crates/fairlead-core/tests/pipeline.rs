@@ -147,14 +147,17 @@ fn r_arch_001__a_missing_baseline_file_means_no_baseline() {
 }
 
 #[test]
-fn r_cli_032__a_task_query_is_a_usage_error_until_0_3() {
+fn r_cli_032__free_text_is_classified_as_a_task_query() {
     let (_dir, root) = temp_root(true);
     let loaded = load(&request(&root)).unwrap();
     let error = context_target(&loaded.root, &loaded.root.dir, Some("add a progress bar"))
         .err()
         .unwrap();
     assert!(matches!(error.class(), ErrorClass::Usage));
-    assert!(error.to_string().contains("task queries need 0.3"));
+    assert!(
+        error.to_string().contains("run it as a task query"),
+        "the CLI runs it (R-CTX-005)"
+    );
 }
 
 #[test]

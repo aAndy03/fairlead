@@ -24,8 +24,24 @@ pub fn run(global: &GlobalArgs, args: &ContextArgs) -> CommandResult {
 fn context(global: &GlobalArgs, args: &ContextArgs) -> Result<CommandResult, Error> {
     let cwd = working_dir(global)?;
     let loaded = load(&load_request(global, false, None)?)?;
-    let target = context_target(&loaded.root, &cwd, args.target.as_deref())?;
     let registry = resolve_loaded(&loaded, as_of(global));
+    // R-CTX-005 (0.3): free text that is neither a path nor an ID is a task query.
+    let (target, query) = match context_target(&loaded.root, &cwd, args.target.as_deref()) {
+        Ok(t) => (t, Vec::new()),
+        Err(Error::Usage(m))
+            if m == fairlead_core::context::NO_MATCH_MESSAGE
+                && args.target.as_deref().is_some_and(|t| !t.trim().is_empty()) =>
+        {
+            let pin = scope_pin(args.scope.as_deref())?;
+            fairlead_core::pipeline::context_query(
+                &loaded,
+                &registry,
+                args.target.as_deref().unwrap_or(""),
+                pin.as_ref(),
+            )
+        }
+        Err(e) => return Err(e),
+    };
     let mut options: CheckOptions = default_options(as_of(global));
     if let fairlead_core::context::ContextTarget::Path(path) = &target {
         options.paths = vec![path.clone()];
@@ -41,6 +57,7 @@ fn context(global: &GlobalArgs, args: &ContextArgs) -> Result<CommandResult, Err
         exact_tokens: args.exact_tokens,
         as_of: as_of(global),
         since: None,
+        query,
     };
     let mut output = context_loaded(&loaded, &registry, &report, &request)?;
     if let Some(arg) = &args.since {
@@ -49,6 +66,7 @@ fn context(global: &GlobalArgs, args: &ContextArgs) -> Result<CommandResult, Err
             fairlead_core::pipeline::context_since(&loaded, &output.brief.header.digest, arg)?;
         let request = ContextRequest {
             since: Some(since),
+            query: Vec::new(),
             ..request
         };
         output = context_loaded(&loaded, &registry, &report, &request)?;

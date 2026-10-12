@@ -293,6 +293,82 @@ pub fn to_root_relative(root: &Root, cwd: &Utf8Path, text: &str) -> Result<RepoP
     RepoPath::new(&rel).map_err(|_| outside())
 }
 
+/// R-CTX-005, R-CTX-060 to R-CTX-062 (0.3): a task query. Returns the target to brief (the
+/// pinned scope, else the best matching scope; the root when nothing matches) and the query
+/// lines: `matched: <scope> <score>, ...; pin with --scope` (top 3) or `no match: <query>`,
+/// then up to 8 hits of that scope, graveyard entries first, titles fenced as data.
+pub fn context_query(
+    loaded: &Loaded,
+    registry: &Registry,
+    text: &str,
+    pin: Option<&ScopeId>,
+) -> (ContextTarget, Vec<String>) {
+    use crate::context::query;
+    let index = query::build(registry, &loaded.corpus, &loaded.facts.tombstones);
+    let hits = index.search(text);
+    let ranked = query::rank_scopes(&hits);
+    let mut lines = Vec::new();
+    if ranked.is_empty() {
+        lines.push(format!(
+            "no match: {}",
+            crate::render::sanitize::sanitize_data(text, 120)
+        ));
+        return (ContextTarget::SessionStart, lines);
+    }
+    let shown: Vec<String> = ranked
+        .iter()
+        .take(3)
+        .map(|(s, x)| format!("{} {x:.2}", s.0.as_str()))
+        .collect();
+    lines.push(format!("matched: {}; pin with --scope", shown.join(", ")));
+    let scope = pin.cloned().unwrap_or_else(|| ranked[0].0.clone());
+    let mut mine: Vec<&query::Hit<'_>> = hits.iter().filter(|h| h.doc.scope == scope).collect();
+    mine.sort_by(|a, b| {
+        (a.doc.kind != query::DocKind::Grave)
+            .cmp(&(b.doc.kind != query::DocKind::Grave))
+            .then_with(|| {
+                b.score
+                    .partial_cmp(&a.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .then_with(|| a.doc.key.cmp(&b.doc.key))
+    });
+    for h in mine.into_iter().take(8) {
+        let title = match &h.doc.path {
+            Some(p) => {
+                let hash = loaded
+                    .corpus
+                    .records
+                    .get(p)
+                    .map(|r| r.hash)
+                    .unwrap_or(crate::hash::ContentHash([0; 32]));
+                crate::context::brief::fence(
+                    p,
+                    &hash,
+                    &h.doc.title,
+                    crate::context::brief::CAP_TITLE,
+                )
+            }
+            None => crate::context::brief::quote(&crate::render::sanitize::sanitize_data(
+                &h.doc.title,
+                crate::context::brief::CAP_TITLE,
+            )),
+        };
+        lines.push(format!(
+            "hit {} {} {:.2} {title}",
+            h.doc.kind.as_str(),
+            crate::render::sanitize::sanitize_data(&h.doc.key, 120),
+            h.score
+        ));
+    }
+    let target = registry
+        .scope(&scope)
+        .filter(|s| !s.dir.is_root())
+        .and_then(|s| RepoPath::new(s.dir.as_str()).ok())
+        .map_or(ContextTarget::SessionStart, ContextTarget::Path);
+    (target, lines)
+}
+
 pub fn context_target(
     root: &Root,
     cwd: &Utf8Path,
