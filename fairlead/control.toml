@@ -12,7 +12,7 @@ purpose       = "fairlead's own declarations: the rules this repository is check
 owners        = ["@aAndy03"]
 
 [scan]
-exclude = ["target/**", "Cargo.lock", "fixtures/**", "tests/**", "crates/*/tests/**", "fuzz/**", "bench/**", "ablation/**", "docs/plans/**"]
+exclude = ["target/**", "Cargo.lock", "fixtures/**", "tests/**", "crates/*/tests/**", "fuzz/**", "bench/**", "ablation/**", "evals/**", "docs/plans/**"]
 
 [policies]
 "rules.*" = "sealed"
@@ -50,7 +50,7 @@ integration-branch = "main"
 level = "warn"
 # The one tuning of exempt globs (A-2 practice, E2-98): tests, the specification, tooling and CI
 # are not user-facing changes; change docs and the changelog describe the product.
-exempt = ["Cargo.lock", "docs/**", "tests/**", "xtask/**", ".github/**"]
+exempt = ["Cargo.lock", "docs/**", "tests/**", "xtask/**", ".github/**", "evals/**"]
 
 [changelog]
 file = "CHANGELOG.md"
