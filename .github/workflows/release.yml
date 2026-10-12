@@ -22,12 +22,18 @@ jobs:
           - os: ubuntu-latest
             exe: fairlead
             asset: fairlead-linux-x86_64
+            mcp_exe: fairlead-mcp
+            mcp_asset: fairlead-mcp-linux-x86_64
           - os: windows-latest
             exe: fairlead.exe
             asset: fairlead-windows-x86_64.exe
+            mcp_exe: fairlead-mcp.exe
+            mcp_asset: fairlead-mcp-windows-x86_64.exe
           - os: macos-latest
             exe: fairlead
             asset: fairlead-macos
+            mcp_exe: fairlead-mcp
+            mcp_asset: fairlead-mcp-macos
     env:
       # The release is built with the MSRV toolchain (R-REL-006). RUSTUP_TOOLCHAIN overrides
       # rust-toolchain.toml, which pins "stable" (Contract issues I-14).
@@ -38,16 +44,24 @@ jobs:
         uses: dtolnay/rust-toolchain@1.88.0
       - uses: Swatinem/rust-cache@v2
       - name: Release build, locked (R-REL-046)
-        run: cargo build --release --locked -p fairlead
-      - name: Stage the binary under its asset name
+        # 0.3 (D-62): the MCP server ships beside the CLI as its own binary; the `fairlead`
+        # binary itself links no MCP or network code.
+        run: cargo build --release --locked -p fairlead -p fairlead-mcp
+      - name: Stage the binaries under their asset names
         shell: bash
         run: |
           mkdir -p dist
           cp "target/release/${{ matrix.exe }}" "dist/${{ matrix.asset }}"
+          cp "target/release/${{ matrix.mcp_exe }}" "dist/${{ matrix.mcp_asset }}"
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
           path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.mcp_asset }}
+          path: dist/${{ matrix.mcp_asset }}
           if-no-files-found: error
 
   publish:

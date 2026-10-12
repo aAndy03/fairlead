@@ -478,6 +478,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "fairlead-mcp"
+version = "0.2.2"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "fairlead-syntax"
 version = "0.2.2"
 dependencies = [

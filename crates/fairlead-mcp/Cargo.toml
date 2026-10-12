@@ -1,0 +1,20 @@
+[package]
+name = "fairlead-mcp"
+description = "MCP server of fairlead: check, context and explain as agent tools, over stdio."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+# Not published in 0.3 until the owner decides (E3-35); the three published crates are unchanged.
+publish = false
+repository.workspace = true
+
+[[bin]]
+name = "fairlead-mcp"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = "1.0.151"
