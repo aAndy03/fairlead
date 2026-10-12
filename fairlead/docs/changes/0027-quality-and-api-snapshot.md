@@ -1,12 +1,15 @@
 +++
 id = "d-q7a1rz3b"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "fix"
 scope = "root"
 title = "0.3 quality checks and the v1 API snapshot"
 covers = ["Cargo.toml", "crates/**", "tests/**", "xtask/**", "docs/**", ".github/workflows/**"]
 created = "0.2.3"
+sealed = "0.3.0"
+body-hash = "b3:y6hrdj6pv9tfxdr58jt2"
+ordinal = 27
 +++
 
 # 0.3 quality checks and the v1 API snapshot

@@ -1,12 +1,15 @@
 +++
 id = "d-c6xtq0ry"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Context queries and agent tools"
 covers = ["crates/**", "xtask/**", "tools/**", ".github/workflows/**"]
 created = "0.2.3"
+sealed = "0.3.0"
+body-hash = "b3:3pnrq7tx58h41k9nmrt4"
+ordinal = 24
 +++
 
 # Context queries and agent tools

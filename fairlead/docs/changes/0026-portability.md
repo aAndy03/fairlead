@@ -1,12 +1,15 @@
 +++
 id = "d-p4rtb1ty"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Portability: requires, locks, mounts and moving scopes"
 covers = ["crates/fairlead-core/src/**", "crates/fairlead/src/**"]
 created = "0.2.3"
+sealed = "0.3.0"
+body-hash = "b3:c018jvdaxfqytd17wdqr"
+ordinal = 26
 +++
 
 # Portability: requires, locks, mounts and moving scopes

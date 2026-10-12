@@ -1,12 +1,15 @@
 +++
 id = "d-v3m7t0k9"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Variation protocol and richer token checks"
 covers = ["crates/fairlead-core/src/**", "crates/fairlead/src/**", "crates/fairlead-syntax/src/**"]
 created = "0.2.3"
+sealed = "0.3.0"
+body-hash = "b3:m5r1169gpwhym2ctgnwt"
+ordinal = 29
 +++
 
 # Variation protocol and richer token checks

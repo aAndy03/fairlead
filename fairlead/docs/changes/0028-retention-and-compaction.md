@@ -1,12 +1,15 @@
 +++
 id = "d-r5tq9mcx"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Retention and compaction"
 covers = ["crates/fairlead-core/src/**", "crates/fairlead/src/**"]
 created = "0.2.3"
+sealed = "0.3.0"
+body-hash = "b3:5z9gnzam97zyagd8zby4"
+ordinal = 28
 +++
 
 # Retention and compaction

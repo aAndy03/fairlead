@@ -1,12 +1,15 @@
 +++
 id = "d-a23srma6"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Hierarchy: entries, reachability and bridges"
 covers = ["crates/fairlead-core/src/**", "crates/fairlead/src/**"]
 created = "0.2.3"
+sealed = "0.3.0"
+body-hash = "b3:yp8f35qctcqvj60myzpd"
+ordinal = 23
 +++
 
 # Hierarchy: entries, reachability and bridges

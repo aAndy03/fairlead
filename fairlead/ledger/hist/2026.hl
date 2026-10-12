@@ -27,3 +27,13 @@ d-gya1avh7 kind=change ord=0021 impact=fix title="a [[file]] path that matches n
 d-v45h978a kind=change ord=0022 impact=fix title="a removed rule ID cannot be declared again" d=4wfjw2nr
 rollup.0.2.2 kind=rollup waivers=0 subtree-waivers=0 digest=s2ssmsga4gdyce56tfj2 d=xd4ppfym
 # ckpt v=0.2.2 n=10 d=mxjdz059
+d-a23srma6 kind=change ord=0023 impact=add title="Hierarchy: entries, reachability and bridges" d=rfjsphqe
+d-c6xtq0ry kind=change ord=0024 impact=add title="Context queries and agent tools" d=hsf2k727
+d-dnfnp0bq kind=change ord=0025 impact=break title="sync rebuilds the history ledger and records deleted docs" d=5n05a73h
+d-p4rtb1ty kind=change ord=0026 impact=add title="Portability: requires, locks, mounts and moving scopes" d=s8f97e3s
+d-q7a1rz3b kind=change ord=0027 impact=fix title="0.3 quality checks and the v1 API snapshot" d=3hfz8hfb
+d-r5tq9mcx kind=change ord=0028 impact=add title="Retention and compaction" d=sx00zf94
+d-v3m7t0k9 kind=change ord=0029 impact=add title="Variation protocol and richer token checks" d=dawt225f
+d-x32fmkx0 kind=change ord=0030 impact=add title="Hierarchy: ladders, containers, units and the use graph" d=twk3wpwr
+rollup.0.3.0 kind=rollup waivers=0 subtree-waivers=0 digest=8tnq1apn5aaa0ytncbh9 d=954jr4t1
+# ckpt v=0.3.0 n=9 d=qwyh4fet

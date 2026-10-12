@@ -1,12 +1,15 @@
 +++
 id = "d-x32fmkx0"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "add"
 scope = "root"
 title = "Hierarchy: ladders, containers, units and the use graph"
 covers = ["crates/fairlead-core/src/**", "crates/fairlead-syntax/src/directive.rs", "crates/fairlead/src/cli.rs", "crates/fairlead/Cargo.toml"]
 created = "0.2.3"
+sealed = "0.3.0"
+body-hash = "b3:h11k9zba81dd7rms25g9"
+ordinal = 30
 +++
 
 # Hierarchy: ladders, containers, units and the use graph

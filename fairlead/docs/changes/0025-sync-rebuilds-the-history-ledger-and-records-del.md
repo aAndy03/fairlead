@@ -1,7 +1,7 @@
 +++
 id = "d-dnfnp0bq"
 kind = "change"
-status = "ready"
+status = "sealed"
 impact = "break"
 sum = "sync now rebuilds an out-of-order open ledger year, purges records on request and tombstones deleted sealed docs"
 out = "shipped"
@@ -10,6 +10,9 @@ scope = "root"
 title = "sync rebuilds the history ledger and records deleted docs"
 covers = ["crates/fairlead-core/src/hist.rs", "crates/fairlead-core/src/write/sync.rs"]
 created = "0.2.3"
+sealed = "0.3.0"
+body-hash = "b3:mnavgbwth6ccqh9kmxby"
+ordinal = 25
 +++
 
 # sync rebuilds the history ledger and records deleted docs
