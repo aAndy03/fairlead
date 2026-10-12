@@ -2,6 +2,8 @@
 
 > Release 0.3, "hierarchy, variation, portability, retention". Scope: [60-roadmap.md](../../60-roadmap.md) section 3.3. Exit criteria: section 4.3. Rules: every rule tagged `[0.3]` (175 by the roadmap count, 190 tagged lines), mainly chapters 30 to 33. The v1 API freeze moved to the end of 0.4 (D-64); 0.3 writes the surface down (P7-T7) but does not freeze it.
 >
+> **Status (2026-10-12): built.** P1 to P7 are implemented on `main`; deviations are recorded in [errata.md](errata.md) (E3-1 to E3-40) and the unbuilt remainder in [../1.0-gaps.md](../1.0-gaps.md). Left for the owner: the agent-run protocols (A-5, B-1 to B-6), allowing `rmcp` and the tree-sitter downloads (E3-35, E3-36), bumping the version to 0.3.0 and tagging `v0.3.0`.
+>
 > **Level of detail.** As for 0.2: tasks, interfaces, file formats and test names; the executor writes the code against the cited chapter. Chapters and [decisions.md](../../decisions.md) win over this plan, and differences go into `plans/0.3/errata.md`.
 
 ## Starting point

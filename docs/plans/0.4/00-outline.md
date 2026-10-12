@@ -1,6 +1,6 @@
 # fairlead 0.4 outline: the content model
 
-> Decision [D-63](../../decisions.md). Status: outline, not a plan. It becomes a phased plan (like plans/0.3) after 0.3 ships and its freeze review is done. The v1 API freeze is at the end of 0.4 (D-64), so 0.4 adds its surface before the freeze, within edition 1.
+> Decision [D-63](../../decisions.md). Status: outline; the phased plan is [00-master.md](00-master.md) (written 2026-10-12, after the 0.3 build). The v1 API freeze is at the end of 0.4 (D-64), so 0.4 adds its surface before the freeze, within edition 1.
 
 ## The idea
 
