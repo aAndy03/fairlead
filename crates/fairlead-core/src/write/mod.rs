@@ -281,6 +281,7 @@ pub(crate) mod testutil {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],
                 crate_deps: Default::default(),
+                packages: Default::default(),
             },
         }
     }

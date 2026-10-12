@@ -29,6 +29,12 @@ const CODES: [DiagCode; 12] = [
     HN_L002, HN_X011,
 ];
 
+/// R-PORT-024: whether a doc reference names this request.
+fn req_named(reg: &Registry, r: &var::Request, raw: &str) -> bool {
+    r.id.as_ref()
+        .is_some_and(|i| crate::docs::doc_ref_is(raw, i, var::scope_of(reg, &r.path).0.as_str()))
+}
+
 fn resolve(reg: &Registry, from: &ScopeId, raw: &str) -> Option<ItemId> {
     let id = Id::parse(raw).ok()?;
     match reg.lookup(from, &id) {
@@ -336,7 +342,9 @@ fn wrappers_and_adapters(
                 out.push(malformed(&p, l, c, format!("adapter {name} declares neither rejected-by= nor wraps="), name.clone(), "an adapter links to the rejecting change doc (rejected-by=) or wraps an ext (R-VAR-070)"));
             }
             if let Some(r) = rejected {
-                match docs.iter().find(|d| d.id.as_str() == r) {
+                match docs.iter().find(|d| {
+                    crate::docs::doc_ref_is(r, &d.id, var::scope_of(reg, &d.path).0.as_str())
+                }) {
                     None => out.push(dangling(
                         &p,
                         l,
@@ -480,7 +488,12 @@ fn requests_of(
                 need,
             ));
         }
-        let st = var::status(id, answers, awaiting);
+        let st = var::status(
+            id,
+            var::scope_of(reg, &r.path).0.as_str(),
+            answers,
+            awaiting,
+        );
         let since = var::seals_since(r.created, &sealed);
         if st == ReqStatus::Open && since > vcfg.stale_seals as usize {
             out.push(
@@ -528,10 +541,7 @@ fn answers_of(
             crate::docs::Status::Ready | crate::docs::Status::Sealed
         );
         for x in &a.answers {
-            if !requests
-                .iter()
-                .any(|r| r.id.as_ref().is_some_and(|i| i.as_str() == x))
-            {
+            if !requests.iter().any(|r| req_named(reg, r, x)) {
                 out.push(dangling(
                     p,
                     1,
@@ -597,7 +607,7 @@ fn answers_of(
             for x in &a.answers {
                 let Some(want) = requests
                     .iter()
-                    .find(|r| r.id.as_ref().is_some_and(|i| i.as_str() == x))
+                    .find(|r| req_named(reg, r, x))
                     .and_then(|r| r.field("want"))
                 else {
                     continue;
@@ -650,10 +660,7 @@ fn awaiting_of(
             ));
             continue;
         };
-        let Some(req) = requests
-            .iter()
-            .find(|r| r.id.as_ref().is_some_and(|i| i.as_str() == to))
-        else {
+        let Some(req) = requests.iter().find(|r| req_named(reg, r, to)) else {
             out.push(dangling(
                 p,
                 l,
@@ -668,7 +675,12 @@ fn awaiting_of(
             .as_ref()
             .map_or_else(|| "the wrapper".to_owned(), bare_id);
         if let Some(id) = &req.id
-            && var::status(id, answers, awaiting) == ReqStatus::Rejected
+            && var::status(
+                id,
+                var::scope_of(reg, &req.path).0.as_str(),
+                answers,
+                awaiting,
+            ) == ReqStatus::Rejected
         {
             out.push(
                 DiagB::new(HN_X001, p, l, c, format!("{wrapper} awaits {to}, which was rejected"))

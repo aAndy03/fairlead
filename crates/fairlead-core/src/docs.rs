@@ -184,6 +184,16 @@ pub fn parse_change_doc(path: &RepoPath, t: &toml::Table) -> Result<Option<Chang
     }))
 }
 
+/// R-PORT-024 (0.3): whether a doc reference names the doc `id` of `scope`. Outside its own
+/// scope a doc is written `<scope>:d-<draft>`; an unqualified `d-<draft>` names it from any
+/// scope (draft IDs are random, so the bare form is unambiguous in practice).
+pub fn doc_ref_is(raw: &str, id: &DraftId, scope: &str) -> bool {
+    match raw.trim().split_once(':') {
+        Some((s, d)) => s == scope && d == id.as_str(),
+        None => raw.trim() == id.as_str(),
+    }
+}
+
 /// R-VER-060: a change doc that is not sealed (its `def`s declare nothing yet).
 pub fn is_unsealed_change_doc(t: &toml::Table) -> bool {
     let s = |k: &str| t.get(k).and_then(|v| v.as_str());

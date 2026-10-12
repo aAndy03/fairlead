@@ -302,7 +302,7 @@ fn r_var_031__status_derived_open_answered_closed() {
         let (docs, _) = crate::docs::collect_change_docs(&b.corpus);
         let a = var::answers(&docs, &b.facts.approvals);
         let aw = var::awaiting(&b.registry, &b.corpus);
-        var::status(&crate::docs::DraftId::parse(REQ).unwrap(), &a, &aw)
+        var::status(&crate::docs::DraftId::parse(REQ).unwrap(), "web", &a, &aw)
     };
     let ans = (
         "fairlead/docs/changes/d-91cc04ab-a.md",

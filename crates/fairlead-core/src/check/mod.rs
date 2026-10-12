@@ -96,7 +96,7 @@ pub struct CheckCx<'a> {
     pub options: &'a CheckOptions,
 }
 
-static CHECKS: [&dyn Check; 23] = [
+static CHECKS: [&dyn Check; 24] = [
     &builtin::syntax::SyntaxCheck,
     &builtin::refs::RefsCheck,
     &builtin::tokens::TokensCheck,
@@ -119,6 +119,7 @@ static CHECKS: [&dyn Check; 23] = [
     &builtin::authority::AuthorityCheck,
     &builtin::cascade::CascadeCheck,
     &builtin::variation::VariationCheck,
+    &builtin::port::PortCheck,
     &builtin::hier::HierCheck,
 ];
 

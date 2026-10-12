@@ -473,7 +473,36 @@ fn insert_cands(
                 name: c.name.clone(),
             })
             .find(|anc| decls.items.contains_key(anc));
-        if let Some(anc) = shadowed {
+        // R-PORT-025 (0.3): a claim restated in a child scope is a declared contradiction
+        // (`contradicts=`), or `DUP-CLAIM`; it never shadows silently.
+        let claim = c.kind.as_str() == "claim";
+        if let Some(anc) = shadowed.as_ref().filter(|_| claim)
+            && !c.fields.contains_key("contradicts")
+        {
+            diags.push(
+                Dg::new(
+                    codes::HN_M004,
+                    Severity::Error,
+                    &c.loc.path,
+                    c.loc.line,
+                    c.loc.col,
+                )
+                .scope(&scope.id)
+                .msg(format!(
+                    "claim `{text}` restates the claim of scope \"{}\" without contradicts",
+                    anc.scope.0.as_str()
+                ))
+                .related(anc.to_id().to_string())
+                .hint(format!(
+                    "declare contradicts={} on it, or drop the restatement (R-PORT-025)",
+                    anc.to_id()
+                ))
+                .text(text)
+                .done(),
+            );
+            continue;
+        }
+        if let Some(anc) = shadowed.filter(|_| !claim) {
             diags.push(
                 Dg::new(
                     codes::HN_R005,

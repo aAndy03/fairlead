@@ -67,10 +67,7 @@ fn evidence(root: &Path) -> String {
 
 /// 0.3 codes whose checks have not landed yet (plans/0.3 P1-T1, as 0.2 did). Each task that
 /// lands a check removes its codes; 0.3 P7-T6 requires this list to be empty.
-const PENDING_0_3: &[&str] = &[
-    "HN-K001", "HN-V012", "HN-V014", "HN-M004", "HN-M005", "HN-M006", "HN-M009", "HN-M010",
-    "HN-M012",
-];
+const PENDING_0_3: &[&str] = &["HN-K001", "HN-V014", "HN-M005", "HN-M010", "HN-M012"];
 
 fn asserted(text: &str, code: &str) -> bool {
     text.contains(code) || text.contains(&code.replace('-', "_"))

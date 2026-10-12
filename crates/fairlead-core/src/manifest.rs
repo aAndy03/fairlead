@@ -14,6 +14,132 @@ pub struct ManifestHints {
     /// directories it depends on (`dependencies`, `build-dependencies` and their `target.*` forms;
     /// `dev-dependencies` excluded), read from the manifests directly (D-50).
     pub crate_deps: BTreeMap<RepoPath, BTreeSet<RepoPath>>,
+    /// R-PORT-054 (0.3): every `[package]` of the tree, by crate directory.
+    pub packages: BTreeMap<RepoPath, Package>,
+}
+
+/// One `[package]` as R-PORT-054 needs it (D-50: read from the manifest, never edited).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct Package {
+    pub name: String,
+    /// The package version, `version.workspace = true` resolved; empty when absent.
+    pub version: String,
+    /// `publish = false` (or an empty registry list) makes it unpublishable.
+    pub publishable: bool,
+    pub exclude: Vec<String>,
+    pub include: Vec<String>,
+    /// Dependencies that give both `path` and `version`: (name, crate directory, version req).
+    pub path_version_deps: Vec<(String, RepoPath, String)>,
+}
+
+/// The package facts of every parsed manifest (R-PORT-054).
+fn packages(parsed: &BTreeMap<RepoPath, toml::Table>) -> BTreeMap<RepoPath, Package> {
+    let ws_version = |dir: &RepoPath| -> Option<String> {
+        parsed
+            .iter()
+            .filter(|(d, t)| t.contains_key("workspace") && (dir == *d || dir.is_within(d)))
+            .max_by_key(|(d, _)| d.as_str().len())
+            .and_then(|(_, t)| {
+                Some(
+                    t.get("workspace")?
+                        .get("package")?
+                        .get("version")?
+                        .as_str()?
+                        .to_owned(),
+                )
+            })
+    };
+    let mut out = BTreeMap::new();
+    for (dir, t) in parsed {
+        let Some(p) = t.get("package").and_then(toml::Value::as_table) else {
+            continue;
+        };
+        let version = match p.get("version") {
+            Some(toml::Value::String(v)) => v.clone(),
+            Some(toml::Value::Table(w))
+                if w.get("workspace").and_then(toml::Value::as_bool) == Some(true) =>
+            {
+                ws_version(dir).unwrap_or_default()
+            }
+            _ => String::new(),
+        };
+        let publishable = match p.get("publish") {
+            Some(toml::Value::Boolean(b)) => *b,
+            Some(toml::Value::Array(a)) => !a.is_empty(),
+            _ => true,
+        };
+        let mut deps = Vec::new();
+        for table in dep_tables(t) {
+            for (name, v) in table {
+                let Some(spec) = v.as_table() else { continue };
+                if let (Some(path), Some(req)) = (
+                    spec.get("path").and_then(toml::Value::as_str),
+                    spec.get("version").and_then(toml::Value::as_str),
+                ) && let Some(d) = join_rel(dir, path)
+                {
+                    deps.push((name.clone(), d, req.to_owned()));
+                }
+            }
+        }
+        out.insert(
+            dir.clone(),
+            Package {
+                name: p
+                    .get("name")
+                    .and_then(toml::Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                version,
+                publishable,
+                exclude: strings(p.get("exclude")),
+                include: strings(p.get("include")),
+                path_version_deps: deps,
+            },
+        );
+    }
+    out
+}
+
+/// R-PORT-054: whether `version` satisfies a Cargo requirement written as `x.y.z`, `^x.y.z`,
+/// `=x.y.z`, `~x.y.z` or a shorter `x.y`/`x` (other forms are taken as satisfied: no guessing).
+pub fn version_agrees(req: &str, version: &str) -> bool {
+    let parse = |s: &str| -> Option<Vec<u64>> {
+        s.split('.')
+            .map(|p| p.parse::<u64>().ok())
+            .collect::<Option<Vec<_>>>()
+    };
+    let r = req.trim();
+    let (op, rest) = match r.chars().next() {
+        Some('^') => ('^', &r[1..]),
+        Some('=') => ('=', &r[1..]),
+        Some('~') => ('~', &r[1..]),
+        Some(c) if c.is_ascii_digit() => ('^', r),
+        _ => return true,
+    };
+    let (Some(want), Some(have)) = (
+        parse(rest.trim()),
+        parse(version.split(['-', '+']).next().unwrap_or(version)),
+    ) else {
+        return true;
+    };
+    let w = |i: usize| want.get(i).copied();
+    let h = |i: usize| have.get(i).copied().unwrap_or(0);
+    let at_least = (0..3).all(|i| w(i).is_none()) || {
+        let wv: Vec<u64> = (0..3).map(|i| w(i).unwrap_or(0)).collect();
+        let hv: Vec<u64> = (0..3).map(h).collect();
+        hv >= wv
+    };
+    match op {
+        '=' => (0..want.len()).all(|i| w(i) == Some(h(i))),
+        '~' => at_least && w(0) == Some(h(0)) && w(1).is_none_or(|m| m == h(1)),
+        _ => {
+            // caret: the left-most non-zero component is fixed
+            let first = (0..want.len())
+                .find(|i| w(*i) != Some(0))
+                .unwrap_or(want.len().saturating_sub(1));
+            at_least && (0..=first).all(|i| w(i).is_none_or(|x| x == h(i)))
+        }
+    }
 }
 
 /// `base/rel` with `.` and `..` resolved; `None` when it leaves the root.
@@ -170,6 +296,7 @@ pub fn read_manifest_hints(root: &Root, walk: &WalkResult) -> ManifestHints {
         hints.default_excludes.push("target/".to_string());
     }
     hints.crate_deps = crate_deps(&parsed);
+    hints.packages = packages(&parsed);
     hints
 }
 

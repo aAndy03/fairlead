@@ -44,6 +44,9 @@ pub enum GenKind {
     /// `gen/hier.suggest`: the hierarchy refactor suggestions of a scope (R-HIER-072), written
     /// only when the root's `[hier] level` is 2 or more and the scope has suggestions.
     Suggest,
+    /// `gen/requires`: what a scope requires from other scopes (R-PORT-020), written only for a
+    /// scope that declares `[scope] requires` or is portable.
+    Requires,
 }
 
 /// One generated file. `body` is the sorted terse lines, each ending in `\n`, without the header.
@@ -316,7 +319,6 @@ pub fn generate(
     baseline: Option<&Baseline>,
     edition: Edition,
 ) -> GeneratedSet {
-    let _ = edition;
     let mut files: BTreeMap<RepoPath, GeneratedFile> = BTreeMap::new();
     let Some(root_scope) = reg.scope(reg.root_scope()) else {
         return GeneratedSet { files };
@@ -477,14 +479,34 @@ pub fn generate(
 
         // 3c. scope.lock, once a version is sealed (R-VER-015); a never-sealed tree has none, so
         // edition-1 trees from 0.1 keep their bytes (R-EDN-002)
+        let ported = crate::port::opted_in(reg, &scope.id);
         if let Some(s) = sealed {
+            let anc = crate::merkle::ancestor_digest(reg, &scope.id);
+            let mut body = crate::merkle::scope_lock_body(s, &anc);
+            // R-PORT-022 (0.3): the pinned digests of what the scope requires.
+            if ported {
+                body.push_str(&crate::port::lock_lines(
+                    reg, corpus, &scope.id, s, edition.0, &anc,
+                ));
+            }
             put(
                 &mut files,
                 dir,
                 &format!("{folder}/{gen_dir}/scope.lock"),
                 &scope.id,
                 GenKind::ScopeLock,
-                crate::merkle::scope_lock_body(s, &crate::merkle::ancestor_digest(reg, &scope.id)),
+                body,
+            );
+        }
+        // R-PORT-020 (0.3): the generated `requires`
+        if ported {
+            put(
+                &mut files,
+                dir,
+                &format!("{folder}/{gen_dir}/requires"),
+                &scope.id,
+                GenKind::Requires,
+                crate::port::requires_body(reg, corpus, &scope.id),
             );
         }
 

@@ -1,5 +1,6 @@
 fairlead check 0.2.2 edition=1 as-of=2026-10-09 scopes=2 files=5 rules=0
-errors 0 warn 1 info 1 | baselined 0 | waived 0 | observe 0 | accepted 0
+errors 0 warn 2 info 1 | baselined 0 | waived 0 | observe 0 | accepted 0
+HN-M006 warn apps/console scope console was not checked: it is outside the checkout | fix: widen the sparse checkout, or let CI check the full tree (R-PORT-052)
 HN-V013 warn apps/console scope is absent from the working tree | fix: widen the sparse checkout
 HN-N001 info fairlead/control.toml 0 rules declared, 0 IDs: nothing verified | fix: declare a rule or an ID: fairlead new rule, fairlead new <kind>
 waivers: none | relaxations: none

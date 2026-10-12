@@ -71,6 +71,7 @@ fn empty_facts() -> Facts {
             workspace_members: BTreeSet::new(),
             default_excludes: Vec::new(),
             crate_deps: Default::default(),
+            packages: Default::default(),
         },
     }
 }

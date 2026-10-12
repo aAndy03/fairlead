@@ -105,7 +105,7 @@ fn r_var_033__request_text_fenced() {
     let line = ctx
         .stdout
         .lines()
-        .find(|l| l.contains("request d-"))
+        .find(|l| l.contains("request web:d-"))
         .unwrap_or_else(|| panic!("{}", ctx.stdout));
     assert!(line.contains("open: needs root:cmp.button"), "{line}");
     assert!(
@@ -122,5 +122,5 @@ fn r_var_033__request_text_fenced() {
         "--as-of",
         AS_OF,
     ]);
-    assert!(home.stdout.contains("request d-"), "{}", home.stdout);
+    assert!(home.stdout.contains("request web:d-"), "{}", home.stdout);
 }

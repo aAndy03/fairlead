@@ -691,9 +691,10 @@ exp = "2027-03-31"
     fn r_syn_051__requires_is_not_a_settings_key() {
         let text = format!("{ROOT}\n[scope]\nportable = true\nrequires = [\"x\"]\n");
         let c = parse_control(&p("fairlead/control.toml"), text.as_bytes(), true).unwrap();
-        assert!(
-            c.unknown.iter().any(|u| u.path == "scope.requires"),
-            "`requires` of `[scope]` is 0.3: unknown in 0.2"
+        assert_eq!(
+            c.scope_cfg.requires.as_deref(),
+            Some(["x".to_owned()].as_slice()),
+            "`requires` of `[scope]` is 0.3 (R-PORT-020)"
         );
         let text2 = ROOT.replace("fairlead-version = \"0.1\"", "requires = \"x\"");
         let c2 = parse_control(&p("fairlead/control.toml"), text2.as_bytes(), true).unwrap();

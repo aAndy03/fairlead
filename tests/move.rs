@@ -535,7 +535,7 @@ fn r_ver_047__context_lists_hotfix_debts_and_open_escalations() {
     assert_eq!(hot.code, 0, "{}{}", hot.stdout, hot.stderr);
     let root = repo.run(&["context", "--budget", "0", "--as-of", AS_OF]);
     assert!(
-        root.stdout.contains("hotfix debt d-") && root.stdout.contains("due 2026-10-13"),
+        root.stdout.contains("hotfix debt root:d-") && root.stdout.contains("due 2026-10-13"),
         "{}",
         root.stdout
     );

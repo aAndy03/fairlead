@@ -396,7 +396,8 @@ pub(crate) fn gather_open_work(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
         push(
             format!("5hotfix-{}", d.id.as_str()),
             format!(
-                "hotfix debt {} due {due}: backfill its change doc",
+                "hotfix debt {}:{} due {due}: backfill its change doc",
+                reg.scope_of(&d.path).map_or("root", |s| s.0.as_str()),
                 d.id.as_str()
             ),
         );
@@ -453,7 +454,7 @@ pub(crate) fn gather_open_work(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
         if *from != scene.scope && home.as_ref() != Some(&scene.scope) {
             continue;
         }
-        let st = crate::variation::status(id, &answers, &awaiting);
+        let st = crate::variation::status(id, from.0.as_str(), &answers, &awaiting);
         if st != crate::variation::ReqStatus::Open {
             continue;
         }
@@ -467,7 +468,8 @@ pub(crate) fn gather_open_work(scene: &Scene<'_>, out: &mut Vec<Candidate>) {
         push(
             format!("5var-{}", id.as_str()),
             format!(
-                "request {} open{stale}: needs {} | {want}",
+                "request {}:{} open{stale}: needs {} | {want}",
+                from.0.as_str(),
                 id.as_str(),
                 sanitize_data(r.field("need").unwrap_or("?"), 80)
             ),

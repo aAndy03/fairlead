@@ -230,6 +230,7 @@ impl WorldBuilder {
                 workspace_members: BTreeSet::new(),
                 default_excludes: vec![],
                 crate_deps: Default::default(),
+                packages: Default::default(),
             },
         };
         let as_of = AsOf::parse("2026-10-09").unwrap();

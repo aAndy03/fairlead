@@ -206,10 +206,17 @@ impl ReqStatus {
     }
 }
 
-pub fn status(req: &DraftId, answers: &[Answer<'_>], awaiting: &[Awaiting]) -> ReqStatus {
+/// `scope` is the request's own scope, for the qualified form `<scope>:d-<draft>` (R-PORT-024).
+pub fn status(
+    req: &DraftId,
+    scope: &str,
+    answers: &[Answer<'_>],
+    awaiting: &[Awaiting],
+) -> ReqStatus {
+    let names = |x: &str| crate::docs::doc_ref_is(x, req, scope);
     let mine: Vec<&Answer<'_>> = answers
         .iter()
-        .filter(|a| a.approved && a.answers.iter().any(|x| x == req.as_str()))
+        .filter(|a| a.approved && a.answers.iter().any(|x| names(x)))
         .collect();
     if mine.is_empty() {
         return ReqStatus::Open;
@@ -217,10 +224,7 @@ pub fn status(req: &DraftId, answers: &[Answer<'_>], awaiting: &[Awaiting]) -> R
     if mine.iter().any(|a| a.rejected()) {
         return ReqStatus::Rejected;
     }
-    if awaiting
-        .iter()
-        .any(|w| w.to.as_deref() == Some(req.as_str()))
-    {
+    if awaiting.iter().any(|w| w.to.as_deref().is_some_and(names)) {
         ReqStatus::Answered
     } else {
         ReqStatus::Closed
