@@ -3,18 +3,19 @@ Move a codebase one edition forward through an approved, plan-hashed transaction
 Usage: fairlead upgrade [OPTIONS]
 
 Options:
+      --dry-run                 Print the plan and write nothing; exit 0 (R-CLI-043)
       --root <DIR>              Codebase root; wins over FAIRLEAD_ROOT and the upward search (R-CLI-004)
+  -C <DIR>                      Run as if started in DIR; the root search starts there (R-CLI-006)
       --yes                     Apply: the first run writes the draft upgrade doc; an approved doc applies the plan
       --allow-dirty             Apply although files of the write-set differ from HEAD (R-EDN-031)
-  -C <DIR>                      Run as if started in DIR; the root search starts there (R-CLI-006)
-      --fetch                   Retrieve edition migration data over the network (no remote data exists yet, Q-2)
       --format <FORMAT>         Output format: human, terse or json; sarif for check only (R-CLI-006) [possible values: human, terse, json, sarif]
+      --fetch                   Retrieve edition migration data over the network (no remote data exists yet, Q-2)
       --quiet                   Suppress informational output; errors still print
-      --scope <SCOPE>           Upgrade one sealed sub-root alone (R-EDN-043)
       --color <WHEN>            Colour: auto (TTY and NO_COLOR unset) or never (R-CLI-006) [default: auto] [possible values: auto, never]
-      --rename-marker <MARKER>  Rename the directive marker (a rename step; the edition is unchanged, R-EDN-007)
+      --scope <SCOPE>           Upgrade one sealed sub-root alone (R-EDN-043)
       --as-of <YYYY-MM-DD>      Date for exp= and date expiry; default UTC today (D-37, R-CHK-014)
-      --rename-folder <FOLDER>  Rename the managerial folder (a rename step; the edition is unchanged, R-EDN-007)
+      --rename-marker <MARKER>  Rename the directive marker (a rename step; the edition is unchanged, R-EDN-007)
       --no-cache                Ignore the .fairlead/ cache; output stays byte-identical (R-CHK-013)
+      --rename-folder <FOLDER>  Rename the managerial folder (a rename step; the edition is unchanged, R-EDN-007)
       --threads <N>             Worker threads; FAIRLEAD_THREADS sets the same value and the flag wins (D-54)
   -h, --help                    Print help

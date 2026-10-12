@@ -37,7 +37,7 @@ fn upgrade(global: &GlobalArgs, args: &UpgradeArgs) -> Result<CommandResult, Err
     }
     let mut discover = discover_request(global, true)?;
     discover.upgrade = true;
-    let session = if args.yes {
+    let session = if args.yes && !args.dry_run {
         Some(WriteSession::open_allocating(&discover, &SysProbe)?)
     } else {
         None
@@ -93,10 +93,15 @@ fn upgrade(global: &GlobalArgs, args: &UpgradeArgs) -> Result<CommandResult, Err
         ));
     }
     let Some(session) = session else {
-        let mut result = CommandResult::text(format!(
-            "{head}{}not applied; re-run with --yes\n",
-            out.plan.render_text("upgrade plan")
-        ));
+        let plan = out.plan.render_text("upgrade plan");
+        // R-CLI-043: `--dry-run` prints the plan and exits 0, even beside `--yes`.
+        if args.dry_run {
+            return Ok(CommandResult::text(format!(
+                "{head}{plan}dry run: nothing written\n"
+            )));
+        }
+        let mut result =
+            CommandResult::text(format!("{head}{plan}not applied; re-run with --yes\n"));
         result.outcome.signal(ExitCode::Refused);
         return Ok(result);
     };

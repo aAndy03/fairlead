@@ -133,6 +133,26 @@ fn approve_by_hand(repo: &TempRepo, doc: &std::path::Path, hash: &str) {
 }
 
 #[test]
+fn r_cli_043__upgrade_dry_run_prints_the_plan_writes_nothing_and_exits_0() {
+    let repo = ready_for_2();
+    let run = upgrade(&repo, &["--dry-run", "--yes"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(
+        run.stdout.contains("upgrade: edition 1 -> 2") && run.stdout.contains("dry run"),
+        "{}",
+        run.stdout
+    );
+    assert!(
+        !repo.path().join("fairlead/docs/changes").exists()
+            || std::fs::read_dir(repo.path().join("fairlead/docs/changes"))
+                .unwrap()
+                .next()
+                .is_none(),
+        "no draft doc is written"
+    );
+}
+
+#[test]
 fn r_edn_037__same_tree_same_plan_hash() {
     let repo = ready_for_2();
     let a = upgrade(&repo, &[]);

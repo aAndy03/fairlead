@@ -24,6 +24,6 @@ Close the 0.3 gaps scheduled for 0.4, prove the exit criteria, run the agent fie
 
 **T8. Agent field test.** As for 0.2: a fresh agent on a real repository, with only `--help`, `explain` and the MCP tools, adopts fairlead including objects, constants and one query rule; every finding of the test is fixed or recorded (exit criterion 7).
 
-**T9. The v1 API freeze.** Finalise `docs/v1-api.md` with the 0.4 surface (`map`, `rename`, `config`, the `query`/`require` grammar, `[content]`, `[agent-mode]`, the new codes and the `map` JSON shape); agent protocol B-4 reviews it; then the snapshot test's "a missing file is written" becomes "a missing file fails", and any change after the freeze needs an edition or a recorded 1.0 gap decision (D-53).
+**T9. The v1 API freeze.** First resolve the 0.3 B-4 items (1.0 gap G-19: fix each or record why it stands). Finalise `docs/v1-api.md` with the 0.4 surface (`map`, `rename`, `config`, the `query`/`require` grammar, `[content]`, `[agent-mode]`, the new codes and the `map` JSON shape); agent protocol B-4 reviews it; then the snapshot test's "a missing file is written" becomes "a missing file fails", and any change after the freeze needs an edition or a recorded 1.0 gap decision (D-53).
 
 **T10. Regression and codes.** Every 0.1 to 0.3 suite passes unchanged, `PENDING_0_4` is empty, and `docs/plans/1.0-gaps.md` is updated with what 0.4 leaves for 0.5 to 0.9 (exit criterion 6).

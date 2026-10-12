@@ -408,6 +408,9 @@ pub struct MoveArgs {
 
 #[derive(Args, Debug, Clone, Default)]
 pub struct UpgradeArgs {
+    /// Print the plan and write nothing; exit 0 (R-CLI-043).
+    #[arg(long)]
+    pub dry_run: bool,
     /// Apply: the first run writes the draft upgrade doc; an approved doc applies the plan.
     #[arg(long)]
     pub yes: bool,
@@ -566,6 +569,10 @@ mod tests {
         assert!(parse(&["init", "--dry-run"]).is_ok());
         assert!(parse(&["sync", "--dry-run"]).is_ok());
         assert!(parse(&["new", "rule", "no-raw-hex", "--dry-run"]).is_ok());
+        assert!(parse(&["seal", "--dry-run"]).is_ok());
+        assert!(parse(&["move", "a", "b", "--dry-run"]).is_ok());
+        // B-4 of 0.3: upgrade lacked it although R-CLI-043 names every writer.
+        assert!(parse(&["upgrade", "--dry-run", "--yes"]).is_ok());
     }
 
     #[test]
