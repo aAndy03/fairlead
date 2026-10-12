@@ -3,7 +3,7 @@
 //! `fairlead` beside this executable, else `fairlead` on the PATH.
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, ExitCode};
 
 use fairlead_mcp::{Runner, handle};
 
@@ -44,7 +44,43 @@ fn binary() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("fairlead"))
 }
 
-fn main() {
+const USAGE: &str = "fairlead-mcp: the MCP server of fairlead, over stdio.
+
+An AI agent's client starts this program and talks to it on stdin and stdout; it stops when the
+client closes. It listens on no port and uses no network. Tools: check, context, explain (read-only).
+
+Register it once with the client, for example:
+  claude mcp add fairlead -- fairlead-mcp
+
+The fairlead binary it runs is FAIRLEAD_BIN, else the one beside this program, else fairlead on PATH.
+
+Usage: fairlead-mcp [--help | --version]
+";
+
+fn main() -> ExitCode {
+    // Run by hand, the server would wait silently on stdin; these two flags answer instead.
+    match std::env::args().nth(1).as_deref() {
+        Some("-h" | "--help") => {
+            let _ = std::io::stdout().write_all(USAGE.as_bytes());
+            return ExitCode::SUCCESS;
+        }
+        Some("-V" | "--version") => {
+            let _ = writeln!(
+                std::io::stdout(),
+                "fairlead-mcp {}",
+                env!("CARGO_PKG_VERSION")
+            );
+            return ExitCode::SUCCESS;
+        }
+        Some(other) => {
+            let _ = write!(
+                std::io::stderr(),
+                "fairlead-mcp: unknown argument {other}\n\n{USAGE}"
+            );
+            return ExitCode::from(2);
+        }
+        None => {}
+    }
     let runner = Cli(binary());
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
@@ -65,4 +101,5 @@ fn main() {
             break;
         }
     }
+    ExitCode::SUCCESS
 }

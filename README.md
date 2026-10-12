@@ -7,6 +7,22 @@ declared intent lives in the repository as documentation, small comment directiv
 Status: pre-alpha. The specification is in [docs/](docs/README.md); the 0.1 implementation plan is in
 [docs/plans/0.1/](docs/plans/0.1/00-master.md).
 
+## Using it with an AI agent (MCP)
+
+Each release ships a second program, `fairlead-mcp`, next to `fairlead`. It gives an agent three
+read-only tools: `check`, `context` and `explain`. It runs on your machine only: it listens on no
+port and makes no network calls. You do not start or stop it yourself: register it once, and the
+agent's client starts it with each session and stops it when the session ends.
+
+With Claude Code, from your project folder:
+
+```bash
+claude mcp add fairlead -- fairlead-mcp
+```
+
+Remove it with `claude mcp remove fairlead`. `fairlead-mcp --help` shows the same instructions. Keep
+both programs in the same folder, or on your `PATH`.
+
 ## Licence
 
 Copyright (C) 2026 Andy.
