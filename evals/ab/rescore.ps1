@@ -6,12 +6,15 @@
 #   powershell -File evals\ab\rescore.ps1 -Name 2026-10-12-pilot [-Results <dir>]
 param(
     [Parameter(Mandatory)][string]$Name,
-    [string]$Results = (Join-Path ([System.IO.Path]::GetTempPath()) 'fairlead-ab')
+    [string]$Results = (Join-Path ([System.IO.Path]::GetTempPath()) 'ab-eval'),
+    # A scorer built apart from the one a running evaluation holds open:
+    #   cargo build --release --offline --manifest-path evals\ab\harness\Cargo.toml --target-dir evals\ab\harness\target-next
+    [string]$Ab = ''
 )
 . "$PSScriptRoot\..\..\xtask\agent\common.ps1"
 $ErrorActionPreference = 'Continue'
 
-$ab = Join-Path $PSScriptRoot 'harness\target\release\ab.exe'
+$ab = if ($Ab) { $Ab } else { Join-Path $PSScriptRoot 'harness\target\release\ab.exe' }
 $runDir = Join-Path $Results $Name
 $gitDir = Split-Path -Parent (Split-Path -Parent (Get-Command git).Source)
 $env:AB_BASH = Join-Path $gitDir 'bin\bash.exe'
