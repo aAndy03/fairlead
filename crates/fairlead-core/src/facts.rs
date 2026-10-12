@@ -79,8 +79,9 @@ pub fn read_mounts(root: &Root, controls: &ControlSet) -> BTreeMap<String, Mount
     };
     for m in &rc.mounts {
         let dir = root.dir.join(&m.path);
+        // an uninitialised submodule leaves an empty directory: not checked out (R-PORT-052)
         let mut f = MountFacts {
-            present: dir.as_std_path().is_dir(),
+            present: std::fs::read_dir(dir.as_std_path()).is_ok_and(|mut d| d.next().is_some()),
             ..MountFacts::default()
         };
         let ctl = dir.join(&root.folder).join("control.toml");

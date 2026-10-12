@@ -124,3 +124,105 @@ fn r_var_033__request_text_fenced() {
     ]);
     assert!(home.stdout.contains("request web:d-"), "{}", home.stdout);
 }
+
+/// 0.3 exit criterion 4 (P7-T4): request, interim wrapper, approved variant answer, seal,
+/// migration, wrapper removed, request closed, and no fork suspect.
+#[test]
+fn r_var_031__the_whole_variation_cycle_closes_the_request() {
+    let repo = repo();
+    let ctl = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(
+        &ctl,
+        text.replace(
+            "stale-seals = 2\n",
+            "stale-seals = 2\nfork-detect = \"observe\"\n",
+        ),
+    )
+    .unwrap();
+    // 1. the consumer files a request
+    assert_eq!(new_request(&repo, "root:cmp.button").code, 0);
+    let reqs = repo.path().join("web/fairlead/docs/requests");
+    let req_file = std::fs::read_dir(&reqs)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let req_id = req_file.file_name().unwrap().to_string_lossy()[..10].to_owned();
+    let qualified = format!("web:{req_id}");
+    // 2. an interim wrapper awaits it
+    let wrapper = repo.path().join("web/src/table-button.tsx");
+    std::fs::write(
+        &wrapper,
+        format!("// fairlead: def cmp.table-button wraps=root:cmp.button\n// fairlead: use root:cmp.button\n// fairlead: flag awaiting to={qualified} target=9.0.0\nexport const T = 1;\n"),
+    )
+    .unwrap();
+    // 3. the home scope answers with a variant, and its owner approves the answer
+    std::fs::write(
+        repo.path().join("src/kit/compact.tsx"),
+        "// fairlead: def cmp.button-compact variant-of=cmp.button\n// fairlead: use cmp.button\nexport function Compact() {}\n",
+    )
+    .unwrap();
+    let ans_id = "d-91cc04ab";
+    std::fs::create_dir_all(repo.path().join("fairlead/docs/changes")).unwrap();
+    std::fs::write(
+        repo.path().join(format!("fairlead/docs/changes/{ans_id}-compact.md")),
+        format!("+++\nid = \"{ans_id}\"\nkind = \"change\"\nstatus = \"ready\"\nimpact = \"add\"\nscope = \"root\"\ntitle = \"Compact button\"\ncovers = [\"**\"]\nsum = \"Add the compact variant\"\ntype = \"variant\"\nanswers = [\"{qualified}\"]\ntouches = [\"cmp.button\"]\nresult = \"cmp.button-compact\"\naffects = \"all\"\ncreated = \"0.1.0\"\n+++\n# Compact\n"),
+    )
+    .unwrap();
+    let fp =
+        fairlead_core::variation::answer_fp(ans_id, std::slice::from_ref(&qualified), "variant");
+    std::fs::write(
+        repo.path().join("fairlead/approvals.toml"),
+        format!("[[approval]]\nfp = \"{}\"\ntarget = \"var.answer\"\nscope = \"root\"\napprover = \"@owner\"\ndate = \"{AS_OF}\"\n", fp.as_str()),
+    )
+    .unwrap();
+    let mid = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert!(
+        !mid.stdout.contains("HN-X002") && !mid.stdout.contains("HN-R001"),
+        "{}",
+        mid.stdout
+    );
+    // 4. seal
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("variant answered");
+    let seal = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(seal.code, 0, "{}{}", seal.stdout, seal.stderr);
+    // 5. and 6. the consumer migrates and removes the wrapper
+    std::fs::write(
+        repo.path().join("web/src/table.tsx"),
+        "// fairlead: use root:cmp.button-compact\nexport const T = 1;\n",
+    )
+    .unwrap();
+    std::fs::remove_file(&wrapper).unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    // 7. the request is closed: no longer listed as open, no protocol finding, no fork suspect
+    let end = repo.run(&[
+        "check",
+        "--as-of",
+        AS_OF,
+        "--format",
+        "terse",
+        "--show-observe",
+    ]);
+    for code in [
+        "HN-W001", "HN-W003", "HN-X001", "HN-X002", "HN-R001", "HN-S016", "HN-C013",
+    ] {
+        assert!(!end.stdout.contains(code), "{code}: {}", end.stdout);
+    }
+    let ctx = repo.run(&[
+        "context",
+        "web/src/table.tsx",
+        "--budget",
+        "0",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert!(
+        !ctx.stdout.contains(&format!("request {qualified} open")),
+        "{}",
+        ctx.stdout
+    );
+}

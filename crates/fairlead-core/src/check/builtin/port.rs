@@ -236,7 +236,8 @@ fn mounts(cx: &CheckCx<'_>, out: &mut Vec<Diagnostic>) {
             );
         }
         // R-PORT-035: scope ids are unique across the tree including mounts (as= prefixes them).
-        for id in f.scopes.iter().chain(std::iter::once(&m.scope)) {
+        let ids: BTreeSet<&String> = f.scopes.iter().chain(std::iter::once(&m.scope)).collect();
+        for id in ids {
             let shown = m
                 .as_prefix
                 .as_ref()

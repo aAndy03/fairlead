@@ -333,3 +333,128 @@ fn r_port_022__seal_writes_the_same_lock_lines_as_sync() {
     let run = check(&repo);
     assert!(!run.stdout.contains("HN-V012"), "{}", run.stdout);
 }
+
+/// R-PORT-051, R-PORT-052 with a real git submodule: the root's lock pins the submodule commit,
+/// a bumped pin is `LOCK-STALE`, and a submodule that is not checked out is an offline pin.
+#[test]
+fn r_port_051__a_submodule_mount_is_pinned_and_a_bump_is_lock_stale() {
+    let inner = RepoBuilder::new()
+        .file(
+            "fairlead/control.toml",
+            INNER.replace("edition = 2\n", "").as_str(),
+        )
+        .file("fairlead/gen/members", "scope.billing-core dir=.\n")
+        .file("src/pay.ts", "export const p = 1;\n")
+        .git_init(true)
+        .build();
+    inner.git(&["add", "-A"]);
+    inner.git_commit("inner");
+    let outer = RepoBuilder::new()
+        .file("src/a.rs", "fn a() {}\n")
+        .git_init(true)
+        .build();
+    assert_eq!(outer.run(&["init", "--yes", "--as-of", AS_OF]).code, 0);
+    let ctl = outer.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(&ctl, format!("{text}\n[[mount]]\nscope = \"billing-core\"\npath = \"vendor/billing\"\nas = \"billing\"\n")).unwrap();
+    let src = inner.path().to_string_lossy().replace('\\', "/");
+    outer.git(&[
+        "-c",
+        "protocol.file.allow=always",
+        "submodule",
+        "add",
+        "-q",
+        &src,
+        "vendor/billing",
+    ]);
+    outer.git(&["add", "-A"]);
+    outer.git_commit("mount");
+    // seal once so the root has a lock
+    let new = outer.run(&[
+        "new",
+        "change",
+        "Mount billing",
+        "--field",
+        "impact=add",
+        "--field",
+        "covers=**",
+        "--field",
+        "sum=mount",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(new.code, 0, "{}", new.stderr);
+    let changes = outer.path().join("fairlead/docs/changes");
+    let doc = std::fs::read_dir(&changes)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let t = std::fs::read_to_string(&doc)
+        .unwrap()
+        .replace("status = \"draft\"", "status = \"ready\"");
+    std::fs::write(&doc, t).unwrap();
+    assert_eq!(outer.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    outer.git(&["add", "-A"]);
+    outer.git_commit("ready");
+    let seal = outer.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(
+        seal.code,
+        0,
+        "{}{}{}",
+        seal.stdout,
+        seal.stderr,
+        check(&outer).stdout
+    );
+    let lock = std::fs::read_to_string(outer.path().join("fairlead/gen/scope.lock")).unwrap();
+    let pinned = inner.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    assert!(
+        lock.contains(&format!("pin billing-core commit={pinned} dg=")),
+        "{lock}"
+    );
+    outer.git(&["add", "-A"]);
+    outer.git_commit("sealed");
+    // bump the submodule: a new inner commit, recorded in the outer index
+    let sub = outer.path().join("vendor/billing");
+    std::fs::write(sub.join("src/pay.ts"), "export const p = 2;\n").unwrap();
+    for args in [
+        vec!["add", "-A"],
+        vec![
+            "-c",
+            "user.email=a@b",
+            "-c",
+            "user.name=a",
+            "commit",
+            "-q",
+            "-m",
+            "bump",
+        ],
+    ] {
+        let st = std::process::Command::new("git")
+            .args(&args)
+            .current_dir(&sub)
+            .status()
+            .unwrap();
+        assert!(st.success());
+    }
+    outer.git(&["add", "vendor/billing"]);
+    let run = check(&outer);
+    assert!(
+        run.stdout.contains("HN-M012")
+            && run
+                .stdout
+                .contains("mount billing-core moved since the lock"),
+        "{}",
+        run.stdout
+    );
+    // a submodule that is not checked out runs from the lock: offline pin
+    outer.git_commit("bump");
+    outer.git(&["submodule", "deinit", "-q", "-f", "vendor/billing"]);
+    let off = check(&outer);
+    assert!(
+        off.stdout.contains("HN-M006") && off.stdout.contains("offline pin"),
+        "{}",
+        off.stdout
+    );
+}
