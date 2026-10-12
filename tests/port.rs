@@ -289,3 +289,47 @@ fn r_port_041__attach_classifies_requires_and_lists_outward_imports() {
         checked.stdout
     );
 }
+
+#[test]
+fn r_port_022__seal_writes_the_same_lock_lines_as_sync() {
+    let repo = scoped();
+    std::fs::write(
+        repo.path().join("web/fairlead/control.toml"),
+        "[fairlead]\nscope = \"web\"\n\n[scope]\nrequires = []\n",
+    )
+    .unwrap();
+    let new = repo.run(&[
+        "new",
+        "change",
+        "Adds b",
+        "--field",
+        "impact=add",
+        "--field",
+        "covers=**",
+        "--as-of",
+        AS_OF,
+    ]);
+    assert_eq!(new.code, 0, "{}", new.stderr);
+    let changes = repo.path().join("fairlead/docs/changes");
+    let doc = std::fs::read_dir(&changes)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&doc).unwrap();
+    std::fs::write(
+        &doc,
+        text.replace("status = \"draft\"", "status = \"ready\""),
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("ready");
+    let seal = repo.run(&["seal", "--yes", "--anywhere", "--as-of", AS_OF]);
+    assert_eq!(seal.code, 0, "{}{}", seal.stdout, seal.stderr);
+    let lock = std::fs::read_to_string(repo.path().join("web/fairlead/gen/scope.lock")).unwrap();
+    assert!(lock.contains("req=cmp.button from=root dg="), "{lock}");
+    let run = check(&repo);
+    assert!(!run.stdout.contains("HN-V012"), "{}", run.stdout);
+}

@@ -319,6 +319,7 @@ pub fn generate(
     baseline: Option<&Baseline>,
     edition: Edition,
 ) -> GeneratedSet {
+    let _ = edition;
     let mut files: BTreeMap<RepoPath, GeneratedFile> = BTreeMap::new();
     let Some(root_scope) = reg.scope(reg.root_scope()) else {
         return GeneratedSet { files };
@@ -483,16 +484,8 @@ pub fn generate(
         if let Some(s) = sealed {
             let anc = crate::merkle::ancestor_digest(reg, &scope.id);
             let mut body = crate::merkle::scope_lock_body(s, &anc);
-            // R-PORT-022 (0.3): the pinned digests of what the scope requires.
-            if ported {
-                body.push_str(&crate::port::lock_lines(
-                    reg, corpus, &scope.id, s, edition.0, &anc,
-                ));
-            }
-            // R-PORT-051 (0.3): the root pins each mount by commit (a submodule) and rollup digest.
-            if scope.id == *reg.root_scope() {
-                body.push_str(&crate::port::pin_lines(&facts.mounts));
-            }
+            // R-PORT-022, R-PORT-051 (0.3): required digests and mount pins.
+            body.push_str(&crate::port::lock_extra(reg, corpus, facts, &scope.id, s));
             put(
                 &mut files,
                 dir,

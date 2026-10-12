@@ -3672,6 +3672,9 @@ pub fn plan_seal(
             digests: &crate::merkle::scope_digests(registry, &loaded.corpus),
             version_texts: &loaded.facts.version_texts,
             changelog: loaded.root_control.changelog.file.as_deref(),
+            lock_extra: &|s: &ScopeId, v: crate::version::Version| {
+                crate::port::lock_extra(registry, &loaded.corpus, &loaded.facts, s, v)
+            },
         },
     )
     .map_err(Error::Internal)?;

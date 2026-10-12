@@ -364,6 +364,9 @@ pub struct SealWriteCx<'a> {
     pub version_texts: &'a BTreeMap<RepoPath, std::sync::Arc<str>>,
     /// `changelog.file`, when set (R-VER-053).
     pub changelog: Option<&'a str>,
+    /// 0.3: the lock lines a scope adds after `reconciled=` (R-PORT-022 `req=`, R-PORT-051
+    /// `pin`), the same as `sync` writes.
+    pub lock_extra: &'a dyn Fn(&crate::registry::ScopeId, Version) -> String,
 }
 
 /// The sealed text of a doc: `status`, `sealed`, `body-hash` and `ordinal` set in its
@@ -703,7 +706,7 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
             crate::merkle::scope_lock_body(
                 plan.open,
                 &crate::merkle::ancestor_digest(cx.reg, &scope.id),
-            ),
+            ) + &(cx.lock_extra)(&scope.id, plan.open),
         )];
         let alias = crate::docs::alias_body(&here);
         if !alias.is_empty() {

@@ -311,3 +311,24 @@ pub fn unsatisfied(reg: &Registry, scope: &ScopeId, lock: &str) -> Vec<(LockReq,
         })
         .collect()
 }
+
+/// Everything 0.3 adds to a scope's `gen/scope.lock` after `reconciled=`: the `req=` lines of an
+/// opted-in scope and, at the root, the mount pins. Shared by `sync` and `seal`.
+pub fn lock_extra(
+    reg: &Registry,
+    corpus: &Corpus,
+    facts: &crate::facts::Facts,
+    scope: &ScopeId,
+    reconciled: crate::version::Version,
+) -> String {
+    let mut out = String::new();
+    if opted_in(reg, scope) {
+        let edition = crate::check::builtin::edition_of(reg).0;
+        let anc = crate::merkle::ancestor_digest(reg, scope);
+        out.push_str(&lock_lines(reg, corpus, scope, reconciled, edition, &anc));
+    }
+    if scope == reg.root_scope() {
+        out.push_str(&pin_lines(&facts.mounts));
+    }
+    out
+}
