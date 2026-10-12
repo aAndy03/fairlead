@@ -2454,6 +2454,479 @@ pub fn plan_detach(loaded: &Loaded, reg: &Registry, src: &RepoPath) -> Result<Mo
     })
 }
 
+/// `move --adopt <mount scope>` (R-PORT-033): opens a registered sub-root. The plan lists the
+/// sub-root's items against the outer view (from its rollup, `gen/reg/*.reg`), removes its
+/// `root = true` and its `[[mount]]` entry; applying needs `fairlead approve move-<fp>` (the
+/// approval is recorded in the outer root) and no colliding ID.
+pub fn plan_adopt(loaded: &Loaded, reg: &Registry, scope: &str) -> Result<MoveOut, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let m = loaded
+        .root_control
+        .mounts
+        .iter()
+        .find(|m| m.scope == scope)
+        .ok_or_else(|| {
+            Error::Usage(format!(
+                "{scope} is no registered mount of the root ([[mount]] scope = \"{scope}\")"
+            ))
+        })?;
+    let folder = &loaded.root.folder;
+    let read = |rel: &str| -> Result<String, Error> {
+        std::fs::read_to_string(loaded.root.dir.join(rel).as_std_path())
+            .map(|t| t.replace("\r\n", "\n"))
+            .map_err(|e| Error::io(rel, "read", &e, false))
+    };
+    // the diff: the sub-root's declared IDs against the outer view at the mount point
+    let inner_ids: Vec<(String, String)> = {
+        let dir = loaded
+            .root
+            .dir
+            .join(&m.path)
+            .join(folder)
+            .join("gen")
+            .join("reg");
+        let mut v = Vec::new();
+        if let Ok(rd) = std::fs::read_dir(dir.as_std_path()) {
+            let mut paths: Vec<std::path::PathBuf> =
+                rd.filter_map(|e| e.ok().map(|e| e.path())).collect();
+            paths.sort();
+            for p in paths {
+                let Ok(text) = std::fs::read_to_string(&p) else {
+                    continue;
+                };
+                let mut sc = scope.to_owned();
+                for l in text.lines() {
+                    if let Some(h) = l.strip_prefix("# scope ") {
+                        sc = h.split_whitespace().next().unwrap_or(scope).to_owned();
+                        continue;
+                    }
+                    if let Some(id) = l.split_whitespace().next().filter(|w| w.contains('.')) {
+                        v.push((sc.clone(), id.to_owned()));
+                    }
+                }
+            }
+        }
+        v
+    };
+    let at = crate::path::RepoPath::new(&m.path).map_err(|_| Error::Usage("mount path".into()))?;
+    let host = reg
+        .scopes()
+        .filter(|s| s.dir.is_root() || at.is_within(&s.dir))
+        .max_by_key(|s| s.dir.as_str().len())
+        .map_or_else(|| reg.root_scope().clone(), |s| s.id.clone());
+    let outer: std::collections::BTreeSet<String> = reg
+        .view(&host)
+        .items
+        .keys()
+        .map(|i| format!("{}.{}", i.kind.as_str(), i.name.as_str()))
+        .collect();
+    let mut obligations = Vec::new();
+    let mut conflicts = 0;
+    for (sc, id) in &inner_ids {
+        if outer.contains(id) {
+            conflicts += 1;
+            obligations.push(format!(
+                "! {sc}:{id} collides with the outer view at {}: rename it, or turn it into an ovr",
+                host.0.as_str()
+            ));
+        } else {
+            obligations.push(format!("+ {sc}:{id}"));
+        }
+    }
+    if inner_ids.is_empty() {
+        obligations.push("  (the sub-root's rollup lists no items)".to_owned());
+    }
+    // the writes: the inner control loses `root = true`, the outer root loses the mount entry
+    let inner_rel = format!("{}/{folder}/control.toml", m.path);
+    let inner_old = read(&inner_rel)?;
+    let mut inner: toml_edit::DocumentMut = inner_old
+        .parse()
+        .map_err(|e| Error::Internal(format!("{e}")))?;
+    if let Some(t) = inner.get_mut("fairlead").and_then(|f| f.as_table_mut()) {
+        t.remove("root");
+    }
+    let outer_rel = loaded.root_control.path.as_str().to_owned();
+    let outer_old = read(&outer_rel)?;
+    let mut outer_doc: toml_edit::DocumentMut = outer_old
+        .parse()
+        .map_err(|e| Error::Internal(format!("{e}")))?;
+    if let Some(arr) = outer_doc
+        .get_mut("mount")
+        .and_then(|v| v.as_array_of_tables_mut())
+    {
+        arr.retain(|t| t.get("scope").and_then(|s| s.as_str()) != Some(scope));
+        if arr.is_empty() {
+            outer_doc.remove("mount");
+        }
+    }
+    let mut set = WriteSet::new(WriteSetKind::Move);
+    let inner_path =
+        crate::path::RepoPath::new(&inner_rel).map_err(|_| Error::Usage(inner_rel.clone()))?;
+    set.add(PlannedWrite {
+        path: inner_path.clone(),
+        kind: WriteKind::Replace,
+        bytes: inner.to_string().into_bytes(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: Some(crate::hash::hash_normalised(inner_old.as_bytes())),
+    })?;
+    set.add(PlannedWrite {
+        path: loaded.root_control.path.clone(),
+        kind: WriteKind::Replace,
+        bytes: outer_doc.to_string().into_bytes(),
+        class: crate::classify::FileClass::Authored,
+        expect_prior: Some(crate::hash::hash_normalised(outer_old.as_bytes())),
+    })?;
+    let lines = vec![
+        PlanLine {
+            action: PlanAction::Edit,
+            path: inner_path,
+            detail: "drop `root = true`: the sub-root becomes a scope of the outer tree".into(),
+            diff: None,
+        },
+        PlanLine {
+            action: PlanAction::Edit,
+            path: loaded.root_control.path.clone(),
+            detail: format!("drop [[mount]] {scope}"),
+            diff: None,
+        },
+    ];
+    let mut notes =
+        vec!["both managerial folders must be covered by CODEOWNERS (HN-A002)".to_owned()];
+    if conflicts > 0 {
+        notes.push(format!(
+            "{conflicts} colliding IDs: resolve them before applying"
+        ));
+    }
+    let plan = Plan::new(set, lines, notes);
+    let out = MoveOut {
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        fp: crate::hash::Fingerprint::from_hash(&plan.plan_hash),
+        plan,
+        obligations,
+        code_sites: Vec::new(),
+        loosening: true,
+    };
+    Ok(out)
+}
+
+/// The scope whose directory is `src` (never the root), with its control file.
+fn scope_at<'r>(
+    reg: &'r Registry,
+    src: &RepoPath,
+) -> Result<(&'r crate::registry::Scope, &'r std::sync::Arc<ControlFile>), Error> {
+    let sc = reg
+        .scopes()
+        .find(|s| s.dir.as_str() == src.as_str() && !s.dir.as_str().is_empty())
+        .ok_or_else(|| {
+            Error::Usage(format!(
+                "{} is not a scope directory (other than the root)",
+                src.as_str()
+            ))
+        })?;
+    let ctl = sc
+        .control
+        .as_ref()
+        .ok_or_else(|| Error::Usage("the scope's control file did not parse".into()))?;
+    Ok((sc, ctl))
+}
+
+/// Edits a control file through `toml_edit`: the old text (LF) and the new.
+fn edit_control(
+    loaded: &Loaded,
+    path: &RepoPath,
+    f: impl FnOnce(&mut toml_edit::DocumentMut),
+) -> Result<(String, String), Error> {
+    let old = std::fs::read_to_string(loaded.root.dir.join(path.as_str()).as_std_path())
+        .map_err(|e| Error::io(path.as_str(), "read", &e, false))?
+        .replace("\r\n", "\n");
+    let mut doc: toml_edit::DocumentMut =
+        old.parse().map_err(|e| Error::Internal(format!("{e}")))?;
+    f(&mut doc);
+    Ok((old, doc.to_string()))
+}
+
+fn set_scope_key(doc: &mut toml_edit::DocumentMut, key: &str, value: Option<&str>) {
+    if doc.get("scope").is_none() {
+        doc["scope"] = toml_edit::table();
+    }
+    match value {
+        Some(v) => doc["scope"][key] = toml_edit::value(v),
+        None => {
+            if let Some(t) = doc["scope"].as_table_mut() {
+                t.remove(key);
+            }
+        }
+    }
+}
+
+/// `move --cut SRC DST` (R-PORT-040): a scope move that keeps the scope id and records
+/// `[scope] moved-from` in the moved control file. Across repositories a cut is two steps:
+/// copy the folder, then `move --attach` at the destination (R-PORT-043).
+pub fn plan_cut(loaded: &Loaded, reg: &Registry, req: &MoveRequest) -> Result<MoveOut, Error> {
+    let (_, ctl) = scope_at(reg, &req.src)?;
+    let moved_ctl =
+        crate::restructure::moved_path(ctl.path.as_str(), req.src.as_str(), req.dst.as_str())
+            .ok_or_else(|| Error::Internal("cut: control file outside the scope".into()))?;
+    let out = plan_move(loaded, reg, req)?;
+    let (_, edited) = edit_control(loaded, &ctl.path, |d| {
+        set_scope_key(d, "moved-from", Some(req.src.as_str()));
+    })?;
+    let mut set = out.plan.set;
+    for (path, w) in set.writes.iter_mut() {
+        if path.as_str() == moved_ctl {
+            w.bytes = edited.clone().into_bytes();
+        }
+    }
+    let plan = Plan::new(set, out.plan.lines, out.plan.notes);
+    Ok(MoveOut {
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        fp: crate::hash::Fingerprint::from_hash(&plan.plan_hash),
+        plan,
+        ..out
+    })
+}
+
+/// `move --copy SRC DST` (R-PORT-040): a copy of the scope under a new scope id (the slug of
+/// DST's last segment) with `[scope] derived-from = "<old id>"`. Generated files are not copied
+/// (sync writes them); unsealed change docs are not copied and are listed to retarget.
+pub fn plan_copy(
+    loaded: &Loaded,
+    reg: &Registry,
+    src: &RepoPath,
+    dst: &RepoPath,
+) -> Result<MoveOut, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let (sc, ctl) = scope_at(reg, src)?;
+    let (s, d) = (src.as_str(), dst.as_str());
+    if d.starts_with(&format!("{s}/")) || d == s {
+        return Err(Error::Usage(format!("cannot copy {s} into itself")));
+    }
+    if loaded
+        .walk
+        .files
+        .iter()
+        .any(|e| crate::restructure::moved_path(e.path.as_str(), d, d).is_some())
+    {
+        return Err(refusal(
+            crate::error::RefusalKind::NoClobber,
+            format!("{d} already exists"),
+            "pick a new destination; move never overwrites",
+        ));
+    }
+    let new_id = crate::docs::slug(dst.file_name());
+    if new_id.is_empty() || reg.scopes().any(|x| x.id.0.as_str() == new_id) {
+        return Err(Error::Usage(format!(
+            "the copy's scope id {new_id:?} (from {d}) is empty or taken; pick another destination name"
+        )));
+    }
+    let folder = &loaded.root.folder;
+    let gen_prefix = format!("{s}/{folder}/gen/");
+    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
+    let unsealed: BTreeSet<&RepoPath> = docs
+        .iter()
+        .filter(|x| x.status != crate::docs::Status::Sealed)
+        .map(|x| &x.path)
+        .collect();
+    let mut set = WriteSet::new(WriteSetKind::Move);
+    let mut lines = Vec::new();
+    let mut obligations = Vec::new();
+    for e in &loaded.walk.files {
+        let p = &e.path;
+        let Some(to) = crate::restructure::moved_path(p.as_str(), s, d) else {
+            continue;
+        };
+        if p.as_str().starts_with(&gen_prefix) {
+            continue;
+        }
+        if unsealed.contains(p) {
+            obligations.push(format!(
+                "! not copied: unsealed change doc {} (retarget it, or it is DANGLING)",
+                p.as_str()
+            ));
+            continue;
+        }
+        let to = RepoPath::new(&to).map_err(|e| Error::Usage(format!("{to}: {e:?}")))?;
+        let bytes = if *p == ctl.path {
+            let (_, t) = edit_control(loaded, p, |doc| {
+                doc["fairlead"]["scope"] = toml_edit::value(new_id.as_str());
+                set_scope_key(doc, "derived-from", Some(sc.id.0.as_str()));
+            })?;
+            t.into_bytes()
+        } else {
+            std::fs::read(loaded.root.dir.join(p.as_str()).as_std_path())
+                .map_err(|e| Error::io(p.as_str(), "read", &e, false))?
+        };
+        let class = loaded
+            .corpus
+            .records
+            .get(p)
+            .map_or(crate::classify::FileClass::Authored, |r| r.class);
+        set.add(PlannedWrite {
+            path: to.clone(),
+            kind: WriteKind::Create,
+            bytes,
+            class,
+            expect_prior: None,
+        })?;
+        lines.push(PlanLine {
+            action: PlanAction::Create,
+            path: to,
+            detail: format!("copied from {}", p.as_str()),
+            diff: None,
+        });
+    }
+    obligations.insert(
+        0,
+        format!("new scope id {new_id} derived-from {}", sc.id.0.as_str()),
+    );
+    let plan = Plan::new(set, lines, Vec::new());
+    Ok(MoveOut {
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        fp: crate::hash::Fingerprint::from_hash(&plan.plan_hash),
+        plan,
+        obligations,
+        code_sites: Vec::new(),
+        loosening: false,
+    })
+}
+
+/// `move --attach SRC` (R-PORT-041, R-PORT-042, R-PORT-044, R-PORT-047): an arrived scope
+/// (`detached`, `moved-from` or `derived-from`) joins its new ancestors. The plan classifies each
+/// `req=` of its lock as satisfied, differing or missing (served from the snapshot of a portable
+/// scope, else `UNSATISFIED`), lists outward imports as `requires` candidates (a lower bound),
+/// and drops `detached`. Imported items are never resolved automatically: applying needs
+/// `fairlead approve move-<fp>`.
+pub fn plan_attach(loaded: &Loaded, reg: &Registry, src: &RepoPath) -> Result<MoveOut, Error> {
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    let (sc, ctl) = scope_at(reg, src)?;
+    let cfg = &ctl.scope_cfg;
+    if !cfg.detached && cfg.moved_from.is_none() && cfg.derived_from.is_none() {
+        return Err(Error::Usage(format!(
+            "{} has not arrived: attach takes a scope with [scope] detached, moved-from or derived-from",
+            sc.id.0.as_str()
+        )));
+    }
+    let mut obligations = Vec::new();
+    let lock = std::fs::read_to_string(
+        loaded
+            .root
+            .dir
+            .join(src.as_str())
+            .join(&loaded.root.folder)
+            .join("gen")
+            .join("scope.lock")
+            .as_std_path(),
+    )
+    .unwrap_or_default();
+    let missing: Vec<(crate::port::LockReq, bool)> = crate::port::unsatisfied(reg, &sc.id, &lock);
+    for r in crate::port::parse_lock_reqs(&lock) {
+        let id = format!("{}:{}", r.from, r.id);
+        if let Some((_, served)) = missing
+            .iter()
+            .find(|(m, _)| m.id == r.id && m.from == r.from)
+        {
+            obligations.push(if *served {
+                format!("- missing {id}: served from the snapshot as a detached layer")
+            } else {
+                format!("! missing {id}: UNSATISFIED (HN-M005) until provided")
+            });
+            continue;
+        }
+        let now =
+            fairlead_syntax::ids::Id::parse(&id)
+                .ok()
+                .and_then(|i| match reg.lookup(&sc.id, &i) {
+                    crate::registry::Lookup::Found(t) => {
+                        Some(crate::port::item_digest(reg, &sc.id, &t))
+                    }
+                    _ => None,
+                });
+        obligations.push(match now {
+            Some(d) if d == r.dg => format!("= satisfied {id}"),
+            _ => format!("~ differing {id}: review it before approving"),
+        });
+    }
+    if lock.is_empty() {
+        obligations
+            .push("  (no lock: nothing was pinned; check judges requires as they resolve)".into());
+    }
+    // R-PORT-047: imports that leave the scope subtree, a lower bound
+    let prefix = format!("{}/", src.as_str());
+    for (p, rec) in loaded
+        .corpus
+        .records
+        .iter()
+        .filter(|(p, _)| p.as_str().starts_with(&prefix))
+    {
+        for imp in &rec.imports {
+            let c = crate::evidence::candidates(p.as_str(), &imp.spec);
+            if !c.is_empty() && c.iter().all(|x| !x.starts_with(&prefix)) {
+                obligations.push(format!(
+                    "? requires candidate: {}:{} imports {} (outside the scope; a lower bound)",
+                    p.as_str(),
+                    imp.line,
+                    imp.spec
+                ));
+            }
+        }
+    }
+    let (old, new) = edit_control(loaded, &ctl.path, |d| set_scope_key(d, "detached", None))?;
+    let mut set = WriteSet::new(WriteSetKind::Move);
+    let mut lines = Vec::new();
+    if old != new {
+        set.add(PlannedWrite {
+            path: ctl.path.clone(),
+            kind: WriteKind::Replace,
+            bytes: new.into_bytes(),
+            class: crate::classify::FileClass::Authored,
+            expect_prior: Some(crate::hash::hash_normalised(old.as_bytes())),
+        })?;
+        lines.push(PlanLine {
+            action: PlanAction::Edit,
+            path: ctl.path.clone(),
+            detail: "drop [scope] detached".into(),
+            diff: None,
+        });
+    }
+    let notes = vec![format!(
+        "provenance kept: {}",
+        cfg.moved_from
+            .as_ref()
+            .map(|m| format!("moved-from {m}"))
+            .or_else(|| cfg
+                .derived_from
+                .as_ref()
+                .map(|d| format!("derived-from {d}")))
+            .unwrap_or_else(|| "detached".into())
+    )];
+    let plan = Plan::new(set, lines, notes);
+    Ok(MoveOut {
+        hash: crate::upgrade::hash_text(&plan.plan_hash),
+        fp: crate::hash::Fingerprint::from_hash(&plan.plan_hash),
+        plan,
+        obligations,
+        code_sites: Vec::new(),
+        loosening: true,
+    })
+}
+
+/// R-PORT-033: an adopt with colliding IDs is never applied.
+pub fn adopt_gate(out: &MoveOut) -> Result<(), Error> {
+    let n = out
+        .obligations
+        .iter()
+        .filter(|o| o.starts_with("! "))
+        .count();
+    if n > 0 {
+        return Err(refusal(
+            crate::error::RefusalKind::PlanNotConfirmed,
+            format!("{n} IDs of the sub-root collide with the outer view"),
+            "rename them in the sub-root, or turn them into ovrs, then plan the adopt again (R-PORT-033)",
+        ));
+    }
+    Ok(())
+}
+
 /// R-PORT-004, R-GIT-062: a loosening move needs `fairlead approve move-<fp>`; the write-set must
 /// equal HEAD unless `--allow-dirty`.
 pub fn move_gate(loaded: &Loaded, out: &MoveOut, allow_dirty: bool) -> Result<(), Error> {

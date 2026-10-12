@@ -71,6 +71,7 @@ pub(crate) fn empty_facts() -> Facts {
         tombstones: Default::default(),
         authority: Vec::new(),
         foreign_lost: Vec::new(),
+        mounts: Default::default(),
         manifest_hints: ManifestHints {
             workspace_members: BTreeSet::new(),
             default_excludes: Vec::new(),

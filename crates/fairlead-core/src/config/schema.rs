@@ -1047,6 +1047,49 @@ pub(crate) fn parse_files(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec<FileI
     out
 }
 
+/// `[[mount]]` (R-PORT-030, R-PORT-035, 0.3): a registered sub-root of the root.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct MountDecl {
+    /// The inner root's scope id.
+    pub scope: String,
+    /// The sub-root's directory, root-relative.
+    pub path: String,
+    /// `as=`: the prefix the outer view gives the inner scope ids (`<as>-<id>`).
+    pub as_prefix: Option<String>,
+    /// `inherit`: outer item patterns the sub-root may inherit; default none.
+    pub inherit: Vec<String>,
+}
+
+pub(crate) fn parse_mounts(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec<MountDecl> {
+    let mut out = Vec::new();
+    for mut t in take_table_array(cx, root, "", "mount") {
+        let before = cx.diags.len();
+        let scope = take_string(cx, &mut t, "mount", "scope");
+        let path = take_string(cx, &mut t, "mount", "path");
+        let as_prefix = take_string(cx, &mut t, "mount", "as");
+        let inherit = take_string_list(cx, &mut t, "mount", "inherit").unwrap_or_default();
+        cx.unknown_in("mount", &t);
+        match (scope, path) {
+            (Some(scope), Some(path)) => {
+                if let Some(path) = clean_rel_path(cx, "mount.path", &path) {
+                    out.push(MountDecl {
+                        scope,
+                        path: path.trim_end_matches('/').to_owned(),
+                        as_prefix,
+                        inherit,
+                    });
+                }
+            }
+            _ => {
+                if cx.diags.len() == before {
+                    cx.error("mount", "a [[mount]] needs `scope` and `path`");
+                }
+            }
+        }
+    }
+    out
+}
+
 pub(crate) fn parse_vendors(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Vec<VendorDecl> {
     let mut out = Vec::new();
     for mut t in take_table_array(cx, root, "", "vendor") {

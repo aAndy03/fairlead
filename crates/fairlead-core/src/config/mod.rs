@@ -65,6 +65,8 @@ pub struct ControlFile {
     pub layout: Layout,
     pub files: Vec<FileItemDecl>,
     pub vendors: Vec<VendorDecl>,
+    /// `[[mount]]` (0.3, R-PORT-030): registered sub-roots; root only.
+    pub mounts: Vec<schema::MountDecl>,
     pub ovrs: Vec<OvrDecl>,
     pub rules: BTreeMap<String, RuleDecl>,
     pub policies: PolicyTable,
@@ -126,7 +128,8 @@ impl ControlFile {
 }
 
 /// Top-level tables a child may not hold (known 0.1 root-only tables).
-const ROOT_ONLY_TABLES: [&str; 26] = [
+const ROOT_ONLY_TABLES: [&str; 27] = [
+    "mount",
     "variation",
     "tokens",
     "layers",
@@ -281,6 +284,7 @@ pub fn parse_control(
     let layout = schema::parse_layout(&mut cx, &mut table);
     let files = schema::parse_files(&mut cx, &mut table);
     let vendors = schema::parse_vendors(&mut cx, &mut table);
+    let mounts = schema::parse_mounts(&mut cx, &mut table);
     let ovrs = schema::parse_ovrs(&mut cx, &mut table);
     let rules = rules::parse_rules(&mut cx, &mut table);
     let policies = rules::parse_policies(&mut cx, &mut table);
@@ -341,6 +345,7 @@ pub fn parse_control(
         layout,
         files,
         vendors,
+        mounts,
         ovrs,
         rules,
         policies,
@@ -498,9 +503,13 @@ pub fn control_diagnostics(set: &ControlSet) -> Vec<Diagnostic> {
                             codes::HN_C004,
                             Severity::Error,
                             Location::at(c.path.clone(), 1, 1),
-                            "a second `root = true` control file below the root (ROOT-DUP); mounted sub-roots arrive in 0.3",
+                            "a second `root = true` control file below the root that the root does not register (ROOT-DUP)",
                         )
-                        .with_hint("remove `root = true`, or run fairlead from the real root"),
+                        .with_hint(format!(
+                            "register it with [[mount]] scope = \"{}\" path = \"{}\" in the root control file (R-PORT-030), or remove `root = true`",
+                            c.fairlead.scope.as_str(),
+                            c.dir.as_str()
+                        )),
                     );
                 }
             }

@@ -108,3 +108,7 @@ path = "../../tests/hier.rs"
 [[test]]
 name = "variation"
 path = "../../tests/variation.rs"
+
+[[test]]
+name = "port"
+path = "../../tests/port.rs"

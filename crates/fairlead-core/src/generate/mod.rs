@@ -489,6 +489,10 @@ pub fn generate(
                     reg, corpus, &scope.id, s, edition.0, &anc,
                 ));
             }
+            // R-PORT-051 (0.3): the root pins each mount by commit (a submodule) and rollup digest.
+            if scope.id == *reg.root_scope() {
+                body.push_str(&crate::port::pin_lines(&facts.mounts));
+            }
             put(
                 &mut files,
                 dir,

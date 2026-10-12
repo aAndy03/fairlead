@@ -254,6 +254,9 @@ pub struct ScopeConfig {
     /// `Some` once declared, even empty, which opts the scope into `gen/requires` and the lock's
     /// `req=` lines.
     pub requires: Option<Vec<String>>,
+    /// R-PORT-040, R-PORT-042 (0.3): provenance written by `move --cut`, `--copy`, `--attach`.
+    pub moved_from: Option<String>,
+    pub derived_from: Option<String>,
     /// R-HIER-004, D-65: the layers (or `<ladder>.*`) units of this scope may name; empty: all.
     pub accepts: Vec<String>,
     /// R-HIER-004, D-65: local words for layers (`widget = "ui.molecule"`); never a reorder.
@@ -269,6 +272,8 @@ pub(crate) fn parse_scope_cfg(cx: &mut Ctx<'_>, root: &mut toml::Table) -> Scope
         out.detached = take_bool(cx, &mut t, "scope", "detached").unwrap_or(false);
         out.provides = take_string_list(cx, &mut t, "scope", "provides").unwrap_or_default();
         out.requires = take_string_list(cx, &mut t, "scope", "requires");
+        out.moved_from = take_string(cx, &mut t, "scope", "moved-from");
+        out.derived_from = take_string(cx, &mut t, "scope", "derived-from");
         out.accepts = take_string_list(cx, &mut t, "scope", "accepts").unwrap_or_default();
         out.strict_coverage = take_bool(cx, &mut t, "scope", "strict-coverage").unwrap_or(false);
         if let Some(a) = take_table(cx, &mut t, "scope", "layer-alias") {

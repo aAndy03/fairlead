@@ -52,6 +52,87 @@ use crate::walk::WalkResult;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
+/// The rollup the outer root reads of a registered mount (R-PORT-031): never its rules.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct MountFacts {
+    /// The mount directory exists (a submodule that is not checked out does not).
+    pub present: bool,
+    /// The inner control file declares `root = true`.
+    pub is_root: bool,
+    /// The inner `[fairlead] scope`.
+    pub scope: Option<String>,
+    /// The inner `[fairlead] edition` (1 when absent).
+    pub edition: Option<u32>,
+    /// The inner scope ids, from its membership shard `gen/members`.
+    pub scopes: Vec<String>,
+    /// R-PORT-051: the submodule commit the parent pins (a gitlink), if it is one.
+    pub commit: Option<String>,
+    /// R-PORT-051: digest of the rollup (inner control file and membership shard).
+    pub digest: String,
+}
+
+/// Reads the rollup of each `[[mount]]` of the root control file.
+pub fn read_mounts(root: &Root, controls: &ControlSet) -> BTreeMap<String, MountFacts> {
+    let mut out = BTreeMap::new();
+    let Some(rc) = controls.root_control() else {
+        return out;
+    };
+    for m in &rc.mounts {
+        let dir = root.dir.join(&m.path);
+        let mut f = MountFacts {
+            present: dir.as_std_path().is_dir(),
+            ..MountFacts::default()
+        };
+        let ctl = dir.join(&root.folder).join("control.toml");
+        if let Ok(text) = std::fs::read_to_string(ctl.as_std_path())
+            && let Ok(t) = text.parse::<toml::Table>()
+            && let Some(h) = t.get("fairlead").and_then(toml::Value::as_table)
+        {
+            f.is_root = h.get("root").and_then(toml::Value::as_bool) == Some(true);
+            f.scope = h
+                .get("scope")
+                .and_then(toml::Value::as_str)
+                .map(str::to_owned);
+            f.edition = Some(
+                h.get("edition")
+                    .and_then(toml::Value::as_integer)
+                    .and_then(|e| u32::try_from(e).ok())
+                    .unwrap_or(1),
+            );
+        }
+        let members = dir.join(&root.folder).join("gen").join("members");
+        let rollup = format!(
+            "{}\n--\n{}",
+            std::fs::read_to_string(ctl.as_std_path())
+                .unwrap_or_default()
+                .replace("\r\n", "\n"),
+            std::fs::read_to_string(members.as_std_path())
+                .unwrap_or_default()
+                .replace("\r\n", "\n")
+        );
+        f.digest = crate::hash::base32(&crate::hash::hash_raw(rollup.as_bytes()).0, 12);
+        if let Some(repo) = crate::git::GitRepo::open(root)
+            && let Ok(p) = RepoPath::new(&m.path)
+        {
+            f.commit = repo.gitlink(&p);
+        }
+        if let Ok(text) = std::fs::read_to_string(members.as_std_path()) {
+            f.scopes = text
+                .lines()
+                .filter(|l| !l.starts_with('#'))
+                .filter_map(|l| {
+                    l.split_whitespace()
+                        .next()?
+                        .strip_prefix("scope.")
+                        .map(str::to_owned)
+                })
+                .collect();
+        }
+        out.insert(m.scope.clone(), f);
+    }
+    out
+}
+
 /// Files above this size are streamed and hashed raw instead of read into memory.
 const LARGE_FILE: u64 = 16 * 1024 * 1024;
 
@@ -66,6 +147,8 @@ pub struct Facts {
     pub approvals: ApprovalsFile,
     pub git: GitFacts,
     pub manifest_hints: ManifestHints,
+    /// R-PORT-031 (0.3): the rollup of each registered mount, by mount scope id.
+    pub mounts: BTreeMap<String, MountFacts>,
     /// Ledger year files (`ledger/hist/<year>.hl`), raw text, for the continuity check (R-RET-036).
     pub ledgers: BTreeMap<RepoPath, Arc<str>>,
     /// `docs::body_hash` of every Markdown file under a `docs/changes/` folder, for the seal
@@ -338,6 +421,7 @@ pub fn collect_facts_with(
             .and_then(|b| serde_json::from_slice::<crate::write::JournalDoc>(&b).ok())
             .is_some_and(|d| d.kind.as_deref() == Some("Move"));
     facts.manifest_hints = read_manifest_hints(root, walk);
+    facts.mounts = read_mounts(root, controls);
     Ok(facts)
 }
 

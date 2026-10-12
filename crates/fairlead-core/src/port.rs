@@ -260,3 +260,54 @@ pub fn requires_cycles(reg: &Registry, corpus: &Corpus) -> Vec<Vec<ScopeId>> {
     }
     cycles
 }
+
+/// R-PORT-051: `pin <mount scope> commit=<sha or -> dg=<rollup digest>` per mount, sorted.
+pub fn pin_lines(mounts: &BTreeMap<String, crate::facts::MountFacts>) -> String {
+    let mut out = String::new();
+    for (scope, m) in mounts.iter().filter(|(_, m)| m.present) {
+        out.push_str(&format!(
+            "pin {scope} commit={} dg={}\n",
+            m.commit.as_deref().unwrap_or("-"),
+            m.digest
+        ));
+    }
+    out
+}
+
+/// The `pin` lines of a lock: mount scope to the rest of the line.
+pub fn parse_pins(text: &str) -> BTreeMap<String, String> {
+    text.lines()
+        .filter_map(|l| {
+            let rest = l.strip_prefix("pin ")?;
+            let (scope, pin) = rest.split_once(' ')?;
+            Some((scope.to_owned(), pin.to_owned()))
+        })
+        .collect()
+}
+
+/// R-PORT-041: a `req=` line of a lock on disk whose item no longer resolves from the scope,
+/// and whether the portable snapshot carries it.
+pub fn unsatisfied(reg: &Registry, scope: &ScopeId, lock: &str) -> Vec<(LockReq, bool)> {
+    let snap: BTreeSet<String> = lock
+        .lines()
+        .filter_map(|l| {
+            l.strip_prefix("snap ")?
+                .split_whitespace()
+                .next()
+                .map(str::to_owned)
+        })
+        .collect();
+    parse_lock_reqs(lock)
+        .into_iter()
+        .filter(|r| {
+            let found = Id::parse(&format!("{}:{}", r.from, r.id))
+                .ok()
+                .is_some_and(|id| matches!(reg.lookup(scope, &id), Lookup::Found(_)));
+            !found
+        })
+        .map(|r| {
+            let served = snap.contains(&format!("{}:{}", r.from, r.id));
+            (r, served)
+        })
+        .collect()
+}

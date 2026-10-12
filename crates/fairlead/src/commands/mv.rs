@@ -22,21 +22,7 @@ pub fn run(global: &GlobalArgs, args: &MoveArgs) -> CommandResult {
     }
 }
 
-fn later(flag: &str) -> Error {
-    Error::Usage(format!("move {flag} arrives in 0.3"))
-}
-
 fn mv(global: &GlobalArgs, args: &MoveArgs) -> Result<CommandResult, Error> {
-    for (on, flag) in [
-        (args.cut, "--cut"),
-        (args.copy, "--copy"),
-        (args.attach, "--attach"),
-        (args.adopt, "--adopt"),
-    ] {
-        if on {
-            return Err(later(flag));
-        }
-    }
     let session = if args.yes && !args.dry_run {
         Some(WriteSession::open_allocating(
             &discover_request(global, true)?,
@@ -57,6 +43,22 @@ fn mv(global: &GlobalArgs, args: &MoveArgs) -> Result<CommandResult, Error> {
         None
     };
     let out = match scope_op {
+        None if args.adopt => {
+            if args.dst.is_some() {
+                return Err(Error::Usage(
+                    "--adopt takes the mount's scope id and no DST".into(),
+                ));
+            }
+            fairlead_core::pipeline::plan_adopt(&loaded, &registry, &args.src)?
+        }
+        None if args.attach => {
+            if args.dst.is_some() {
+                return Err(Error::Usage(
+                    "--attach takes the arrived scope's directory and no DST".into(),
+                ));
+            }
+            fairlead_core::pipeline::plan_attach(&loaded, &registry, &src)?
+        }
         None if args.detach => {
             if args.dst.is_some() {
                 return Err(Error::Usage("--detach takes no DST".into()));
@@ -80,6 +82,18 @@ fn mv(global: &GlobalArgs, args: &MoveArgs) -> Result<CommandResult, Error> {
                 let dst = to_root_relative(&loaded.root, &cwd, dst)?;
                 if args.merge {
                     plan_merge(&loaded, &registry, &src, &dst)?
+                } else if args.copy {
+                    fairlead_core::pipeline::plan_copy(&loaded, &registry, &src, &dst)?
+                } else if args.cut {
+                    fairlead_core::pipeline::plan_cut(
+                        &loaded,
+                        &registry,
+                        &MoveRequest {
+                            src,
+                            dst,
+                            allow_dirty: args.allow_dirty,
+                        },
+                    )?
                 } else {
                     plan_move(
                         &loaded,
@@ -125,6 +139,9 @@ fn mv(global: &GlobalArgs, args: &MoveArgs) -> Result<CommandResult, Error> {
         return Ok(result);
     };
     merge_gate(&loaded, "move", false)?;
+    if args.adopt {
+        fairlead_core::pipeline::adopt_gate(&out)?;
+    }
     move_gate(&loaded, &out, args.allow_dirty)?;
     let moved = commit_plan(&session, out.plan)?;
     let after = load(&load_request(global, false, None)?)?;

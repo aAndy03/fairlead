@@ -1,8 +1,4 @@
 ```console
-$ fairlead move a b --cut
-? 2
-move --cut arrives in 0.3
-
 $ fairlead upgrade --fetch
 ? 2
 upgrade --fetch: no remote migration data is published for this binary; every supported migration is embedded (R-EDN-025)

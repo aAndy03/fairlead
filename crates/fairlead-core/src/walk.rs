@@ -33,9 +33,12 @@ impl Default for WalkOptions {
 
 impl WalkOptions {
     /// Options from the root control file's `[scan]` table.
+    /// A registered mount (R-PORT-030) is a sealed sub-root: the outer walk never enters it.
     pub fn from_root_control(c: &ControlFile, threads: Option<usize>) -> Self {
+        let mut excludes = c.scan.exclude.clone();
+        excludes.extend(c.mounts.iter().map(|m| format!("/{}/", m.path)));
         Self {
-            excludes: c.scan.exclude.clone(),
+            excludes,
             max_file: c.scan.max_file,
             threads,
         }

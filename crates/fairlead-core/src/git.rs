@@ -269,6 +269,14 @@ impl GitRepo {
         crate::hash::hash_normalised(old.content()) == crate::hash::hash_normalised(&now)
     }
 
+    /// R-PORT-051: the commit a submodule at `path` is pinned to in the index (a gitlink entry).
+    pub fn gitlink(&self, path: &RepoPath) -> Option<String> {
+        let index = self.repo.index().ok()?;
+        let full = format!("{}{}", self.prefix, path.as_str());
+        let e = index.get_path(std::path::Path::new(&full), 0)?;
+        (e.mode == 0o160000).then(|| e.id.to_string())
+    }
+
     /// The commit a revision names (`main`, `HEAD~2`, a hash), as a full hash.
     pub fn resolve(&self, rev: &str) -> Result<String, Error> {
         self.repo

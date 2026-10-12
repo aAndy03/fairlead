@@ -13,7 +13,10 @@ use crate::path::RepoPath;
 use crate::registry::{ScopeId, ScopeState};
 
 pub struct PortCheck;
-const CODES: [DiagCode; 6] = [HN_V012, HN_C012, HN_R001, HN_M006, HN_M009, HN_M004];
+const CODES: [DiagCode; 13] = [
+    HN_V012, HN_C012, HN_R001, HN_M006, HN_M009, HN_M004, HN_V014, HN_C007, HN_M010, HN_C001,
+    HN_M005, HN_M012, HN_M011,
+];
 
 impl Check for PortCheck {
     fn codes(&self) -> &'static [DiagCode] {
@@ -42,6 +45,7 @@ impl Check for PortCheck {
             }
             req_changed(cx, scope, out);
         }
+        unsatisfied(cx, scope, out);
         if *scope == *reg.root_scope() {
             for cycle in crate::port::requires_cycles(reg, cx.corpus) {
                 let names: Vec<&str> = cycle.iter().map(|s| s.0.as_str()).collect();
@@ -68,6 +72,8 @@ impl Check for PortCheck {
             }
             not_checked(cx, out);
             pkg_hints(cx, out);
+            mounts(cx, out);
+            pins(cx, out);
         }
         let _ = sc;
     }
@@ -107,6 +113,173 @@ fn req_changed(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
                 .text(format!("{}:{}", now.from, now.id))
                 .build(),
             );
+        }
+    }
+}
+
+/// R-PORT-041: a required item that the scope's ancestors no longer provide is `UNSATISFIED`
+/// (HN-M005); a portable scope serves it from its snapshot as a `detached` layer (HN-M011, info).
+fn unsatisfied(cx: &CheckCx<'_>, scope: &ScopeId, out: &mut Vec<Diagnostic>) {
+    let Some(lock) = cx
+        .facts
+        .generated_on_disk
+        .iter()
+        .find(|(p, _)| p.file_name() == "scope.lock" && cx.registry.scope_of(p) == Some(scope))
+    else {
+        return;
+    };
+    let text = String::from_utf8_lossy(lock.1);
+    for (r, served) in crate::port::unsatisfied(cx.registry, scope, &text) {
+        let id = format!("{}:{}", r.from, r.id);
+        if served {
+            out.push(
+                DiagB::new(
+                    HN_M011,
+                    lock.0,
+                    0,
+                    0,
+                    format!("{id} is served from the snapshot of the lock (detached layer)"),
+                )
+                .hint("adopt it into the new ancestors, or re-point the requirement (R-PORT-041)")
+                .text(id)
+                .build(),
+            );
+        } else {
+            out.push(
+                DiagB::new(HN_M005, lock.0, 0, 0, format!("required {id} is not provided here (UNSATISFIED)"))
+                    .hint("declare it in an ancestor, mark the scope portable before moving it, or drop the requirement (R-PORT-041)")
+                    .text(id)
+                    .build(),
+            );
+        }
+    }
+}
+
+/// R-PORT-051: a mount whose commit or rollup moved since the root's lock is `LOCK-STALE`.
+fn pins(cx: &CheckCx<'_>, out: &mut Vec<Diagnostic>) {
+    let reg = cx.registry;
+    let Some(want) = cx
+        .generated
+        .files
+        .values()
+        .find(|f| f.kind == GenKind::ScopeLock && f.scope == *reg.root_scope())
+    else {
+        return;
+    };
+    let Some(have) = cx.facts.generated_on_disk.get(&want.path) else {
+        return;
+    };
+    let have = crate::port::parse_pins(&String::from_utf8_lossy(have));
+    for (scope, now) in crate::port::parse_pins(&want.body) {
+        if let Some(old) = have.get(&scope)
+            && *old != now
+        {
+            out.push(
+                DiagB::new(HN_M012, &want.path, 0, 0, format!("mount {scope} moved since the lock ({old} -> {now}): LOCK-STALE"))
+                    .hint("review the sub-root's change, then run fairlead sync to re-pin it (R-PORT-051)")
+                    .text(scope.clone())
+                    .build(),
+            );
+        }
+    }
+}
+
+/// R-PORT-030 to R-PORT-036: the boundary of each registered mount, judged from its rollup.
+fn mounts(cx: &CheckCx<'_>, out: &mut Vec<Diagnostic>) {
+    let reg = cx.registry;
+    let Some(rc) = root_control(reg) else { return };
+    let outer_edition = crate::check::builtin::edition_of(reg).0;
+    let outer_ids: BTreeSet<&str> = reg.scopes().map(|s| s.id.0.as_str()).collect();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for m in &rc.mounts {
+        let at = &rc.path;
+        let Some(f) = cx.facts.mounts.get(&m.scope) else {
+            continue;
+        };
+        if !f.present {
+            // R-PORT-052: a submodule that is not checked out runs from the lock: offline pin.
+            out.push(
+                DiagB::new(
+                    HN_M006,
+                    at,
+                    0,
+                    0,
+                    format!(
+                        "mount {} ({}) is not checked out: offline pin",
+                        m.scope, m.path
+                    ),
+                )
+                .hint("check out the submodule, or let CI check it (R-PORT-052)")
+                .text(m.scope.clone())
+                .build(),
+            );
+            continue;
+        }
+        if !f.is_root || f.scope.as_deref() != Some(m.scope.as_str()) {
+            out.push(
+                DiagB::new(HN_C001, at, 0, 0, format!("[[mount]] {} names {}, which holds no root control file of scope {}", m.scope, m.path, m.scope))
+                    .hint("point path at a directory whose control file has root = true and that scope (R-PORT-030)")
+                    .text(m.scope.clone())
+                    .build(),
+            );
+            continue;
+        }
+        // R-PORT-034, R-EDN-045: an edition mismatch is reported once, at the boundary.
+        if let Some(e) = f.edition
+            && e != outer_edition
+        {
+            out.push(
+                DiagB::new(HN_V014, at, 0, 0, format!("mount {} is on edition {e}, the outer root on {outer_edition}: each side is checked by its own edition", m.scope))
+                    .hint("upgrade one side when convenient; nothing fails at the boundary (R-EDN-045)")
+                    .text(m.scope.clone())
+                    .build(),
+            );
+        }
+        // R-PORT-035: scope ids are unique across the tree including mounts (as= prefixes them).
+        for id in f.scopes.iter().chain(std::iter::once(&m.scope)) {
+            let shown = m
+                .as_prefix
+                .as_ref()
+                .map_or_else(|| id.clone(), |p| format!("{p}-{id}"));
+            if outer_ids.contains(shown.as_str()) || !seen.insert(shown.clone()) {
+                out.push(
+                    DiagB::new(
+                        HN_C007,
+                        at,
+                        0,
+                        0,
+                        format!(
+                            "scope id {shown} of mount {} is already a scope id of the tree",
+                            m.scope
+                        ),
+                    )
+                    .hint("give the mount an as= prefix (R-PORT-035)")
+                    .text(shown.clone())
+                    .build(),
+                );
+            }
+        }
+        // R-PORT-036: the outer root declares nothing inside a sealed sub-root.
+        let inside = |p: &str| p == m.path || p.starts_with(&format!("{}/", m.path));
+        for s in reg.scopes() {
+            let Some(c) = s.control.as_ref() else {
+                continue;
+            };
+            for fd in c.files.iter().filter(|fd| {
+                let full = if s.dir.is_root() {
+                    fd.path.clone()
+                } else {
+                    format!("{}/{}", s.dir.as_str(), fd.path)
+                };
+                inside(&full)
+            }) {
+                out.push(
+                    DiagB::new(HN_M010, &c.path, 0, 0, format!("{} declares {} inside the mounted sub-root {}", s.id.0.as_str(), fd.path, m.scope))
+                        .hint("a root writes and declares only inside its own subtree; declare it in the sub-root (R-PORT-036)")
+                        .text(fd.id.clone())
+                        .build(),
+                );
+            }
         }
     }
 }
@@ -526,5 +699,105 @@ mod tests {
         };
         assert!(of(&run("web:d-7k3m9qxa"), c::HN_R001).is_empty());
         assert_eq!(of(&run("api:d-7k3m9qxa"), c::HN_R001).len(), 1);
+    }
+
+    #[test]
+    fn r_port_046__lock_stale_when_source_changed() {
+        let mount = "[[mount]]\nscope = \"billing\"\npath = \"vendor/billing\"\n";
+        let w = |commit: &str| {
+            let c = commit.to_owned();
+            World::new()
+                .root(mount)
+                .file("fairlead/versions/0.1.0.md", "+++\n+++\n")
+                .facts(move |f| {
+                    f.mounts.insert(
+                        "billing".into(),
+                        crate::facts::MountFacts {
+                            present: true,
+                            is_root: true,
+                            scope: Some("billing".into()),
+                            edition: Some(1),
+                            scopes: vec![],
+                            commit: Some(c),
+                            digest: "dddddddddddd".into(),
+                        },
+                    );
+                })
+        };
+        let before = w("1111111").build().synced();
+        let disk = before.facts.generated_on_disk.clone();
+        let after = w("2222222")
+            .facts(move |f| f.generated_on_disk = disk)
+            .build();
+        let set = crate::generate::generate(
+            &after.registry,
+            &after.corpus,
+            &after.facts,
+            None,
+            crate::check::builtin::edition_of(&after.registry),
+        );
+        let ds = after.run_check_with(&PortCheck, &set);
+        let m = of(&ds, c::HN_M012);
+        assert_eq!(m.len(), 1, "{ds:#?}");
+        assert!(m[0].message.contains("mount billing moved since the lock"));
+        let same = before.run_check_with(
+            &PortCheck,
+            &crate::generate::generate(
+                &before.registry,
+                &before.corpus,
+                &before.facts,
+                None,
+                crate::check::builtin::edition_of(&before.registry),
+            ),
+        );
+        assert!(of(&same, c::HN_M012).is_empty());
+    }
+
+    #[test]
+    fn r_port_046__offline_pin_when_unreachable() {
+        let ds = World::new()
+            .root("[[mount]]\nscope = \"billing\"\npath = \"vendor/billing\"\n")
+            .facts(|f| {
+                f.mounts
+                    .insert("billing".into(), crate::facts::MountFacts::default());
+            })
+            .build()
+            .run_check(&PortCheck);
+        let m = of(&ds, c::HN_M006);
+        assert_eq!(m.len(), 1, "{ds:#?}");
+        assert!(m[0].message.contains("not checked out: offline pin"));
+    }
+
+    #[test]
+    fn r_port_041__a_missing_require_is_unsatisfied_unless_snapshotted() {
+        let lock = |snap: bool| {
+            let mut t = "# scope web edition=1\nancestor-digest=x\nreconciled=0.1.0\nreq=tok.gone from=root dg=bbbbbbbbbbbb ver=0.1.0\n".to_owned();
+            if snap {
+                t.push_str("snap root:tok.gone value=1px\n");
+            }
+            t
+        };
+        let run = |snap: bool| {
+            let l = lock(snap);
+            World::new()
+                .scope("web", "[fairlead]\nscope = \"web\"\n")
+                .facts(move |f| {
+                    f.generated_on_disk.insert(
+                        RepoPath::new("web/fairlead/gen/scope.lock").unwrap(),
+                        std::sync::Arc::from(l.into_bytes()),
+                    );
+                })
+                .build()
+                .run_check(&PortCheck)
+        };
+        let ds = run(false);
+        assert_eq!(of(&ds, c::HN_M005).len(), 1, "{ds:#?}");
+        let ds = run(true);
+        assert!(of(&ds, c::HN_M005).is_empty());
+        assert_eq!(
+            of(&ds, c::HN_M011).len(),
+            1,
+            "served from the snapshot: {ds:#?}"
+        );
     }
 }
