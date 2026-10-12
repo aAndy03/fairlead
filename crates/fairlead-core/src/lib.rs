@@ -46,6 +46,7 @@ pub mod port;
 pub mod registry;
 pub mod render;
 pub mod restructure;
+pub mod retention;
 pub mod seal;
 pub mod secrets;
 pub mod time;

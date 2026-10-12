@@ -31,6 +31,10 @@ fn explain(global: &GlobalArgs, args: &ExplainArgs) -> Result<CommandResult, Err
         }
         Err(e) => return Err(e),
     };
+    // R-RET-051 (0.3): a compacted record resolves to its ledger summary line.
+    if let Some(output) = fairlead_core::pipeline::explain_compacted(&loaded, &args.target) {
+        return render(global, &output);
+    }
     let registry = resolve_loaded(&loaded, as_of(global));
     let target = explain_target(&loaded.root, &cwd, &args.target)?;
     let report = match &target {

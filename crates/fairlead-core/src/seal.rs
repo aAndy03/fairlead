@@ -3,7 +3,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::docs::{ChangeDoc, DraftId, Status, assign_ordinals, readiness_problems};
+use crate::docs::{ChangeDoc, DraftId, Status, readiness_problems};
 use crate::path::RepoPath;
 use crate::version::{Version, VersionLine};
 
@@ -52,6 +52,8 @@ pub struct SealInput<'a> {
     pub tombs: &'a [crate::lifecycle::Tomb],
     /// Graveyard entries fingerprinted by this seal: `(path, old text, new text)` (R-LC-031).
     pub graves: &'a [(RepoPath, String, String)],
+    /// R-RET-027 (0.3): the highest ordinal the ledgers hold per (scope, kind).
+    pub ledger_ords: &'a BTreeMap<(String, String), u32>,
 }
 
 /// A lifecycle plan as the due gate sees it (R-LC-006).
@@ -227,7 +229,7 @@ pub fn plan(input: &SealInput<'_>) -> Result<SealPlan, SealRefusal> {
         .filter(|d| d.status == Status::Sealed)
         .chain(input.also_docs)
         .collect();
-    let ordinals = assign_ordinals(&ready, &existing);
+    let ordinals = crate::docs::assign_ordinals_from(&ready, &existing, input.ledger_ords);
 
     // 3. due gate (R-LC-006): a due plan blocks unless its references are gone and a doc in this
     // seal covers the item, or a retarget doc in this seal moves it.
@@ -367,6 +369,10 @@ pub struct SealWriteCx<'a> {
     /// 0.3: the lock lines a scope adds after `reconciled=` (R-PORT-022 `req=`, R-PORT-051
     /// `pin`), the same as `sync` writes.
     pub lock_extra: &'a dyn Fn(&crate::registry::ScopeId, Version) -> String,
+    /// R-RET-025 (0.3): the records this seal compacts.
+    pub compact: &'a [crate::retention::Compaction],
+    /// R-RET-026 (0.3): the open year's records after folding cold summaries, if any fold.
+    pub fold: &'a dyn Fn(&[String]) -> Option<Vec<String>>,
 }
 
 /// The sealed text of a doc: `status`, `sealed`, `body-hash` and `ordinal` set in its
@@ -580,6 +586,22 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
         })?;
     }
 
+    // R-RET-025 (0.3): each due record's summary line goes to its scope's ledger and its body
+    // leaves the working tree (git keeps it); its ID stays resolvable through the line.
+    for c in cx.compact {
+        add(PlannedWrite {
+            path: c.path.clone(),
+            kind: WriteKind::Delete,
+            bytes: Vec::new(),
+            class: FileClass::Authored,
+            expect_prior: Some(crate::hash::hash_normalised(c.old.as_bytes())),
+        })?;
+        records
+            .entry(ScopeKey(c.scope.clone()))
+            .or_default()
+            .push(c.line.clone());
+    }
+
     // Symbolic plan targets resolved by this seal (R-LC-003).
     for (path, rec) in &plan.plan_records {
         let scope = cx
@@ -669,6 +691,29 @@ pub fn write_set(plan: &SealPlan, cx: &SealWriteCx<'_>) -> Result<crate::write::
             }
         };
         file.append_version(plan.open, recs)?;
+        // R-RET-026 (0.3): cold summaries of the open year fold into quarterly rollups.
+        let all: Vec<String> = file
+            .groups()
+            .iter()
+            .flat_map(|(_, g)| g.iter().map(|(t, _)| t.clone()))
+            .collect();
+        if let Some(new) = (cx.fold)(&all) {
+            let keep: BTreeSet<&String> = new.iter().collect();
+            let mut groups = file.groups();
+            for (_, g) in &mut groups {
+                g.retain(|(t, _)| keep.contains(t));
+            }
+            let present: BTreeSet<String> = groups
+                .iter()
+                .flat_map(|(_, g)| g.iter().map(|(t, _)| t.clone()))
+                .collect();
+            if let Some((_, last)) = groups.last_mut() {
+                for t in new.iter().filter(|t| !present.contains(*t)) {
+                    last.push((t.clone(), crate::hist::record_digest(t)));
+                }
+            }
+            file.rebuild(groups);
+        }
         add(PlannedWrite {
             path,
             kind: WriteKind::Replace,
@@ -892,6 +937,7 @@ mod tests {
                 plan_records: &[],
                 tombs: &[],
                 graves: &[],
+                ledger_ords: &BTreeMap::new(),
             })
         }
     }

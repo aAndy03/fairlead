@@ -310,7 +310,18 @@ fn created_key(d: &ChangeDoc) -> (Option<Version>, String) {
 /// R-VER-041: ordinals for the docs being sealed, per scope and kind, continuing from
 /// `max(existing) + 1` in (`created`, draft ID) order. Docs that already carry an ordinal keep it.
 pub fn assign_ordinals(sealing: &[&ChangeDoc], existing: &[&ChangeDoc]) -> BTreeMap<DraftId, u32> {
-    let mut next: BTreeMap<(String, String), u32> = BTreeMap::new();
+    assign_ordinals_from(sealing, existing, &BTreeMap::new())
+}
+
+/// R-RET-027 (0.3): as `assign_ordinals`, continuing from `floor` too (the highest ordinal the
+/// ledgers hold per (scope, kind): compacted summaries and rollup ranges), so a folded ordinal
+/// is never reused.
+pub fn assign_ordinals_from(
+    sealing: &[&ChangeDoc],
+    existing: &[&ChangeDoc],
+    floor: &BTreeMap<(String, String), u32>,
+) -> BTreeMap<DraftId, u32> {
+    let mut next: BTreeMap<(String, String), u32> = floor.clone();
     for d in existing {
         if let Some(o) = d.ordinal {
             let e = next.entry(ordinal_key(d)).or_insert(0);

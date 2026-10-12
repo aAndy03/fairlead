@@ -5,6 +5,7 @@ pub mod header;
 pub mod hier;
 pub use hier::HierConfig;
 pub use variation::{ForkDetect, TokensConfig, VariationConfig};
+pub mod retain;
 pub mod rules;
 pub mod schema;
 pub mod variation;
@@ -57,6 +58,8 @@ pub struct ControlFile {
     pub kinds: BTreeMap<String, KindDecl>,
     /// Hierarchy vocabulary (R-HIER-001; 0.3): ladders, free layers, flows, `[hier]`.
     pub hier: HierConfig,
+    /// `[retain]` (0.3, R-RET-012): in any scope; a child only lengthens (R-RET-013).
+    pub retain: retain::RetainConfig,
     /// `[variation]` (0.3, R-VAR-020).
     pub variation: VariationConfig,
     /// `[tokens]` (0.3, R-VAR-093).
@@ -279,6 +282,7 @@ pub fn parse_control(
     let hier = hier::parse_hier(&mut cx, &mut table);
     hier::check_kind_layers(&mut cx, &hier, &kinds);
     let variation = variation::parse_variation(&mut cx, &mut table);
+    let retain = retain::parse_retain(&mut cx, &mut table);
     let tokens = variation::parse_tokens(&mut cx, &mut table);
     let file_kinds = schema::parse_file_kinds(&mut cx, &mut table);
     let layout = schema::parse_layout(&mut cx, &mut table);
@@ -339,6 +343,7 @@ pub fn parse_control(
         agents,
         kinds,
         hier,
+        retain,
         variation,
         tokens,
         file_kinds,
@@ -675,11 +680,12 @@ exp = "2027-03-31"
     #[test]
     fn r_syn_039__unknown_tables_and_keys_warn_but_parse() {
         let text = format!(
-            "{ROOT}\n[future]\nx = 1\n\n[tok.color]\nrole = \"brand\"\n\n[retain]\nmin-age = 3\n"
+            "{ROOT}\n[future]\nx = 1\n\n[tok.color]\nrole = \"brand\"\n\n[later]\nmin-age = 3\n"
         );
         let c = parse_control(&p("fairlead/control.toml"), text.as_bytes(), true).unwrap();
         let paths: Vec<&str> = c.unknown.iter().map(|u| u.path.as_str()).collect();
-        assert_eq!(paths, ["future", "retain", "tok"]);
+        // `[retain]` became a 0.3 table (R-RET-012); `[later]` stands in for a future one
+        assert_eq!(paths, ["future", "later", "tok"]);
         let d = c.diagnostics();
         assert_eq!(d.len(), 3);
         assert!(

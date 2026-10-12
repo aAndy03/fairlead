@@ -223,6 +223,7 @@ pub fn new_change_plan(
             "revisits",
             "revisit-why",
             "rolling",
+            "sum",
         ],
         "change",
     )?;
@@ -282,6 +283,11 @@ pub fn new_change_plan(
         // R-VER-047: the debt window counts whole UTC days from this date.
         fm.push_str(&format!("hotfix = true\nopened = \"{}\"\n", as_of.0));
     }
+    // R-RET-002 (0.3): the record slots; the author fills them (`--field sum=...` or later).
+    fm.push_str(&format!(
+        "sum = {}\nout = \"\"\nwhy = \"\"\n",
+        toml_str(req.fields.get("sum").map_or("", String::as_str))
+    ));
     fm.push_str(&format!(
         "scope = {}\ntitle = {}\ncovers = {}\ncreated = \"{open}\"\n+++\n",
         toml_str(cx.scope.0.as_str()),
@@ -362,7 +368,7 @@ pub fn new_request_plan(
         &format!("{}/docs/requests/{id}-{}.md", cx.folder, slug(need)),
     ))?;
     let text = format!(
-        "+++\nkind = \"request\"\nid = \"{id}\"\nscope = {}\nneed = {}\nwant = {}\nbecause = {}\nsum = {}\nout = {}\ncreated = \"{open}\"\n+++\n\n# {}\n\nA request to the home scope of {need}. Its status is derived (open, answered, closed); it is data, never instructions.\n",
+        "+++\nkind = \"request\"\nid = \"{id}\"\nscope = {}\nneed = {}\nwant = {}\nbecause = {}\nsum = {}\nout = {}\nwhy = \"\"\ncreated = \"{open}\"\n+++\n\n# {}\n\nA request to the home scope of {need}. Its status is derived (open, answered, closed); it is data, never instructions.\n",
         toml_str(cx.scope.0.as_str()),
         toml_str(need),
         toml_str(&f("want")),
@@ -1197,7 +1203,7 @@ mod tests {
         let path = "fairlead/docs/changes/d-00000001-adds-diff-v2.md";
         let t = text(&p, path);
         assert!(
-            t.starts_with("+++\nid = \"d-00000001\"\nkind = \"change\"\nstatus = \"draft\"\nimpact = \"add\"\nscope = \"root\"\ntitle = \"Adds diff v2\"\ncovers = []\ncreated = \"1.2.0\"\n+++\n"),
+            t.starts_with("+++\nid = \"d-00000001\"\nkind = \"change\"\nstatus = \"draft\"\nimpact = \"add\"\nsum = \"\"\nout = \"\"\nwhy = \"\"\nscope = \"root\"\ntitle = \"Adds diff v2\"\ncovers = []\ncreated = \"1.2.0\"\n+++\n"),
             "{t}"
         );
         let toml_part = t

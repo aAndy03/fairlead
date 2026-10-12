@@ -348,6 +348,46 @@ pub fn file_version_section(loaded: &Loaded, path: &RepoPath) -> crate::explain:
     }
 }
 
+/// R-RET-050, R-RET-051 (0.3): `explain <d-draft>` of a compacted record: its summary line and
+/// the recorded commit, or "full text unavailable (commit not found)". `None` when the argument
+/// is not a doc reference or the ledgers hold no summary of it.
+pub fn explain_compacted(loaded: &Loaded, arg: &str) -> Option<crate::explain::ExplainOutput> {
+    let (scope, raw) = match arg.split_once(':') {
+        Some((s, d)) => (Some(s), d),
+        None => (None, arg),
+    };
+    let id = crate::docs::DraftId::parse(raw)?;
+    let all = crate::retention::compacted(&loaded.facts.ledgers);
+    let c = all
+        .get(id.as_str())
+        .filter(|c| scope.is_none_or(|s| s == c.scope))?;
+    let mut prose = vec![format!(
+        "{}:{} was compacted at a seal (R-RET-025); this is its summary line.",
+        c.scope,
+        id.as_str()
+    )];
+    let found = c
+        .git
+        .as_deref()
+        .and_then(|g| crate::git::GitRepo::open(&loaded.root).and_then(|r| r.resolve(g).ok()));
+    prose.push(match (&c.git, found) {
+        (Some(g), Some(full)) => format!(
+            "full text: git show {}:<its path> (commit {g}, {full})",
+            full.get(..12).unwrap_or(&full)
+        ),
+        _ => "full text unavailable (commit not found)".into(),
+    });
+    let line = crate::render::line::TerseLine::parse(&c.line).ok()?;
+    Some(crate::explain::ExplainOutput {
+        target: crate::explain::ExplainTarget::Topic(arg.to_owned()),
+        sections: vec![crate::explain::ExplainSection {
+            title: "compacted record".into(),
+            prose,
+            lines: vec![line],
+        }],
+    })
+}
+
 /// The directory of the scope that holds `path`, from the membership the corpus walk saw: the
 /// deepest managerial folder above it (empty for the root).
 fn loaded_scope_dir(loaded: &Loaded, path: &RepoPath) -> String {
@@ -3636,6 +3676,7 @@ pub fn plan_seal(
         plan_records: &plan_records,
         tombs: &tombs,
         graves: &grave_prints(loaded)?,
+        ledger_ords: &crate::retention::ledger_ordinals(&loaded.facts.ledgers),
     })
     .map_err(|r| {
         Error::Refused(crate::error::Refusal {
@@ -3658,6 +3699,58 @@ pub fn plan_seal(
         gen_dir
     };
     let sealed_at = format!("{}T00:00:00Z", options.as_of);
+    // R-RET-020 to R-RET-026 (0.3): compaction, only once the root declares `[retain]`.
+    let mut sealed_all: Vec<crate::version::Version> = versions.clone();
+    sealed_all.push(seal_plan.open);
+    let mut stamps = crate::retention::stamps(&loaded.facts.version_texts);
+    stamps.insert(seal_plan.open, options.as_of.0);
+    let compact: Vec<crate::retention::Compaction> = if crate::retention::enabled(registry) {
+        let records = crate::retention::collect(registry, &loaded.corpus, &loaded.facts.approvals);
+        let head = crate::git::GitRepo::open(&loaded.root).and_then(|r| r.resolve("HEAD").ok());
+        let short = head.as_deref().map(|h| h.get(..12).unwrap_or(h).to_owned());
+        let read = |p: &RepoPath| -> Option<String> {
+            std::fs::read_to_string(loaded.root.dir.join(p.as_str()).as_std_path())
+                .ok()
+                .map(|t| t.replace("\r\n", "\n"))
+        };
+        crate::retention::plan(
+            registry,
+            &records,
+            &sealed_all,
+            &stamps,
+            options.as_of.0,
+            short.as_deref(),
+            &read,
+        )
+        .map_err(|bad| {
+            Error::Refused(crate::error::Refusal {
+                kind: crate::error::RefusalKind::PlanNotConfirmed,
+                message: format!(
+                    "SUMMARY-MISSING (HN-K001): {} due records cannot compact: {}",
+                    bad.len(),
+                    bad.join(" | ")
+                ),
+                hint: "fill `sum` (and `out`, `why`) on each listed record, then seal again (R-RET-022)".into(),
+            })
+        })?
+    } else {
+        Vec::new()
+    };
+    let fold_cfg = crate::retention::enabled(registry).then(|| {
+        let root = loaded.root_control.retain.clone();
+        (root.roll_after.unwrap_or(8), root)
+    });
+    let fold = |recs: &[String]| -> Option<Vec<String>> {
+        let (roll_after, root) = fold_cfg.as_ref()?;
+        let ttl_of = |kind: &str| -> Option<u32> {
+            let class = if kind == "request" { "rq" } else { "chg" };
+            match crate::config::retain::root_policy(root, class).ttl {
+                crate::config::retain::Ttl::Versions(n) => Some(n),
+                _ => None,
+            }
+        };
+        crate::retention::fold(recs, *roll_after, &ttl_of, &sealed_all, &stamps)
+    };
     let set = crate::seal::write_set(
         &seal_plan,
         &crate::seal::SealWriteCx {
@@ -3675,6 +3768,8 @@ pub fn plan_seal(
             lock_extra: &|s: &ScopeId, v: crate::version::Version| {
                 crate::port::lock_extra(registry, &loaded.corpus, &loaded.facts, s, v)
             },
+            compact: &compact,
+            fold: &fold,
         },
     )
     .map_err(Error::Internal)?;
@@ -3688,6 +3783,9 @@ pub fn plan_seal(
             },
             path: w.path.clone(),
             detail: match w.kind {
+                crate::write::WriteKind::Delete if compact.iter().any(|c| c.path == w.path) => {
+                    "compacted: summary line in the ledger (R-RET-025)".into()
+                }
                 crate::write::WriteKind::Delete => "renamed to its ordinal".into(),
                 _ if Some(&w.path) == set.commit_point.as_ref() => {
                     "version file (commit point)".into()

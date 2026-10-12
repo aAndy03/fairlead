@@ -38,6 +38,17 @@ fn digest8(bytes: &[u8]) -> String {
     base32(&hash_normalised(bytes).0, 8)
 }
 
+fn first_word(text: &str) -> &str {
+    text.split_whitespace().next().unwrap_or("")
+}
+
+/// A record reduced by `sync --purge` (R-RET-043).
+pub fn is_purged(text: &str) -> bool {
+    text.split_whitespace()
+        .nth(1)
+        .is_some_and(|w| w.starts_with("purged="))
+}
+
 /// The digest of a record line, computed over its text without ` d=` (R-RET-031).
 pub fn record_digest(text: &str) -> String {
     digest8(text.trim_end().as_bytes())
@@ -191,6 +202,75 @@ impl YearFile {
         Ok(())
     }
 
+    /// The record lines of each sealed version, in file order: `(v, records as (text, d))`.
+    /// Records after the last checkpoint are dropped (they belong to no version).
+    pub fn groups(&self) -> Vec<(Version, Vec<(String, String)>)> {
+        let mut out = Vec::new();
+        let mut pending = Vec::new();
+        for l in &self.lines {
+            match l {
+                HistLine::Record { text, d } => pending.push((text.clone(), d.clone())),
+                HistLine::Ckpt { v, .. } => out.push((*v, std::mem::take(&mut pending))),
+                HistLine::End { .. } => {}
+            }
+        }
+        out
+    }
+
+    /// R-RET-035: rebuild an open year from its version groups: records sorted bytewise within
+    /// each group, every checkpoint recomputed from the header's `prev`. A final year is never
+    /// rebuilt (R-RET-032); `false` then.
+    pub fn rebuild(&mut self, groups: Vec<(Version, Vec<(String, String)>)>) -> bool {
+        if self.is_final() {
+            return false;
+        }
+        let mut prev = self.prev.clone().unwrap_or_default();
+        let mut lines = Vec::new();
+        let mut groups = groups;
+        groups.sort_by_key(|(v, _)| *v);
+        for (v, mut recs) in groups {
+            recs.sort();
+            recs.dedup();
+            let ds: Vec<&str> = recs.iter().map(|(_, d)| d.as_str()).collect();
+            let d = checkpoint_digest(&prev, &ds);
+            let n = u32::try_from(recs.len()).unwrap_or(u32::MAX);
+            for (text, rd) in recs {
+                lines.push(HistLine::Record { text, d: rd });
+            }
+            lines.push(HistLine::Ckpt { v, n, d: d.clone() });
+            prev = d;
+        }
+        self.lines = lines;
+        true
+    }
+
+    /// R-RET-035: the open year re-sorted and re-checkpointed (after a union merge); `None`
+    /// when it is final or already canonical.
+    pub fn rechained(&self) -> Option<YearFile> {
+        if self.is_final() {
+            return None;
+        }
+        let mut f = self.clone();
+        f.rebuild(self.groups());
+        (f != *self).then_some(f)
+    }
+
+    /// R-RET-043: reduce every record of `id` to `<id> purged=<date>`, keeping its digest, so
+    /// no checkpoint or later year changes (R-RET-033). The only rewrite of a final year.
+    pub fn purge(&mut self, id: &str, date: &str) -> bool {
+        let mut hit = false;
+        for l in &mut self.lines {
+            if let HistLine::Record { text, .. } = l
+                && first_word(text) == id
+                && !is_purged(text)
+            {
+                *text = format!("{id} purged={date}");
+                hit = true;
+            }
+        }
+        hit
+    }
+
     /// Close the year: `# end d=` repeats its last checkpoint digest (R-RET-031).
     pub fn finalise(&mut self) {
         if !self.is_final() {
@@ -210,7 +290,17 @@ impl YearFile {
         let mut pending: Vec<&str> = Vec::new();
         for (i, l) in self.lines.iter().enumerate() {
             match l {
-                HistLine::Record { d, .. } => pending.push(d),
+                HistLine::Record { text, d } => {
+                    // R-RET-032: a hand edit of a record line breaks the chain; a purged record
+                    // keeps its digest over text it no longer has (R-RET-033).
+                    if !is_purged(text) && record_digest(text) != *d {
+                        out.push(format!(
+                            "record line `{}` does not match its digest d={d}",
+                            first_word(text)
+                        ));
+                    }
+                    pending.push(d)
+                }
                 HistLine::Ckpt { v, n, d } => {
                     if last_v.is_some_and(|lv| *v <= lv) {
                         out.push(format!("checkpoint v={v} does not ascend"));
@@ -342,9 +432,19 @@ mod tests {
             errs.iter().any(|m| m.contains("does not recompute")),
             "{errs:?}"
         );
-        // a record edited in place keeps its written d= (purge path), so the chain still holds
-        let purged = base.replace("title=\"no tailwind\" out=adopted", "out=adopted");
-        assert!(YearFile::parse(&purged).unwrap().verify().is_empty());
+        // 0.3 (R-RET-032): a record edited by hand no longer matches its d=; only the purge form
+        // keeps its written d= over text it no longer has (R-RET-033), so the chain still holds
+        let edited = base.replace("title=\"no tailwind\" out=adopted", "out=adopted");
+        assert!(
+            YearFile::parse(&edited)
+                .unwrap()
+                .verify()
+                .iter()
+                .any(|m| m.contains("does not match its digest"))
+        );
+        let mut purged = YearFile::parse(&base).unwrap();
+        assert!(purged.purge("d-3f9a8b11", "2031-05-01"));
+        assert!(purged.verify().is_empty(), "{:?}", purged.verify());
         // trailing records with no checkpoint
         let trailing = format!("{base}d-00000001 kind=change d=abcdefgh\n");
         assert!(
