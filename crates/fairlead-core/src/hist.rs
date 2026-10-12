@@ -490,4 +490,91 @@ mod tests {
             assert!(YearFile::parse(bad).is_err(), "{bad:?}");
         }
     }
+
+    fn year(scope: &str, y: u32, prev: Option<&str>, versions: &[(&str, &[&str])]) -> YearFile {
+        let mut f = YearFile::new(scope, y, prev.map(str::to_owned), 1);
+        for (v, recs) in versions {
+            let recs: Vec<String> = recs.iter().map(|r| (*r).to_owned()).collect();
+            f.append_version(Version::parse(v).unwrap(), &recs).unwrap();
+        }
+        f
+    }
+
+    #[test]
+    fn r_ret_031__chain_across_years_verified() {
+        let mut a = year(
+            "web",
+            2030,
+            None,
+            &[("1.0.0", &["d-00000001 kind=change ord=0001"])],
+        );
+        a.finalise();
+        let b = year(
+            "web",
+            2031,
+            Some(&a.last_digest()),
+            &[("1.1.0", &["d-00000002 kind=change ord=0002"])],
+        );
+        assert!(verify_chain(&[&a, &b]).is_empty());
+        let wrong = year(
+            "web",
+            2031,
+            Some("zzzzzzzz"),
+            &[("1.1.0", &["d-00000002 kind=change ord=0002"])],
+        );
+        assert!(
+            !verify_chain(&[&a, &wrong]).is_empty(),
+            "prev= must equal the year's end"
+        );
+    }
+
+    #[test]
+    fn r_ret_032__hand_edit_of_final_year_fails_chain() {
+        let mut a = year(
+            "web",
+            2030,
+            None,
+            &[("1.0.0", &["d-00000001 kind=change ord=0001 title=x"])],
+        );
+        a.finalise();
+        let edited = a.render().replace("title=x", "title=y");
+        let f = YearFile::parse(&edited).unwrap();
+        assert!(!f.verify().is_empty(), "never auto-fixed");
+        assert!(f.rechained().is_none(), "sync never rewrites a final year");
+    }
+
+    #[test]
+    fn r_ret_035__union_merge_then_sync_keeps_chain() {
+        // base sealed 1.0.0; branch A seals 1.1.0 and branch B 1.2.0, both from the base; a
+        // `merge=union` keeps both appended blocks, so B's checkpoint has the wrong predecessor
+        let base = year(
+            "web",
+            2031,
+            None,
+            &[("1.0.0", &["d-00000001 kind=change ord=0001"])],
+        );
+        let mut a = base.clone();
+        a.append_version(
+            Version::parse("1.1.0").unwrap(),
+            &["d-00000002 kind=change ord=0002".into()],
+        )
+        .unwrap();
+        let mut b = base.clone();
+        b.append_version(
+            Version::parse("1.2.0").unwrap(),
+            &["d-00000003 kind=change ord=0003".into()],
+        )
+        .unwrap();
+        let base_text = base.render();
+        let tail = |f: &YearFile| f.render().strip_prefix(&base_text).unwrap().to_owned();
+        let merged = format!("{base_text}{}{}", tail(&a), tail(&b));
+        let f = YearFile::parse(&merged).unwrap();
+        assert!(
+            !f.verify().is_empty(),
+            "the union merge broke the open year"
+        );
+        let fixed = f.rechained().unwrap();
+        assert!(fixed.verify().is_empty(), "{:?}", fixed.verify());
+        assert_eq!(fixed.groups().len(), 3);
+    }
 }

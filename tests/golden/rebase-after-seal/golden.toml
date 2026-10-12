@@ -114,7 +114,9 @@ git = [
 
 [[case]]
 args = ["check", "--as-of", "2026-10-10", "--format", "terse"]
-exit = 1
+# 0.3 (R-RET-035, R-RET-036): the sync above re-chained the open year after the rebase, so the
+# check is clean; the reseal below still renumbers the work branch's version.
+exit = 0
 stdout = "expected/check-after-rebase.terse.txt"
 reuse = true
 git_status_clean = true

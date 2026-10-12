@@ -653,3 +653,43 @@ fn r_var_063__wrappers_roll_up_to_the_ledger_and_sprawl_is_reported() {
     assert_eq!(s.len(), 1, "{ds:#?}");
     assert!(s[0].message.contains("cmp.button has 2 interim wrappers"));
 }
+
+#[test]
+fn r_ret_050__a_compacted_request_still_resolves() {
+    let line =
+        format!("{REQ} kind=request scope=web title=x closed=0.1.0 out=adopted sum=s git=- body=b");
+    let ledger = format!(
+        "# scope=web year=2026 prev=- edition=1\n{line} d={}\n",
+        crate::hist::record_digest(&line)
+    );
+    let run = |files: &[(&str, String)]| {
+        let l = ledger.clone();
+        let mut w = world().facts(move |f| {
+            f.ledgers.insert(
+                crate::path::RepoPath::new("web/fairlead/ledger/hist/2026.hl").unwrap(),
+                std::sync::Arc::from(l),
+            );
+        });
+        for (p, t) in files {
+            w = w.file(p, t);
+        }
+        w.build().run_check(&VariationCheck)
+    };
+    let ds = run(&[(
+        "fairlead/docs/changes/d-91cc04ab-a.md",
+        answer("draft", "variant", ""),
+    )]);
+    assert!(
+        of(&ds, c::HN_R001).is_empty(),
+        "the answer names a compacted request: {ds:#?}"
+    );
+    let ds = run(&[(
+        "web/src/t.tsx",
+        wrapper(&format!("flag awaiting to={REQ} target=9.0.0")),
+    )]);
+    let x = of(&ds, c::HN_X001);
+    assert!(
+        x.iter().any(|d| d.message.contains("closed and compacted")),
+        "{ds:#?}"
+    );
+}

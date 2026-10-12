@@ -77,6 +77,7 @@ fn init(global: &GlobalArgs, args: &InitArgs) -> Result<CommandResult, Error> {
             let loaded = load(&load_request(&global, false, None)?)?;
             let registry = resolve_loaded(&loaded, options.as_of);
             let sync = SyncRequest {
+                purge: None,
                 baseline: BaselineMode::Off,
                 accept_vendor: false,
                 force: false,

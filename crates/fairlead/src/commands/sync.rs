@@ -26,6 +26,7 @@ fn sync(global: &GlobalArgs, args: &SyncArgs) -> Result<CommandResult, Error> {
         accept_vendor: args.accept_vendor,
         force: args.force,
         scope: scope_pin(args.scope.as_deref())?,
+        purge: args.purge.clone(),
     };
     fairlead_core::pipeline::merge_gate(&loaded, "sync", true)?;
     let plan = plan_sync(&loaded, &registry, &options, &request)?;
@@ -84,6 +85,7 @@ mod tests {
             accept_vendor: false,
             force: false,
             scope: None,
+            purge: None,
         }
     }
 

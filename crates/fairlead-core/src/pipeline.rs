@@ -1820,12 +1820,17 @@ pub fn plan_scope_op(
                     "move those tables into the parent's control file first; demote moves docs, not control tables",
                 ));
             }
+            // R-RET-070 (0.3): the scope's ledger lines join the parent's open year.
             if own.iter().any(|p| p.as_str().contains("/ledger/")) {
-                return Err(refusal(
-                    crate::error::RefusalKind::PlanNotConfirmed,
-                    format!("{} has sealed ledger history", sc.id.0.as_str()),
-                    "a scope with sealed history is kept; detach or delete it instead",
-                ));
+                carry_ledgers(
+                    loaded,
+                    &sc.id,
+                    &mgr,
+                    &parent_mgr,
+                    &parent.id,
+                    &mut set,
+                    &mut lines,
+                )?;
             }
             // The 0.1 demote model: duplicate-ID refusal and the scope tombstone.
             let tomb = crate::write::plan_demote(reg, &sc.id)?;
@@ -1881,6 +1886,125 @@ pub fn plan_scope_op(
         code_sites: Vec::new(),
         loosening,
     })
+}
+
+/// R-RET-070: the origin scope's ledger record lines, each with `scope=<origin>` and its ordinal
+/// prefixed by the origin (`web:0007`), join the receiver's open year (the last version group,
+/// checkpoints rebuilt), or a new year file when the receiver has none open. Finalised years of
+/// the receiver are never rewritten; the origin files leave with the scope (git keeps them).
+fn carry_ledgers(
+    loaded: &Loaded,
+    origin: &ScopeId,
+    origin_mgr: &str,
+    receiver_mgr: &str,
+    receiver: &ScopeId,
+    set: &mut crate::write::WriteSet,
+    lines: &mut Vec<crate::write::PlanLine>,
+) -> Result<(), Error> {
+    use crate::hist::{HistLine, YearFile};
+    use crate::write::{PlanAction, PlanLine, PlannedWrite, WriteKind};
+    let o = origin.0.as_str();
+    let mut carried: Vec<String> = Vec::new();
+    let mut last_v = None;
+    let mut last_year = 0;
+    let prefix = format!("{origin_mgr}/ledger/hist/");
+    for (p, t) in loaded
+        .facts
+        .ledgers
+        .iter()
+        .filter(|(p, _)| p.as_str().starts_with(&prefix))
+    {
+        let Ok(f) = YearFile::parse(t) else {
+            return Err(Error::Usage(format!(
+                "{} is unreadable; restore it before moving",
+                p.as_str()
+            )));
+        };
+        last_year = last_year.max(f.year);
+        for l in &f.lines {
+            match l {
+                HistLine::Record { text, .. } => {
+                    let line = match crate::render::line::TerseLine::parse(text) {
+                        Ok(mut tl) => {
+                            if tl.get("scope").is_none() {
+                                tl = tl.with("scope", o);
+                            }
+                            if let Some(ord) = tl.get("ord").map(str::to_owned)
+                                && !ord.contains(':')
+                            {
+                                tl = tl.with("ord", &format!("{o}:{ord}"));
+                            }
+                            tl.render()
+                        }
+                        Err(_) => format!("{text} scope={o}"),
+                    };
+                    carried.push(line);
+                }
+                HistLine::Ckpt { v, .. } => last_v = last_v.max(Some(*v)),
+                HistLine::End { .. } => {}
+            }
+        }
+    }
+    let Some(v) = last_v else { return Ok(()) };
+    let base = format!("{receiver_mgr}/ledger/hist/");
+    let years: Vec<(RepoPath, String, YearFile)> = loaded
+        .facts
+        .ledgers
+        .iter()
+        .filter(|(p, _)| p.as_str().starts_with(&base))
+        .filter_map(|(p, t)| {
+            YearFile::parse(t)
+                .ok()
+                .map(|f| (p.clone(), t.to_string(), f))
+        })
+        .collect();
+    let latest = years.iter().max_by_key(|(_, _, f)| f.year);
+    let (path, old, mut file) = match latest {
+        Some((p, t, f)) if !f.is_final() => (p.clone(), Some(t.clone()), f.clone()),
+        other => {
+            let year = other.map_or(last_year, |(_, _, f)| f.year.max(last_year) + 1);
+            let prev = other.map(|(_, _, f)| f.last_digest());
+            let p = RepoPath::new(&format!("{base}{year}.hl"))
+                .map_err(|e| Error::Internal(format!("{e:?}")))?;
+            let edition = loaded.root.edition.0;
+            (
+                p,
+                None,
+                YearFile::new(receiver.0.as_str(), year, prev, edition),
+            )
+        }
+    };
+    let mut groups = file.groups();
+    let recs: Vec<(String, String)> = carried
+        .into_iter()
+        .map(|t| {
+            let d = crate::hist::record_digest(&t);
+            (t, d)
+        })
+        .collect();
+    match groups.last_mut() {
+        Some((_, last)) => last.extend(recs),
+        None => groups.push((v, recs)),
+    }
+    file.rebuild(groups);
+    set.add(PlannedWrite {
+        path: path.clone(),
+        kind: if old.is_some() {
+            WriteKind::Replace
+        } else {
+            WriteKind::Create
+        },
+        bytes: file.render().into_bytes(),
+        class: crate::classify::FileClass::Ledger,
+        expect_prior: old.map(|t| crate::hash::hash_normalised(t.as_bytes())),
+    })?;
+    lines.push(PlanLine {
+        action: PlanAction::Edit,
+        path,
+        detail: format!("ledger lines of {o} carried with scope={o} (R-RET-070)"),
+        diff: None,
+    });
+    Ok(())
 }
 
 /// Renames a frontmatter `def kind.name` to `def kind.name-<suffix>` (R-PORT-011).
@@ -1942,23 +2066,14 @@ pub fn plan_merge(
             "move them into the destination's control file first; merge moves docs and files",
         ));
     }
-    let (docs, _) = crate::docs::collect_change_docs(&loaded.corpus);
-    if loaded
+    // R-RET-070 (0.3): sealed history merges: the ledger lines join DST's open year with
+    // `scope=<origin>` and origin-prefixed ordinals; sealed docs keep their `scope` key, so their
+    // ordinals never collide with DST's.
+    let carry = loaded
         .walk
         .files
         .iter()
-        .any(|e| e.path.as_str().starts_with(&format!("{src_mgr}/ledger/")))
-        || docs.iter().any(|x| {
-            x.status == crate::docs::Status::Sealed
-                && x.path.as_str().starts_with(&format!("{src_mgr}/"))
-        })
-    {
-        return Err(refusal(
-            crate::error::RefusalKind::PlanNotConfirmed,
-            format!("{s} has sealed history"),
-            "merging sealed ledgers and renumbering ordinals is not built yet; merge before the first seal",
-        ));
-    }
+        .any(|e| e.path.as_str().starts_with(&format!("{src_mgr}/ledger/")));
     // R-PORT-011: live collisions are renamed; a reserved ID against a live one is an error.
     let mut renames: Vec<String> = Vec::new();
     let mut obligations = Vec::new();
@@ -2078,7 +2193,7 @@ pub fn plan_merge(
         let rest_mgr = p.as_str().strip_prefix(&format!("{src_mgr}/"));
         let target = match rest_mgr {
             Some("control.toml") => None,
-            Some(r) if r.starts_with("gen/") => None,
+            Some(r) if r.starts_with("gen/") || r.starts_with("ledger/") => None,
             Some(r) => Some(format!("{dst_mgr}/{r}")),
             None => moved_path(p.as_str(), &s, &d),
         };
@@ -2121,6 +2236,11 @@ pub fn plan_merge(
             class,
             expect_prior: Some(crate::hash::hash_normalised(&old)),
         })?;
+    }
+    if carry && let (Some(o), Some(r)) = (s_scope, d_scope) {
+        carry_ledgers(
+            loaded, &o.id, &src_mgr, &dst_mgr, &r.id, &mut set, &mut lines,
+        )?;
     }
     if !tombs.is_empty() {
         let tp = RepoPath::new(&format!(
@@ -3496,6 +3616,121 @@ pub struct SealRequest {
     pub own_outputs: BTreeSet<RepoPath>,
     /// `--reseal`: the integration line's sealed docs, counted for ordinals only.
     pub also_docs: Vec<crate::docs::ChangeDoc>,
+}
+
+/// `seal --compact-only` (R-RET-024): compaction without a new version, judged at the latest
+/// seal's recorded date. Each due record's summary line joins the latest version's group of its
+/// scope's open year, whose checkpoints are rebuilt (R-RET-035); `Ok(None)` when nothing is due.
+pub fn plan_compact_only(loaded: &Loaded, registry: &Registry) -> Result<Option<Plan>, Error> {
+    use crate::write::{PlannedWrite, WriteKind, WriteSet, WriteSetKind};
+    if !crate::retention::enabled(registry) {
+        return Err(Error::Usage(
+            "--compact-only: compaction is off; declare [retain] in the root control file (R-RET-012)".into(),
+        ));
+    }
+    let versions = crate::docs::version_files(&loaded.corpus, &loaded.root.folder);
+    let stamps = crate::retention::stamps(&loaded.facts.version_texts);
+    let Some((_, now)) = stamps.iter().next_back().map(|(v, d)| (*v, *d)) else {
+        return Err(Error::Usage("--compact-only: nothing is sealed yet".into()));
+    };
+    let records = crate::retention::collect(registry, &loaded.corpus, &loaded.facts.approvals);
+    let head = crate::git::GitRepo::open(&loaded.root).and_then(|r| r.resolve("HEAD").ok());
+    let short = head.as_deref().map(|h| h.get(..12).unwrap_or(h).to_owned());
+    let read = |p: &RepoPath| -> Option<String> {
+        std::fs::read_to_string(loaded.root.dir.join(p.as_str()).as_std_path())
+            .ok()
+            .map(|t| t.replace("\r\n", "\n"))
+    };
+    let compact = crate::retention::plan(
+        registry,
+        &records,
+        &versions,
+        &stamps,
+        now,
+        short.as_deref(),
+        &read,
+    )
+    .map_err(|bad| {
+        Error::Refused(crate::error::Refusal {
+            kind: crate::error::RefusalKind::PlanNotConfirmed,
+            message: format!("SUMMARY-MISSING (HN-K001): {}", bad.join(" | ")),
+            hint: "fill `sum` (and `out`, `why`) on each listed record (R-RET-022)".into(),
+        })
+    })?;
+    if compact.is_empty() {
+        return Ok(None);
+    }
+    let mut set = WriteSet::new(WriteSetKind::Seal);
+    let mut lines = Vec::new();
+    let mut by_scope: std::collections::BTreeMap<ScopeId, Vec<&crate::retention::Compaction>> =
+        Default::default();
+    for c in &compact {
+        by_scope.entry(c.scope.clone()).or_default().push(c);
+        set.add(PlannedWrite {
+            path: c.path.clone(),
+            kind: WriteKind::Delete,
+            bytes: Vec::new(),
+            class: crate::classify::FileClass::Authored,
+            expect_prior: Some(crate::hash::hash_normalised(c.old.as_bytes())),
+        })?;
+        lines.push(crate::write::PlanLine {
+            action: crate::write::PlanAction::Edit,
+            path: c.path.clone(),
+            detail: "compacted: summary line in the ledger (R-RET-025)".into(),
+            diff: None,
+        });
+    }
+    for (scope, cs) in by_scope {
+        let dir = registry
+            .scope(&scope)
+            .map(|s| s.dir.as_str().to_owned())
+            .unwrap_or_default();
+        let base = crate::generate::join_dir(&dir, &format!("{}/ledger/hist", loaded.root.folder))
+            .ok_or_else(|| Error::Internal("bad ledger folder".into()))?;
+        let open = loaded
+            .facts
+            .ledgers
+            .iter()
+            .filter(|(p, _)| p.parent().as_ref() == Some(&base))
+            .filter_map(|(p, t)| {
+                crate::hist::YearFile::parse(t)
+                    .ok()
+                    .map(|f| (p.clone(), t.clone(), f))
+            })
+            .max_by_key(|(_, _, f)| f.year)
+            .filter(|(_, _, f)| !f.is_final())
+            .ok_or_else(|| {
+                Error::Usage(format!(
+                    "--compact-only: scope {} has no open ledger year; the next seal compacts it",
+                    scope.0.as_str()
+                ))
+            })?;
+        let (path, old, mut file) = open;
+        let mut groups = file.groups();
+        let Some((_, last)) = groups.last_mut() else {
+            return Err(Error::Usage(
+                "--compact-only: the open year has no sealed version".into(),
+            ));
+        };
+        for c in cs {
+            last.push((c.line.clone(), crate::hist::record_digest(&c.line)));
+        }
+        file.rebuild(groups);
+        set.add(PlannedWrite {
+            path: path.clone(),
+            kind: WriteKind::Replace,
+            bytes: file.render().into_bytes(),
+            class: crate::classify::FileClass::Ledger,
+            expect_prior: Some(crate::hash::hash_normalised(old.as_bytes())),
+        })?;
+        lines.push(crate::write::PlanLine {
+            action: crate::write::PlanAction::Edit,
+            path,
+            detail: "summary lines appended (R-RET-024)".into(),
+            diff: None,
+        });
+    }
+    Ok(Some(Plan::new(set, lines, Vec::new())))
 }
 
 /// R-LC-031: every graveyard entry without a fingerprint gets one from its rejected material,

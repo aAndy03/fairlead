@@ -1,2 +1,3 @@
 wrote fairlead/gen/alias
 wrote fairlead/gen/scope.lock
+wrote fairlead/ledger/hist/2026.hl

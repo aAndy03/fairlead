@@ -151,6 +151,7 @@ fn mv(global: &GlobalArgs, args: &MoveArgs) -> Result<CommandResult, Error> {
         &reg,
         &default_options(as_of(global)),
         &SyncRequest {
+            purge: None,
             baseline: BaselineMode::Off,
             accept_vendor: false,
             force: false,

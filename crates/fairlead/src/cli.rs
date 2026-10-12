@@ -230,6 +230,10 @@ pub struct SyncArgs {
     /// Write only that scope's generated files (R-SCOPE-063).
     #[arg(long, value_name = "ID")]
     pub scope: Option<String>,
+    /// Reduce a record's ledger lines to `id + date + digest`, for an erasure request; git
+    /// history is untouched (R-RET-043).
+    #[arg(long, value_name = "ID")]
+    pub purge: Option<String>,
 }
 
 #[derive(Args, Debug, Clone)]
@@ -346,6 +350,10 @@ pub struct SealArgs {
     /// Renumber your own unintegrated seal after the integration line (R-GIT-031).
     #[arg(long)]
     pub reseal: bool,
+    /// Re-run compaction without a new version, at the latest seal's recorded date; a no-op
+    /// when nothing is due (R-RET-024).
+    #[arg(long = "compact-only", conflicts_with_all = ["reseal", "abort"])]
+    pub compact_only: bool,
 }
 
 #[derive(Args, Debug, Clone, Default)]

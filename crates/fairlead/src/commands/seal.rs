@@ -32,6 +32,32 @@ fn seal(global: &GlobalArgs, args: &SealArgs) -> Result<CommandResult, Error> {
     let loaded = load(&load_request(global, false, None)?)?;
     let registry = resolve_loaded(&loaded, as_of(global));
     let options = default_options(as_of(global));
+    if args.compact_only {
+        let Some(plan) = fairlead_core::pipeline::plan_compact_only(&loaded, &registry)? else {
+            return Ok(CommandResult::text(
+                "compact-only: nothing is due\n".to_owned(),
+            ));
+        };
+        if !args.yes || args.dry_run {
+            let mut r = CommandResult::text(format!(
+                "{}{}",
+                plan.render_text("compaction plan"),
+                if args.dry_run {
+                    ""
+                } else {
+                    "not applied; re-run with --yes\n"
+                }
+            ));
+            if !args.dry_run {
+                r.outcome.signal(fairlead_core::outcome::ExitCode::Refused);
+            }
+            return Ok(r);
+        }
+        let outcome = fairlead_core::pipeline::commit_plan(&session, plan)?;
+        return Ok(CommandResult::text(crate::commands::sync::changed_list(
+            &outcome.report,
+        )));
+    }
     let mut request = SealRequest {
         allow_dirty: args.allow_dirty,
         seal_anywhere: args.anywhere,

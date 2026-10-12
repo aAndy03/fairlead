@@ -116,6 +116,7 @@ fn r_chk_040__an_empty_root_is_stale_until_synced_then_checks_clean_with_exit_0(
     let loaded = load(&request(&root)).unwrap();
     let registry = resolve_loaded(&loaded, as_of);
     let sync = SyncRequest {
+        purge: None,
         baseline: BaselineMode::Off,
         accept_vendor: false,
         force: false,

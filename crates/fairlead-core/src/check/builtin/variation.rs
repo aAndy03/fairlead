@@ -29,6 +29,18 @@ const CODES: [DiagCode; 12] = [
     HN_L002, HN_X011,
 ];
 
+/// R-RET-050: the ledger summary line of a compacted record a doc reference names.
+fn compacted_ref(cx: &CheckCx<'_>, raw: &str) -> Option<String> {
+    let (scope, id) = match raw.split_once(':') {
+        Some((s, d)) => (Some(s), d),
+        None => (None, raw),
+    };
+    crate::retention::compacted(&cx.facts.ledgers)
+        .remove(id)
+        .filter(|c| scope.is_none_or(|s| s == c.scope))
+        .map(|c| c.line)
+}
+
 /// R-PORT-024: whether a doc reference names this request.
 fn req_named(reg: &Registry, r: &var::Request, raw: &str) -> bool {
     r.id.as_ref()
@@ -345,6 +357,9 @@ fn wrappers_and_adapters(
                 match docs.iter().find(|d| {
                     crate::docs::doc_ref_is(r, &d.id, var::scope_of(reg, &d.path).0.as_str())
                 }) {
+                    // R-RET-050: a compacted rejection resolves to its ledger summary line
+                    None if compacted_ref(cx, r)
+                        .is_some_and(|line| line.contains("out=rejected")) => {}
                     None => out.push(dangling(
                         &p,
                         l,
@@ -541,7 +556,7 @@ fn answers_of(
             crate::docs::Status::Ready | crate::docs::Status::Sealed
         );
         for x in &a.answers {
-            if !requests.iter().any(|r| req_named(reg, r, x)) {
+            if !requests.iter().any(|r| req_named(reg, r, x)) && compacted_ref(cx, x).is_none() {
                 out.push(dangling(
                     p,
                     1,
@@ -661,6 +676,23 @@ fn awaiting_of(
             continue;
         };
         let Some(req) = requests.iter().find(|r| req_named(reg, r, to)) else {
+            // R-RET-050, R-VAR-062: a compacted request is closed
+            if compacted_ref(cx, to).is_some() {
+                out.push(
+                    DiagB::new(
+                        HN_X001,
+                        p,
+                        l,
+                        c,
+                        format!("flag awaiting names {to}, which is closed and compacted"),
+                    )
+                    .hint("migrate to the answered variant and drop the flag (R-VAR-062)")
+                    .severity(Severity::Error)
+                    .text(to.clone())
+                    .build(),
+                );
+                continue;
+            }
             out.push(dangling(
                 p,
                 l,

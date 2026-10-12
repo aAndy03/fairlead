@@ -23,6 +23,8 @@ pub struct SyncRequest {
     pub accept_vendor: bool,
     pub force: bool,
     pub scope: Option<ScopeId>,
+    /// `--purge <id>` (R-RET-043, 0.3): reduce a record's ledger lines to `id + date + digest`.
+    pub purge: Option<String>,
 }
 
 fn cone(reg: &Registry, s: &ScopeId) -> Result<BTreeSet<ScopeId>, Error> {
@@ -264,6 +266,9 @@ pub fn sync_plan_from(
             });
         }
     }
+    if req.scope.is_none() && apply_regular {
+        ledger_upkeep(req, reg, facts, &folder, &mut set, &mut lines, &mut notes)?;
+    }
     if req.scope.is_none() {
         let (reg_dir, members) = (
             format!("{folder}/gen/reg/"),
@@ -357,6 +362,153 @@ pub(crate) fn vendor_notes(facts: &Facts, accept: bool) -> Vec<String> {
         .collect()
 }
 
+/// 0.3 ledger upkeep (33-retention): `--purge` (R-RET-043, the only rewrite of a final year,
+/// never re-chained, R-RET-033), the open years re-sorted and re-checkpointed after a union merge
+/// (R-RET-035), and a tombstone `deleted-by = "user"` for a sealed record whose file is gone and
+/// that no seal compacted (R-RET-043; a draft never sealed has no ledger line, R-RET-044).
+fn ledger_upkeep(
+    req: &SyncRequest,
+    reg: &Registry,
+    facts: &Facts,
+    folder: &str,
+    set: &mut WriteSet,
+    lines: &mut Vec<PlanLine>,
+    notes: &mut Vec<String>,
+) -> Result<(), Error> {
+    use crate::hist::{HistLine, YearFile};
+    let date = reg.as_of().0;
+    let mut purged_any = false;
+    for (path, text) in &facts.ledgers {
+        let Ok(mut f) = YearFile::parse(text) else {
+            continue;
+        };
+        let mut why = Vec::new();
+        if let Some(id) = &req.purge
+            && f.purge(id, &date.to_string())
+        {
+            purged_any = true;
+            why.push(format!("purged {id} (R-RET-043)"));
+        }
+        if let Some(r) = f.rechained() {
+            f = r;
+            why.push("open year re-sorted and re-checkpointed (R-RET-035)".to_owned());
+        }
+        if why.is_empty() {
+            continue;
+        }
+        set.add(PlannedWrite {
+            path: path.clone(),
+            kind: WriteKind::Replace,
+            bytes: f.render().into_bytes(),
+            class: FileClass::Ledger,
+            expect_prior: Some(hash_normalised(text.as_bytes())),
+        })?;
+        lines.push(PlanLine {
+            action: PlanAction::Edit,
+            path: path.clone(),
+            detail: why.join("; "),
+            diff: None,
+        });
+    }
+    if let Some(id) = &req.purge
+        && !purged_any
+    {
+        return Err(Error::Usage(format!(
+            "--purge {id}: no ledger record of {id}"
+        )));
+    }
+    // user deletion: a sealed record's ledger line whose file is gone and that is not compacted
+    let compacted = crate::retention::compacted(&facts.ledgers);
+    let tombed = |id: &str| {
+        facts
+            .tombstones
+            .values()
+            .any(|t| t.contains(&format!("id = \"{id}\"")))
+    };
+    let mut files: std::collections::BTreeMap<crate::path::RepoPath, String> = Default::default();
+    for (path, text) in &facts.ledgers {
+        let Ok(f) = YearFile::parse(text) else {
+            continue;
+        };
+        let Some(scope) = reg.scopes().find(|s| s.id.0.as_str() == f.scope) else {
+            continue;
+        };
+        let docs_dir =
+            crate::generate::join_dir(scope.dir.as_str(), &format!("{folder}/docs/changes"))
+                .map(|p| format!("{}/", p.as_str()))
+                .unwrap_or_default();
+        for l in &f.lines {
+            let HistLine::Record { text, d } = l else {
+                continue;
+            };
+            let Ok(t) = crate::render::line::TerseLine::parse(text) else {
+                continue;
+            };
+            let (Some(kind), Some(ord)) = (t.get("kind"), t.get("ord")) else {
+                continue;
+            };
+            if !t.id.starts_with("d-")
+                || t.get("sum").is_some()
+                || !crate::docs::CHANGE_KINDS.contains(&kind)
+                || compacted.contains_key(&t.id)
+                || tombed(&t.id)
+            {
+                continue;
+            }
+            let present = facts.doc_body_hashes.keys().any(|p| {
+                p.as_str()
+                    .strip_prefix(&docs_dir)
+                    .is_some_and(|r| r.starts_with(&format!("{ord}-")))
+            });
+            if present {
+                continue;
+            }
+            let Some(file) = crate::lifecycle::tomb_file(reg, &scope.id, folder, date.year())
+            else {
+                continue;
+            };
+            let tomb = crate::lifecycle::Tomb {
+                file: file.clone(),
+                scope: Some(scope.id.clone()),
+                id: t.id.clone(),
+                removed: date.to_string(),
+                by: None,
+                why: format!("deleted by the user; ledger digest {d}"),
+                paths: Vec::new(),
+                deleted_by: Some("user".into()),
+                moved_to: None,
+            };
+            files
+                .entry(file)
+                .or_default()
+                .push_str(&crate::lifecycle::tomb_text(&tomb, Some(&date.to_string())));
+            notes.push(format!(
+                "tombstoned {}: its sealed record was deleted (R-RET-043)",
+                t.id
+            ));
+            let _ = path;
+        }
+    }
+    for (path, text) in files {
+        set.add(PlannedWrite {
+            path: path.clone(),
+            kind: WriteKind::AppendBlock {
+                marker: String::new(),
+            },
+            bytes: text.clone().into_bytes(),
+            class: FileClass::Authored,
+            expect_prior: None,
+        })?;
+        lines.push(PlanLine {
+            action: PlanAction::Edit,
+            path,
+            detail: "tombstones for deleted records (R-RET-043)".into(),
+            diff: Some(plain_diff("", &text, 20)),
+        });
+    }
+    Ok(())
+}
+
 pub fn sync_plan(
     req: &SyncRequest,
     input: &CheckInput<'_>,
@@ -435,6 +587,7 @@ mod tests {
     }
     fn req() -> SyncRequest {
         SyncRequest {
+            purge: None,
             baseline: BaselineMode::Off,
             accept_vendor: false,
             force: false,

@@ -119,6 +119,10 @@ fn allowed(kind: WriteSetKind, w: &PlannedWrite, folder: &str) -> bool {
                 w.class == FileClass::Generated
             }
             (Some(_), ["tombstones", _]) => w.class == FileClass::Authored, // plan_demote (C-9), R-CLI-046
+            // 0.3: the open year re-checkpointed (R-RET-035) and `--purge` (R-RET-043)
+            (Some(_), ["ledger", "hist", _]) => {
+                w.class == FileClass::Ledger && w.kind == WriteKind::Replace
+            }
             (None, _) => {
                 segs.len() == 3
                     && segs.starts_with(&[".fairlead", "quarantine"])

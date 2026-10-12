@@ -220,3 +220,179 @@ fn copy(from: &std::path::Path, to: &std::path::Path) {
         }
     }
 }
+
+#[test]
+fn r_ret_043__purge_reduces_a_record_and_keeps_the_chain() {
+    let repo = repo(RETAIN);
+    assert_eq!(
+        cycle(&repo, "First", Some("first change"), "2026-01-10").code,
+        0
+    );
+    assert_eq!(cycle(&repo, "Second", Some("s"), "2026-02-10").code, 0);
+    assert_eq!(cycle(&repo, "Third", Some("t"), "2026-03-10").code, 0);
+    let l = ledger(&repo, "2026");
+    let id = l
+        .lines()
+        .find(|x| x.contains("sum=\"first change\""))
+        .and_then(|x| x.split_whitespace().next())
+        .unwrap()
+        .to_owned();
+    let run = repo.run(&["sync", "--yes", "--purge", &id, "--as-of", "2026-04-01"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let l = ledger(&repo, "2026");
+    assert!(!l.contains("first change"), "{l}");
+    assert!(l.contains(&format!("{id} purged=2026-04-01 d=")), "{l}");
+    let check = repo.run(&["check", "--as-of", "2026-04-01", "--format", "terse"]);
+    assert!(!check.stdout.contains("HN-G003"), "{}", check.stdout);
+    let none = repo.run(&[
+        "sync",
+        "--yes",
+        "--purge",
+        "d-zzzzzzzz",
+        "--as-of",
+        "2026-04-01",
+    ]);
+    assert_eq!(none.code, 2, "{}", none.stderr);
+}
+
+#[test]
+fn r_ret_043__a_deleted_sealed_record_is_tombstoned_by_the_user() {
+    let repo = repo("");
+    assert_eq!(cycle(&repo, "First", Some("first"), "2026-01-10").code, 0);
+    let sealed = doc_files(&repo)
+        .into_iter()
+        .find(|f| f.starts_with("0001-"))
+        .unwrap();
+    std::fs::remove_file(repo.path().join("fairlead/docs/changes").join(&sealed)).unwrap();
+    let run = repo.run(&["sync", "--yes", "--as-of", "2026-01-20"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let tombs = std::fs::read_to_string(repo.path().join("fairlead/tombstones/2026.toml"))
+        .unwrap_or_default();
+    assert!(tombs.contains("deleted-by = \"user\""), "{tombs}");
+}
+
+#[test]
+fn r_ret_044__a_draft_deleted_before_sealing_leaves_no_tombstone() {
+    let repo = repo("");
+    let new = repo.run(&["new", "change", "Gone", "--as-of", "2026-01-05"]);
+    assert_eq!(new.code, 0, "{}", new.stderr);
+    for f in doc_files(&repo) {
+        std::fs::remove_file(repo.path().join("fairlead/docs/changes").join(f)).unwrap();
+    }
+    assert_eq!(
+        repo.run(&["sync", "--yes", "--as-of", "2026-01-06"]).code,
+        0
+    );
+    assert!(!repo.path().join("fairlead/tombstones/2026.toml").exists());
+}
+
+#[test]
+fn r_ret_024__dry_run_prints_the_plan_and_compact_only_catches_up() {
+    let repo = repo("");
+    for (t, d) in [
+        ("First", "2026-01-10"),
+        ("Second", "2026-02-10"),
+        ("Third", "2026-03-10"),
+    ] {
+        assert_eq!(cycle(&repo, t, Some("s"), d).code, 0);
+    }
+    assert!(
+        doc_files(&repo).iter().any(|f| f.ends_with("-first.md")),
+        "retention was off"
+    );
+    let ctl = repo.path().join("fairlead/control.toml");
+    let text = std::fs::read_to_string(&ctl).unwrap();
+    std::fs::write(&ctl, format!("{text}{RETAIN}")).unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("retain");
+    let plan = repo.run(&[
+        "seal",
+        "--compact-only",
+        "--dry-run",
+        "--as-of",
+        "2026-03-20",
+    ]);
+    assert_eq!(plan.code, 0, "{}{}", plan.stdout, plan.stderr);
+    assert!(
+        plan.stdout.contains("compacted: summary line"),
+        "{}",
+        plan.stdout
+    );
+    let run = repo.run(&["seal", "--compact-only", "--yes", "--as-of", "2026-03-20"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    assert!(
+        !doc_files(&repo).iter().any(|f| f.ends_with("-first.md")),
+        "{:?}",
+        doc_files(&repo)
+    );
+    let check = repo.run(&["check", "--as-of", "2026-03-20", "--format", "terse"]);
+    assert!(!check.stdout.contains("HN-G003"), "{}", check.stdout);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("compacted");
+    let again = repo.run(&["seal", "--compact-only", "--yes", "--as-of", "2026-03-20"]);
+    assert_eq!(again.code, 0);
+    assert!(again.stdout.contains("nothing is due"), "{}", again.stdout);
+}
+
+fn scoped() -> TempRepo {
+    let repo = RepoBuilder::new()
+        .file("src/a.rs", "fn a() {}\n")
+        .file("web/fairlead/control.toml", "[fairlead]\nscope = \"web\"\n")
+        .file("web/src/b.rs", "fn b() {}\n")
+        .git_init(true)
+        .build();
+    assert_eq!(
+        repo.run(&["init", "--yes", "--as-of", "2026-01-05"]).code,
+        0
+    );
+    repo.git(&["add", "-A"]);
+    repo.git_commit("init");
+    let new = repo.run(&[
+        "new",
+        "change",
+        "Web work",
+        "--scope",
+        "web",
+        "--field",
+        "impact=fix",
+        "--field",
+        "covers=src/**",
+        "--as-of",
+        "2026-01-10",
+    ]);
+    assert_eq!(new.code, 0, "{}", new.stderr);
+    let dir = repo.path().join("web/fairlead/docs/changes");
+    let doc = std::fs::read_dir(&dir)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let text = std::fs::read_to_string(&doc)
+        .unwrap()
+        .replace("status = \"draft\"", "status = \"ready\"");
+    std::fs::write(&doc, text).unwrap();
+    repo.git(&["add", "-A"]);
+    repo.git_commit("ready");
+    let seal = repo.run(&["seal", "--yes", "--anywhere", "--as-of", "2026-01-10"]);
+    assert_eq!(seal.code, 0, "{}{}", seal.stdout, seal.stderr);
+    repo.git(&["add", "-A"]);
+    repo.git_commit("sealed");
+    repo
+}
+
+#[test]
+fn r_ret_070__demote_carries_the_ledger_lines_with_their_origin() {
+    let repo = scoped();
+    assert!(
+        repo.path()
+            .join("web/fairlead/ledger/hist/2026.hl")
+            .exists()
+    );
+    let run = repo.run(&["move", "web", "--demote", "--yes", "--as-of", "2026-01-20"]);
+    assert_eq!(run.code, 0, "{}{}", run.stdout, run.stderr);
+    let l = ledger(&repo, "2026");
+    assert!(l.contains("scope=web") && l.contains("ord=web:0001"), "{l}");
+    let check = repo.run(&["check", "--as-of", "2026-01-20", "--format", "terse"]);
+    assert!(!check.stdout.contains("HN-G003"), "{}", check.stdout);
+}
