@@ -1,0 +1,12 @@
+[package]
+name = "ledger-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "ledger"
+path = "src/main.rs"
+
+[dependencies]
+ledger-core = { path = "../core" }
+ledger-service = { path = "../service" }

@@ -1,0 +1,30 @@
+# Independent scorer rules for Relay (evals/ab/PROTOCOL.md, M3 and M4). Read by
+# `cargo xtask ab-score`, which never calls fairlead. Never copied into a session.
+
+tests = "node --test \"frontend/tests/**/*.test.ts\" && cargo test --offline -q --manifest-path backend/Cargo.toml"
+
+[[forbid]]
+id = "invoke-outside-api"
+category = "boundaries"
+glob = ["frontend/src/**/*.ts"]
+exclude = ["frontend/src/api.ts"]
+regex = '\binvoke\('
+
+[[forbid]]
+id = "repeated-limit"
+category = "constants"
+glob = ["frontend/src/**/*.ts", "backend/src/**/*.rs"]
+exclude = ["frontend/src/limits.ts", "backend/src/limits.rs"]
+regex = '\b(?:80|2000)\b'
+
+# The commands each side knows and the contract lists are the same set.
+[[contract]]
+id = "commands"
+category = "contracts"
+files = ["frontend/src/api.ts", "backend/src/commands.rs", "contract/commands.md"]
+capture = '(?m)(?:^\| `|")([a-z]+\.[a-z][a-z-]*)(?:`|")'
+
+[owned]
+frontend = ["frontend/"]
+backend = ["backend/"]
+shared = ["contract/", "package.json", "README.md", "AGENTS.md", "CLAUDE.md", ".gitattributes", "CODEOWNERS", "fairlead/", "docs/requests/"]

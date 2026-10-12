@@ -1,0 +1,5 @@
+[fairlead]
+scope = "store"
+
+[settings]
+purpose = "The customer-facing shop: product pages, the cart and discounts."

@@ -528,11 +528,46 @@ pub fn init_plan(
     let found = ["CODEOWNERS", ".github/CODEOWNERS", "docs/CODEOWNERS"]
         .into_iter()
         .find(|c| repo_path(c).is_ok_and(|p| det.files.contains_key(&p)));
+    // A pattern the file already assigns keeps its owners: CODEOWNERS applies the last matching
+    // line, so appending `/<folder>/ <first owner>` after a team's own line would override it
+    // (found by the A/B/C evaluation, 2026-10-12).
+    let assigned = |path: &str, line: &String| {
+        let pattern = line.split_whitespace().next().unwrap_or("");
+        repo_path(path)
+            .ok()
+            .and_then(|p| det.files.get(&p))
+            .is_some_and(|bytes| {
+                String::from_utf8_lossy(bytes)
+                    .lines()
+                    .any(|l| l.split_whitespace().next() == Some(pattern))
+            })
+    };
+    // The owners the team gave the root folder, if any: the nested pattern reuses them, since it
+    // also matches the root folder and, coming last, would otherwise narrow its owners.
+    let team_owners = |path: &str| -> Option<String> {
+        let bytes = det.files.get(&repo_path(path).ok()?)?;
+        String::from_utf8_lossy(bytes).lines().find_map(|l| {
+            let mut words = l.split_whitespace();
+            (words.next() == Some(format!("/{folder}/").as_str()))
+                .then(|| words.collect::<Vec<_>>().join(" "))
+                .filter(|o| !o.is_empty())
+        })
+    };
+    let co_for = |path: &str| -> Vec<String> {
+        let owners = team_owners(path).unwrap_or_else(|| owner.clone());
+        [
+            format!("/{folder}/ {owners}"),
+            format!("**/{folder}/ {owners}"),
+        ]
+        .into_iter()
+        .filter(|l| !assigned(path, l))
+        .collect()
+    };
     match (found, req.codeowners) {
         (Some(path), _) => ensure_lines(
             det,
             path,
-            &co,
+            &co_for(path),
             "managerial folder owner",
             &mut set,
             &mut lines,
@@ -1241,6 +1276,21 @@ Do not edit fairlead/control.toml or fairlead/approvals.toml; ask a human.\n\
             made.set.writes[&rp(".github/CODEOWNERS")]
                 .bytes
                 .starts_with(b"/fairlead/ TODO(fairlead)")
+        );
+    }
+
+    #[test]
+    fn r_cli_015__a_folder_line_the_team_wrote_is_never_overridden() {
+        // CODEOWNERS applies the last matching line: appending `/fairlead/ @a` after the team's
+        // `/fairlead/ @a @b` would drop @b (then HN-A004 reported it).
+        let mut d = with_file(det(), "CODEOWNERS", "/src/ @a\n/fairlead/ @a @b\n");
+        d.owner_hint = Some("@a".into());
+        let p = init_plan(&req(), &d, &scan(vec![])).unwrap();
+        // The write appends only the nested pattern the file lacks.
+        assert_eq!(
+            p.set.writes[&rp("CODEOWNERS")].bytes,
+            b"**/fairlead/ @a @b\n",
+            "the team's owners are kept on both patterns"
         );
     }
 

@@ -1,0 +1,53 @@
+# Independent scorer rules for Shelf (evals/ab/PROTOCOL.md, M3 and M4). Read by
+# `cargo xtask ab-score`, which never calls fairlead. Never copied into a session.
+#
+# forbid:  a regex counted in files matching `glob` (minus `exclude`); the score is the count after
+#          the session minus the count before it (new violations), and minus the pristine count
+#          (accumulated drift).
+# owned:   folders a team owns; a session's changed files outside its team's folders and `shared`
+#          are ownership violations.
+# contract: the sets of names captured by `capture` (group 1) in each file must be equal.
+
+tests = "node --test \"tests/**/*.test.ts\""
+
+[[forbid]]
+id = "raw-colour"
+category = "tokens"
+glob = ["store/**/*.ts", "admin/**/*.ts", "store/**/*.css", "admin/**/*.css"]
+regex = '#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\b'
+
+[[forbid]]
+id = "raw-length"
+category = "tokens"
+glob = ["store/**/*.ts", "admin/**/*.ts", "store/**/*.css", "admin/**/*.css"]
+regex = '\b\d+(?:\.\d+)?(?:px|rem)\b'
+
+[[forbid]]
+id = "money-format"
+category = "money"
+glob = ["store/**/*.ts", "admin/**/*.ts"]
+regex = 'toFixed\(|Intl\.NumberFormat'
+
+[[forbid]]
+id = "apps-import-each-other"
+category = "boundaries"
+glob = ["store/**/*.ts"]
+regex = '''from\s+['"][./]*admin/'''
+
+[[forbid]]
+id = "apps-import-each-other-2"
+category = "boundaries"
+glob = ["admin/**/*.ts"]
+regex = '''from\s+['"][./]*store/'''
+
+[[forbid]]
+id = "hand-rolled-kit-element"
+category = "copies"
+glob = ["store/**/*.ts", "admin/**/*.ts"]
+regex = '<button\b|class="badge|class="card'
+
+[owned]
+kit = ["kit/", "fairlead/contract/", "fairlead/control.toml"]
+store = ["store/"]
+admin = ["admin/"]
+shared = ["tests/", "package.json", "README.md", "AGENTS.md", "CLAUDE.md", ".gitattributes", "CODEOWNERS", "fairlead/gen/", "docs/"]

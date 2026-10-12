@@ -1,0 +1,4 @@
+/frontend/ @frontend
+/backend/ @backend
+/contract/ @frontend @backend
+/fairlead/ @frontend @backend

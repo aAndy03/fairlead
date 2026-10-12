@@ -1,0 +1,47 @@
+# Independent scorer rules for Ledger (evals/ab/PROTOCOL.md, M3 and M4). Read by
+# `cargo xtask ab-score`, which never calls fairlead. Never copied into a session.
+
+tests = "cargo test --offline -q"
+
+[[forbid]]
+id = "float-money"
+category = "money"
+glob = ["crates/**/*.rs"]
+regex = '\bf(?:32|64)\b'
+
+[[forbid]]
+id = "repeated-limit"
+category = "constants"
+glob = ["crates/engine/**/*.rs", "crates/service/**/*.rs", "crates/cli/**/*.rs"]
+regex = '"(?:EUR|USD|GBP)"|\b100_?000_?000\b|\b140\b'
+
+[[forbid]]
+id = "cli-uses-engine"
+category = "boundaries"
+glob = ["crates/cli/**"]
+regex = 'ledger[_-]engine'
+
+[[forbid]]
+id = "upward-dependency"
+category = "boundaries"
+glob = ["crates/core/**", "crates/engine/**"]
+regex = 'ledger[_-](?:service|cli)\b'
+
+[[forbid]]
+id = "core-depends-on-engine"
+category = "boundaries"
+glob = ["crates/core/**"]
+regex = 'ledger[_-]engine'
+
+# Every error code in the code is documented, and every documented code exists.
+[[contract]]
+id = "error-codes"
+category = "contracts"
+files = ["crates/core/src/error.rs", "docs/errors.md"]
+capture = '\b(E\d{3})\b'
+
+[owned]
+platform = ["crates/core/", "crates/engine/", "docs/errors.md", "fairlead/contract/", "fairlead/control.toml"]
+accounts = ["crates/service/"]
+tools = ["crates/cli/"]
+shared = ["Cargo.toml", "Cargo.lock", "README.md", "AGENTS.md", "CLAUDE.md", ".gitattributes", "CODEOWNERS", "fairlead/gen/", "docs/requests/", "fairlead/docs/"]

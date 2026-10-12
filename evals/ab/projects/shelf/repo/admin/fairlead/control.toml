@@ -1,0 +1,5 @@
+[fairlead]
+scope = "admin"
+
+[settings]
+purpose = "The back office: the orders table and refunds."

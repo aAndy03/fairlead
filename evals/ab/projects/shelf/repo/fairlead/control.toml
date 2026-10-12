@@ -1,0 +1,71 @@
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder           = "fairlead"
+fairlead-version = "0.3.0"
+purpose          = "Shelf: the shared UI kit (kit/, owned by @kit) and the shop's apps."
+owners           = ["@kit"]
+
+[kinds.tok]
+title = "design token"
+shape = "doc"
+
+[kinds.cmp]
+title = "component"
+shape = "code"
+
+[kinds.ctr]
+title = "container"
+shape = "code"
+role  = "container"
+
+[layers.ui]
+atom     = 10
+molecule = 20
+page     = 40
+
+[hier]
+level = 2
+
+[variation]
+fork-detect = "warn"
+
+[policies]
+"rules.*" = "sealed"
+
+[policies.waiver]
+budget   = 10
+approval = "required"
+
+[rules.no-raw-style]
+check    = "leak"
+tokens   = ["tok.*"]
+sev      = "error"
+stage    = "enforce"
+glob     = ["store/**", "admin/**"]
+waivable = true
+why      = "colours and spacing come from the kit's tokens, so a theme changes in one place"
+
+[rules.money-through-kit]
+check    = "pattern"
+forbid   = 'toFixed\(|Intl\.NumberFormat'
+msg      = "format money with formatPrice from the kit; prices are integer cents"
+glob     = ["store/**", "admin/**"]
+sev      = "error"
+stage    = "enforce"
+waivable = true
+why      = "one money format for the whole shop"
+
+[rules.apps-stay-apart]
+check    = "pattern"
+forbid   = '''from ['"][./]*(store|admin)/'''
+msg      = "the store and the admin app never import each other; share code through the kit"
+glob     = ["store/**", "admin/**"]
+sev      = "error"
+stage    = "enforce"
+waivable = false
+why      = "each app ships on its own"

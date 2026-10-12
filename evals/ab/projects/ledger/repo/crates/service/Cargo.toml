@@ -1,0 +1,8 @@
+[package]
+name = "ledger-service"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ledger-core = { path = "../core" }
+ledger-engine = { path = "../engine" }

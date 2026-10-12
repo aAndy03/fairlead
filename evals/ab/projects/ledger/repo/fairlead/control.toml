@@ -1,0 +1,70 @@
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder           = "fairlead"
+fairlead-version = "0.3.0"
+purpose          = "Ledger: double-entry bookkeeping in layers (core, engine, service, cli); money is integer cents."
+owners           = ["@platform"]
+
+[kinds.un]
+title = "unit"
+shape = "code"
+
+[kinds.ctr]
+title = "container"
+shape = "code"
+role  = "container"
+
+[kinds.err]
+title = "error code"
+shape = "doc"
+
+[layers.core]
+core    = 10
+engine  = 20
+service = 30
+shell   = 60
+
+[hier]
+level = 2
+
+[policies]
+"rules.*" = "sealed"
+
+[policies.waiver]
+budget   = 10
+approval = "required"
+
+[rules.money-is-cents]
+check    = "pattern"
+forbid   = '\bf(32|64)\b'
+msg      = "money is integer cents (i64); never a float"
+glob     = ["crates/**"]
+sev      = "error"
+stage    = "enforce"
+waivable = false
+why      = "floats lose cents"
+
+[rules.limits-live-in-core]
+check    = "pattern"
+forbid   = '"(EUR|USD|GBP)"|\b100_?000_?000\b|\b140\b'
+msg      = "limits, defaults and currency codes come from ledger_core::limits or Currency"
+glob     = ["crates/engine/**", "crates/service/**", "crates/cli/**"]
+sev      = "error"
+stage    = "enforce"
+waivable = true
+why      = "one place to change a limit"
+
+[rules.cli-through-service]
+check    = "pattern"
+forbid   = 'ledger[_-]engine'
+msg      = "the cli talks to the service, never to the engine directly"
+glob     = ["crates/cli/**"]
+sev      = "error"
+stage    = "enforce"
+waivable = false
+why      = "the service owns the rules the engine does not know (funds, currencies)"

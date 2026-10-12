@@ -1,0 +1,65 @@
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder           = "fairlead"
+fairlead-version = "0.3.0"
+purpose          = "Relay: a TypeScript front end and a Rust back end joined by the commands of contract/commands.md."
+owners           = ["@frontend", "@backend"]
+
+[kinds.un]
+title = "unit"
+shape = "code"
+
+[kinds.ctr]
+title = "container"
+shape = "code"
+role  = "container"
+
+[kinds.brg]
+title = "bridge"
+shape = "doc"
+
+[layers.app]
+command = 20
+view    = 30
+
+[[flow]]
+from = "app.view"
+to   = ["app.command"]
+via  = "bridge"
+
+[hier]
+level = 2
+
+[policies]
+"rules.*" = "sealed"
+
+[policies.waiver]
+budget   = 10
+approval = "required"
+
+[rules.one-door-to-the-backend]
+check    = "pattern"
+forbid   = '\binvoke\('
+msg      = "only frontend/src/api.ts talks to the back end; call the api functions"
+glob     = ["frontend/src/**"]
+exclude  = ["frontend/src/api.ts"]
+sev      = "error"
+stage    = "enforce"
+waivable = false
+why      = "one place maps the contract"
+
+[rules.limits-defined-once]
+check    = "pattern"
+forbid   = '\b(80|2000)\b'
+msg      = "use MAX_TITLE_LEN or MAX_BODY_LEN from the limits module"
+glob     = ["frontend/src/**", "backend/src/**"]
+exclude  = ["frontend/src/limits.ts", "backend/src/limits.rs"]
+sev      = "error"
+stage    = "enforce"
+waivable = true
+why      = "a limit changes in one place per side, and in the contract"
