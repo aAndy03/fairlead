@@ -1,0 +1,49 @@
+# Written by an agent session that saw only SPEC.md (evals/ab/PROTOCOL.md).
+# model=opencode-go/muse-spark-1.3-contributor opencode=opencode v2.0.24 date=2026-10-12 commit=6e9a8b407d66751543f31a774acf7dec4e71ae54
+# Do not edit after the first measured run.
+
+[[task]]
+id = "s1"
+team = "backend"
+tier = "setup"
+prompt = "Read SPEC.md. Set up the project layout with the wire format on both sides and the contract file. Done is a fresh checkout can exchange an empty request and reply."
+[[task]]
+id = "s2"
+team = "backend"
+tier = "feature"
+prompt = "Read SPEC.md. Build the back end store with the four initial commands and the stdin binary. Done is notes can be created, listed, shown and removed through the binary."
+[[task]]
+id = "s3"
+team = "frontend"
+tier = "feature"
+prompt = "Read SPEC.md. Build the front end client with title checks and the notes list. Done is the screen shows saved notes with escaped titles and rejects bad titles."
+[[task]]
+id = "s4"
+team = "backend"
+tier = "feature"
+prompt = "Read SPEC.md. Ensure values with &, =, spaces or non-ASCII characters round-trip through both sides. Done is tricky titles and bodies come back exactly as entered."
+[[task]]
+id = "s5"
+team = "backend"
+tier = "feature"
+prompt = "Read SPEC.md. Add renaming a note. Done is an existing note can be given a new title."
+[[task]]
+id = "s6"
+team = "backend"
+tier = "feature"
+prompt = "Read SPEC.md. Add tags on notes as a comma list with listing by tag. Done is notes can carry tags and be found by one tag."
+[[task]]
+id = "s7"
+team = "backend"
+tier = "feature"
+prompt = "Read SPEC.md. Add searching notes by a word in the title or body. Done is a query returns only matching notes."
+[[task]]
+id = "s8"
+team = "backend"
+tier = "feature"
+prompt = "Read SPEC.md. Add pinning notes with pinned notes first in the list. Done is pinned notes stay at the top."
+[[task]]
+id = "s9"
+team = "frontend"
+tier = "feature"
+prompt = "Read SPEC.md. Add a character counter next to the title field in the notes screen. Done is the count updates as the title is edited."

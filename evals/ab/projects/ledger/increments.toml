@@ -1,0 +1,49 @@
+# Written by an agent session that saw only SPEC.md (evals/ab/PROTOCOL.md).
+# model=opencode-go/muse-spark-1.3-contributor opencode=opencode v2.0.24 date=2026-10-12 commit=6e9a8b407d66751543f31a774acf7dec4e71ae54
+# Do not edit after the first measured run.
+
+[[task]]
+id = "s1"
+team = "platform"
+tier = "setup"
+prompt = "Read SPEC.md. Set up the workspace layout with its crates and owners file, and implement the core types for feature 1. Done is the layout exists and feature 1 works as described."
+[[task]]
+id = "s2"
+team = "platform"
+tier = "feature"
+prompt = "Read SPEC.md. Implement the engine for feature 2 in the engine. Done is feature 2 works as described."
+[[task]]
+id = "s3"
+team = "accounts"
+tier = "feature"
+prompt = "Read SPEC.md. Implement the service for feature 3 in the service. Done is feature 3 works as described."
+[[task]]
+id = "s4"
+team = "tools"
+tier = "feature"
+prompt = "Read SPEC.md. Implement the command line for feature 4 in the command line. Done is feature 4 works as described."
+[[task]]
+id = "s5"
+team = "platform"
+tier = "feature"
+prompt = "Read SPEC.md. Implement memo length enforcement for feature 5 in the engine. Done is feature 5 works as described."
+[[task]]
+id = "s6"
+team = "accounts"
+tier = "feature"
+prompt = "Read SPEC.md. Implement account closing for feature 6 in the service. Done is feature 6 works as described."
+[[task]]
+id = "s7"
+team = "accounts"
+tier = "feature"
+prompt = "Read SPEC.md. Implement transaction reversal for feature 7 in the service. Done is feature 7 works as described."
+[[task]]
+id = "s8"
+team = "tools"
+tier = "feature"
+prompt = "Read SPEC.md. Implement CSV export for feature 8 in the command line. Done is feature 8 works as described."
+[[task]]
+id = "s9"
+team = "tools"
+tier = "feature"
+prompt = "Read SPEC.md. Implement running balances in statements for feature 9 in the command line. Done is feature 9 works as described."

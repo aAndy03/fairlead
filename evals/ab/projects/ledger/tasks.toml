@@ -1,0 +1,57 @@
+# Written by an agent session that saw only README.md (evals/ab/PROTOCOL.md).
+# model=opencode-go/muse-spark-1.3-contributor opencode=opencode v2.0.24 date=2026-10-12 commit=6e9a8b407d66751543f31a774acf7dec4e71ae54
+# Do not edit after the first measured run.
+
+[[task]]
+id = "t1"
+team = "platform"
+tier = "simple"
+prompt = "Allow withdrawing the entire balance of an account. Done means withdrawing exactly the amount shown by balance succeeds and leaves the account at zero."
+
+[[task]]
+id = "t2"
+team = "accounts"
+tier = "complex"
+prompt = "Add reversal of a past transaction by creating a new opposite transaction that undoes its effect. Done means a user can reverse a deposit, withdrawal or transfer and see corrected balances and statements afterwards."
+
+[[task]]
+id = "t3"
+team = "platform"
+tier = "medium"
+prompt = "Enforce the maximum memo length on transfers. Done means a transfer with too long a memo is refused with its stable error code while shorter memos keep working."
+
+[[task]]
+id = "t4"
+team = "accounts"
+tier = "simple"
+prompt = "Add closing an account, allowed only when its balance is zero. Done means a user can close an empty account and gets a refusal when trying to close an account that still holds money."
+
+[[task]]
+id = "t5"
+team = "tools"
+tier = "complex"
+prompt = "Add CSV export of a statement from the command line. Done means a user can request a statement as CSV and gets each entry on its own comma-separated row."
+
+[[task]]
+id = "t6"
+team = "accounts"
+tier = "medium"
+prompt = "Add monthly interest on savings accounts. Done means savings balances grow each month with the interest visible as new entries when viewing statements and balances."
+
+[[task]]
+id = "t7"
+team = "tools"
+tier = "simple"
+prompt = "Make the command line tolerate blank lines and extra spacing. Done means pasting input with empty lines and irregular spaces runs the same commands without errors."
+
+[[task]]
+id = "t8"
+team = "platform"
+tier = "complex"
+prompt = "Show the running balance after each entry in statements. Done means each line of a statement shows the entry alongside the account balance after that entry when viewed from the command line."
+
+[[task]]
+id = "t9"
+team = "tools"
+tier = "medium"
+prompt = "Make balance and statement outputs show money the same way. Done means both commands display amounts and currencies in an identical format for EUR, USD and GBP accounts."

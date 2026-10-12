@@ -1,0 +1,49 @@
+# Written by an agent session that saw only SPEC.md (evals/ab/PROTOCOL.md).
+# model=opencode-go/muse-spark-1.3-contributor opencode=opencode v2.0.24 date=2026-10-12 commit=6e9a8b407d66751543f31a774acf7dec4e71ae54
+# Do not edit after the first measured run.
+
+[[task]]
+id = "s1"
+team = "kit"
+tier = "setup"
+prompt = "Read SPEC.md. Set up the initial project skeleton and build the shared kit with tokens, buttons, badges, cards, price formatting and escaping. Done looks like empty shop and back-office apps present a coherent storefront foundation."
+[[task]]
+id = "s2"
+team = "store"
+tier = "feature"
+prompt = "Read SPEC.md. Add the customer catalogue and product page to the shop with an add-to-cart action. Done looks like shoppers see price and stock status with the action disabled when out of stock."
+[[task]]
+id = "s3"
+team = "store"
+tier = "feature"
+prompt = "Read SPEC.md. Add the shopping cart with the WELCOME10 code and its page to the shop. Done looks like shoppers manage lines and quantities with correct totals including the discount."
+[[task]]
+id = "s4"
+team = "admin"
+tier = "feature"
+prompt = "Read SPEC.md. Add the back-office orders table and refunds. Done looks like staff see newest orders first with status and totals and can refund in full or in part without exceeding what was paid and without repeating."
+[[task]]
+id = "s5"
+team = "store"
+tier = "feature"
+prompt = "Read SPEC.md. Add a customer wishlist and its page to the shop. Done looks like shoppers can save, remove and revisit wanted products."
+[[task]]
+id = "s6"
+team = "admin"
+tier = "feature"
+prompt = "Read SPEC.md. Extend the back-office orders view with low-stock warnings. Done looks like staff immediately spot products with fewer than 5 left."
+[[task]]
+id = "s7"
+team = "store"
+tier = "feature"
+prompt = "Read SPEC.md. Freshen the product page in the shop with lighter secondary actions in an outline or ghost style. Done looks like secondary actions feel visually lighter while keeping a consistent look."
+[[task]]
+id = "s8"
+team = "store"
+tier = "feature"
+prompt = "Read SPEC.md. Show shop prices in the customer's currency. Done looks like shoppers across EUR, USD and GBP see familiar pricing."
+[[task]]
+id = "s9"
+team = "store"
+tier = "feature"
+prompt = "Read SPEC.md. Add the RETURN5 code for returning customers to the cart. Done looks like eligible shoppers get 5% off without combining with WELCOME10."

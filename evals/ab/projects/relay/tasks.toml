@@ -1,0 +1,49 @@
+# Written by an agent session that saw only README.md (evals/ab/PROTOCOL.md).
+# model=opencode-go/muse-spark-1.3-contributor opencode=opencode v2.0.24 date=2026-10-12 commit=6e9a8b407d66751543f31a774acf7dec4e71ae54
+# Do not edit after the first measured run.
+
+[[task]]
+id = "t1"
+team = "frontend"
+tier = "simple"
+prompt = "Fix creating notes so a title containing & or = is saved and listed exactly as typed. Done looks like creating 'Fish & Chips = Dinner' then listing shows that exact title."
+[[task]]
+id = "t2"
+team = "frontend"
+tier = "medium"
+prompt = "Add a character counter next to the title field that stays consistent with the front-end title checks and pre-send limits. Done looks like typing a title updates the count and users can see how many of the 80 characters remain."
+[[task]]
+id = "t3"
+team = "backend"
+tier = "complex"
+prompt = "Add support for renaming a note's title through the back-end commands and the shared commands both sides implement, so the front end can offer rename next. Done looks like users can change a note's title via the protocol while keeping its body and identity."
+[[task]]
+id = "t4"
+team = "frontend"
+tier = "simple"
+prompt = "Fix the notes list so titles display as plain text instead of raw HTML. Done looks like a title such as <b>x</b> appears literally rather than rendering bold."
+[[task]]
+id = "t5"
+team = "backend"
+tier = "medium"
+prompt = "Add tag storage for notes and a way to list the notes of one tag through the back-end commands. Done looks like users can assign tags via the protocol and retrieve all notes carrying a given tag."
+[[task]]
+id = "t6"
+team = "frontend"
+tier = "complex"
+prompt = "Add tag editing and tag-filtered viewing to the notes screen using the back-end tag support. Done looks like users can add tags to a note and choose a tag to see only its notes."
+[[task]]
+id = "t7"
+team = "backend"
+tier = "simple"
+prompt = "Prevent saving notes with a blank title consisting only of spaces. Done looks like attempting to create such a note leaves the stored notes unchanged and reports the problem."
+[[task]]
+id = "t8"
+team = "backend"
+tier = "medium"
+prompt = "Add word search over titles and bodies to the notes store and expose it through the back-end commands. Done looks like users can search by a word via the protocol and receive only matching notes."
+[[task]]
+id = "t9"
+team = "frontend"
+tier = "complex"
+prompt = "Add pinning to the notes screen backed by back-end pin state, so pinned notes stay at the top of the list. Done looks like users can pin and unpin notes and the list always shows pinned notes first."

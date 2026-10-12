@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>fairlead A/B/C</title>
+<style>
+  :root {
+    --bg: #f7f7f5; --panel: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --line: #e3e3de;
+    --a: #8a8a84; --b: #2f6fb3; --c: #c2571a; --good: #2e7d4f; --bad: #b3261e; --warn: #9a6a00;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161615; --panel: #1f1f1d; --text: #ecece7; --muted: #a3a39c; --line: #33332f;
+      --a: #a3a39c; --b: #6ea6e0; --c: #ec8a4e; --good: #6cc48d; --bad: #f08a80; --warn: #e0b04a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { padding: 16px 24px; border-bottom: 1px solid var(--line); display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  main { padding: 16px 24px 48px; display: grid; gap: 20px; max-width: 1400px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; overflow-x: auto; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  h3 { font-size: 13px; margin: 12px 0 6px; color: var(--muted); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  td.num, th.num { text-align: right; }
+  .arm { display: inline-block; min-width: 20px; text-align: center; border-radius: 4px; color: #fff; font-weight: 700; font-size: 12px; padding: 0 5px; }
+  .arm-A { background: var(--a); } .arm-B { background: var(--b); } .arm-C { background: var(--c); }
+  .ok { color: var(--good); font-weight: 600; } .no { color: var(--bad); font-weight: 600; } .na { color: var(--muted); }
+  .banner { border-left: 4px solid var(--warn); padding: 8px 12px; background: color-mix(in srgb, var(--warn) 10%, transparent); border-radius: 4px; }
+  .muted { color: var(--muted); }
+  select, button { font: inherit; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--text); }
+  tr.click { cursor: pointer; } tr.click:hover td { background: color-mix(in srgb, var(--text) 5%, transparent); }
+  .live { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(420px, 1fr)); }
+  .log { font: 12px/1.4 ui-monospace, Consolas, monospace; max-height: 320px; overflow-y: auto; background: var(--bg); border-radius: 6px; padding: 8px; }
+  .log div { white-space: pre-wrap; word-break: break-word; margin-bottom: 3px; }
+  .log b { color: var(--c); font-weight: 600; }
+  .charts { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); }
+  .legend span { margin-right: 12px; }
+  dialog { max-width: 900px; width: 92vw; border: 1px solid var(--line); border-radius: 8px; background: var(--panel); color: var(--text); }
+  @media (max-width: 600px) { header, main { padding-left: 16px; padding-right: 16px; } .live { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>fairlead: with and without</h1>
+  <label>Run <select id="run"></select></label>
+  <span id="progress" class="muted"></span>
+</header>
+<main>
+  <div id="banner" class="banner"></div>
+  <section><h2>Running now</h2><div id="live" class="live"><span class="muted">Nothing running.</span></div></section>
+  <section><h2>Arms compared</h2><div id="summary"></div></section>
+  <section><h2>Drift over the chain</h2>
+    <p class="muted">Accumulated rule violations (M3 drift) after each task, mean per arm. A flatter line is less drift.</p>
+    <p class="legend"><span><span class="arm arm-A">A</span> no guidance</span><span><span class="arm arm-B">B</span> hand-written AGENTS.md</span><span><span class="arm arm-C">C</span> fairlead</span></p>
+    <div id="charts" class="charts"></div>
+  </section>
+  <section><h2>Every session</h2><p class="muted">Click a row to see what the agent did.</p><div id="sessions"></div></section>
+  <section><h2>What this cannot show</h2>
+    <p class="muted">A chain of nine tasks stands in for months, not years. The projects are small (hundreds to a few thousand lines), not 50,000 or a million. One model. The projects were built knowing what fairlead checks. Three runs per task give a direction, not a proof. See evals/ab/PROTOCOL.md.</p>
+  </section>
+</main>
+<dialog id="detail"><div id="detail-body"></div><p><button onclick="document.getElementById('detail').close()">Close</button></p></dialog>
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+const arm = (a) => `<span class="arm arm-${a}">${a}</span>`;
+const mark = (v) => v === true ? '<span class="ok">yes</span>' : v === false ? '<span class="no">no</span>' : '<span class="na">n/a</span>';
+const mean = (xs) => xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+const fmt = (x, d = 1) => x == null ? "–" : Number(x).toFixed(d);
+const pct = (xs) => { const v = xs.filter((x) => x != null); return v.length ? `${Math.round(100 * v.filter(Boolean).length / v.length)}%` : "–"; };
+let current = null, data = null;
+
+async function loadRuns() {
+  const runs = await (await fetch("/api/runs")).json();
+  $("run").innerHTML = runs.map((r) => `<option>${esc(r)}</option>`).join("") || "<option>(no runs yet)</option>";
+  if (!current && runs.length) current = runs[0];
+  $("run").value = current;
+}
+$("run").onchange = () => { current = $("run").value; refresh(); };
+
+function tokens(c) { return c ? c.tokens_in + c.tokens_out + c.tokens_reasoning : null; }
+
+function summaryTable(sessions) {
+  const groups = {};
+  for (const s of sessions) (groups[s.track] ??= {})[s.arm] ??= [], groups[s.track][s.arm].push(s);
+  let html = "";
+  for (const [track, arms] of Object.entries(groups)) {
+    html += `<h3>${track === "maint" ? "Maintenance track (existing projects)" : "From-scratch track (new projects)"}</h3>`;
+    html += `<table><tr><th>Arm</th><th class="num">Sessions</th><th class="num">Task done (M1)</th><th class="num">Nothing broken (M2)</th><th class="num">New violations per session (M3)</th><th class="num">Drift at last task</th><th class="num">Files outside team</th><th class="num">Tokens</th><th class="num">Minutes</th><th class="num">Cost</th><th class="num">fairlead commands</th></tr>`;
+    for (const a of ["A", "B", "C"]) {
+      const ss = arms[a] || [];
+      const lastPos = {};
+      for (const s of ss) { const k = `${s.project}|${s.run}`; if (!lastPos[k] || s.pos > lastPos[k].pos) lastPos[k] = s; }
+      html += `<tr><td>${arm(a)}</td><td class="num">${ss.length}</td><td class="num">${pct(ss.map((s) => s.score.m1_task_done))}</td><td class="num">${pct(ss.map((s) => s.score.m2_nothing_broken))}</td>
+        <td class="num">${fmt(mean(ss.map((s) => s.score.m3_new)), 2)}</td><td class="num">${fmt(mean(Object.values(lastPos).map((s) => s.score.m3_drift)), 1)}</td>
+        <td class="num">${fmt(mean(ss.map((s) => s.score.m4_outside_team.length)), 1)}</td>
+        <td class="num">${fmt(mean(ss.map((s) => tokens(s.score.cost)).filter((x) => x != null)), 0)}</td>
+        <td class="num">${fmt(mean(ss.map((s) => s.score.cost?.seconds / 60).filter((x) => x != null)), 1)}</td>
+        <td class="num">${fmt(mean(ss.map((s) => s.score.cost?.cost).filter((x) => x != null)), 3)}</td>
+        <td class="num">${a === "C" ? fmt(mean(ss.map((s) => s.score.cost?.fairlead_commands ?? 0)), 1) : "–"}</td></tr>`;
+    }
+    html += "</table>";
+  }
+  return html || '<span class="muted">No finished sessions yet.</span>';
+}
+
+function chart(title, series) {
+  const W = 320, H = 170, P = 28;
+  const all = Object.values(series).flat();
+  const maxX = Math.max(1, ...all.map((p) => p[0])), maxY = Math.max(1, ...all.map((p) => p[1]));
+  const x = (v) => P + (W - 2 * P) * (v - 1) / Math.max(1, maxX - 1), y = (v) => H - P - (H - 2 * P) * v / maxY;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="${esc(title)}">`;
+  svg += `<line x1="${P}" y1="${H - P}" x2="${W - P}" y2="${H - P}" stroke="var(--line)"/><line x1="${P}" y1="${P}" x2="${P}" y2="${H - P}" stroke="var(--line)"/>`;
+  svg += `<text x="${P}" y="${P - 8}" font-size="11" fill="var(--muted)">${maxY.toFixed(1)}</text><text x="${W - P}" y="${H - 8}" font-size="11" fill="var(--muted)" text-anchor="end">task ${maxX}</text>`;
+  for (const [a, pts] of Object.entries(series)) {
+    if (!pts.length) continue;
+    const d = pts.map((p, i) => `${i ? "L" : "M"}${x(p[0]).toFixed(1)},${y(p[1]).toFixed(1)}`).join("");
+    svg += `<path d="${d}" fill="none" stroke="var(--${a.toLowerCase()})" stroke-width="2"/>`;
+    for (const p of pts) svg += `<circle cx="${x(p[0])}" cy="${y(p[1])}" r="3" fill="var(--${a.toLowerCase()})"><title>${a} task ${p[0]}: ${p[1].toFixed(2)}</title></circle>`;
+  }
+  return `<div><h3>${esc(title)}</h3>${svg}</div>`;
+}
+
+function charts(sessions) {
+  const by = {};
+  for (const s of sessions) ((by[`${s.track}|${s.project}`] ??= { A: {}, B: {}, C: {} })[s.arm][s.pos] ??= []).push(s.score.m3_drift);
+  return Object.entries(by).map(([k, arms]) => {
+    const series = {};
+    for (const a of ["A", "B", "C"]) series[a] = Object.entries(arms[a]).map(([pos, v]) => [Number(pos), mean(v)]).sort((p, q) => p[0] - q[0]);
+    const [track, project] = k.split("|");
+    return chart(`${project} (${track === "maint" ? "maintenance" : "from scratch"})`, series);
+  }).join("") || '<span class="muted">No data yet.</span>';
+}
+
+function sessionsTable(sessions) {
+  if (!sessions.length) return '<span class="muted">No finished sessions yet.</span>';
+  const rows = [...sessions].sort((p, q) => (p.track + p.project + p.run + String(p.pos).padStart(2, "0") + p.arm).localeCompare(q.track + q.project + q.run + String(q.pos).padStart(2, "0") + q.arm));
+  return `<table><tr><th>Track</th><th>Project</th><th>Run</th><th>Task</th><th>Team</th><th>Tier</th><th>Arm</th><th>M1</th><th>M2</th><th class="num">M3 new</th><th>Violations</th><th class="num">Changed</th><th class="num">Outside team</th><th class="num">Tokens</th><th class="num">Min</th></tr>` +
+    rows.map((s) => {
+      const cats = Object.entries(s.score.m3_by_category || {}).filter(([, n]) => n > 0).map(([c, n]) => `${c} ${n}`).join(", ");
+      return `<tr class="click" data-id="${esc(s.id)}"><td>${esc(s.track)}</td><td>${esc(s.project)}</td><td>${s.run}</td><td title="${esc(s.prompt)}">${esc(s.task)}</td><td>${esc(s.team)}</td><td>${esc(s.tier)}</td><td>${arm(s.arm)}</td>
+        <td>${mark(s.score.m1_task_done)}</td><td>${mark(s.score.m2_nothing_broken)}</td><td class="num">${s.score.m3_new}</td><td>${esc(cats) || '<span class="muted">none</span>'}</td>
+        <td class="num">${s.score.m4_changed}</td><td class="num">${s.score.m4_outside_team.length}</td><td class="num">${fmt(tokens(s.score.cost), 0)}</td><td class="num">${fmt(s.score.cost?.seconds / 60, 1)}</td></tr>`;
+    }).join("") + "</table>";
+}
+
+function liveView(live, plan) {
+  if (!live.length) return '<span class="muted">Nothing running.</span>';
+  return live.map((l) => {
+    const p = plan.find((x) => x.id === l.id) || {};
+    const acts = l.actions.map((a) => `<div><b>${esc(a.kind)}</b> ${esc(a.text)}</div>`).join("");
+    return `<div><h3>${arm(p.arm || "?")} ${esc(p.project)} · ${esc(p.track)} · task ${esc(p.task)} (${esc(p.team)}) · run ${p.run ?? ""}</h3>
+      <p class="muted">${esc(p.prompt)}</p><p class="muted">${l.summary.tool_calls} tool calls · ${l.summary.turns} turns · ${Math.round(l.summary.seconds)} s</p><div class="log">${acts}</div></div>`;
+  }).join("");
+}
+
+async function showSession(id) {
+  const s = data.sessions.find((x) => x.id === id);
+  const v = await (await fetch(`/api/session/${encodeURIComponent(current)}/${encodeURIComponent(id)}`)).json();
+  const sc = s.score;
+  $("detail-body").innerHTML = `<h2>${arm(s.arm)} ${esc(s.project)} · ${esc(s.task)} · ${esc(s.team)} team · run ${s.run}</h2>
+    <p>${esc(s.prompt)}</p>
+    <p>Task done: ${mark(sc.m1_task_done)} · Earlier tasks still pass: ${mark(sc.m2_nothing_broken)} · New violations: ${sc.m3_new} · Drift: ${sc.m3_drift}</p>
+    <h3>Violations</h3><pre class="log">${esc(JSON.stringify({ by_category: sc.m3_by_category, contracts: sc.contracts.filter((c) => !c.ok), ownership: sc.ownership_breaks, outside_team: sc.m4_outside_team }, null, 2))}</pre>
+    <h3>Hidden tests (last lines)</h3><pre class="log">${esc(sc.tests_tail.task)}</pre>
+    <h3>The agent's final answer</h3><div class="log">${esc(sc.cost?.final_text)}</div>
+    <h3>What the agent did</h3><div class="log">${(v.actions || []).map((a) => `<div><b>${esc(a.kind)}</b> ${esc(a.text)}</div>`).join("")}</div>`;
+  $("detail").showModal();
+}
+
+async function refresh() {
+  await loadRuns();
+  if (!current) return;
+  data = await (await fetch(`/api/run/${encodeURIComponent(current)}`)).json();
+  const done = data.sessions.length, planned = data.plan.length;
+  $("progress").textContent = `${done} of ${planned} sessions done`;
+  $("banner").innerHTML = /pilot/i.test(current)
+    ? "<b>Pilot run.</b> It checks that the projects, tasks, scorer and runner work. Its numbers are published but are not evidence for or against fairlead (PROTOCOL.md)."
+    : "<b>Measured run.</b> Decisions follow the thresholds pre-registered in PROTOCOL.md, whichever way they point.";
+  $("live").innerHTML = liveView(data.live, data.plan);
+  $("summary").innerHTML = summaryTable(data.sessions);
+  $("charts").innerHTML = charts(data.sessions);
+  $("sessions").innerHTML = sessionsTable(data.sessions);
+  for (const tr of document.querySelectorAll("tr.click")) tr.onclick = () => showSession(tr.dataset.id);
+}
+refresh();
+setInterval(refresh, 4000);
+</script>
+</body>
+</html>

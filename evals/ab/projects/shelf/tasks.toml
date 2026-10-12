@@ -1,0 +1,49 @@
+# Written by an agent session that saw only README.md (evals/ab/PROTOCOL.md).
+# model=opencode-go/muse-spark-1.3-contributor opencode=opencode v2.0.24 date=2026-10-12 commit=6e9a8b407d66751543f31a774acf7dec4e71ae54
+# Do not edit after the first measured run.
+
+[[task]]
+id = "t1"
+team = "admin team"
+tier = "simple"
+prompt = "Fix the back-office orders list so the newest orders appear first. Done looks like an admin opening orders sees the most recent order at the top."
+[[task]]
+id = "t2"
+team = "store team"
+tier = "medium"
+prompt = "Add a wishlist to the shop covering both the catalogue and the product page. Done looks like a shopper can save products from either place, revisit saved items later, and remove them."
+[[task]]
+id = "t3"
+team = "admin team"
+tier = "complex"
+prompt = "Show a low-stock warning in the back-office orders view for products that are running out. Done looks like an admin reviewing orders can spot at a glance which ordered products are low on stock."
+[[task]]
+id = "t4"
+team = "kit team"
+tier = "simple"
+prompt = "Add a lighter ghost outline button look for secondary actions alongside the existing button styles. Done looks like a shopper sees less-emphasised actions in a lighter outline style that still reads clearly."
+[[task]]
+id = "t5"
+team = "kit team"
+tier = "complex"
+prompt = "Show shop prices in the shopper's own currency across products and the cart. Done looks like a shopper choosing a currency sees every product and cart total displayed in that currency."
+[[task]]
+id = "t6"
+team = "admin team"
+tier = "medium"
+prompt = "Link refunds with the orders list so refunded orders are clearly marked. Done looks like an admin issuing a full or partial refund then sees the updated status and total reflected when viewing orders."
+[[task]]
+id = "t7"
+team = "store team"
+tier = "simple"
+prompt = "Fix removing items from the cart so removing one quantity leaves the others in place. Done looks like a shopper with several separate quantities of the same product can remove one while the rest stay in the cart."
+[[task]]
+id = "t8"
+team = "kit team"
+tier = "medium"
+prompt = "Let cards display a small status badge alongside the title, body and footer. Done looks like shoppers and admins see cards where the status stands out at a glance."
+[[task]]
+id = "t9"
+team = "store team"
+tier = "complex"
+prompt = "Add lighter secondary actions to the product page alongside the main Add to Cart button. Done looks like a shopper sees the main purchase action emphasised while less important actions appear in a lighter ghost style."

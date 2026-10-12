@@ -117,6 +117,57 @@ Model: `opencode-go/muse-spark-1.3-contributor` (agent-runbook rule 4), for ever
 - **Arm B's quality**: arm B is one hand-written `AGENTS.md`; a better one could do better.
 - **Small samples**: three runs per task gives a direction, not a proof.
 
+## Pre-run revision, 2026-10-12: a second track, building from scratch
+
+Added before any project ran, at the owner's request ("agents should also start from scratch").
+The design above becomes the **maintenance track**. A second track, **from scratch**, asks a
+different question: does starting a product with fairlead lead to a healthier codebase than
+starting without it?
+
+- **Products**: the same three (Shelf, Ledger, Relay). Each has a `spec.md`: what the product does,
+  its folder layout and owners, the public names the hidden tests call, and its rules written as
+  product requirements ("prices are integer cents", "the store team never edits the kit"). The spec
+  is the same for every arm.
+- **Increments**: a separate agent session that sees only `spec.md` splits it into nine ordered
+  increments; increment 1 starts in an empty folder, and each later one continues the previous
+  repository of the same run.
+- **Arms**:
+  - **A**: an empty folder and the spec.
+  - **B**: as A, plus a hand-written `AGENTS.md` with general guidance on keeping the spec's rules
+    (write them down, check them before finishing). It contains no rules of its own.
+  - **C**: as A, but the folder is initialised with `fairlead init`, which writes the agent block
+    into `AGENTS.md`, and `fairlead` is on the PATH. Encoding the rules in fairlead is the agent's
+    own work, as it would be on a new project.
+- **Scoring**: the same measures. M1 and M2 use hidden tests that call only the public names the
+  spec fixes (functions, commands, files). M3 uses the product's scorer rules, which name the
+  folders the spec mandates. One extra measure, **M5 structure**, is reported, not gated: lines of
+  code, files, duplicated blocks of six or more lines, and tests written.
+- **Size**: pilot, 3 products × 3 increments × 3 arms × 1 run = 27 sessions; full run, 3 × 9 × 3 × 3
+  = 243 sessions. The two tracks together: 54 pilot sessions, 486 full.
+- **Decisions**: the thresholds above apply to each track separately. A result in one track is never
+  reported as a result of the other.
+- **Extra threat**: arm C must also spend effort setting fairlead up, so its early increments may cost
+  more and score worse; the long-run slope is the measure that answers whether that pays off.
+
+## Pre-run revision, 2026-10-12: how M1 and M2 are judged
+
+Added before any project ran, once the task lists existed: the maintenance tasks name features, not
+functions, so not every task can have hidden tests.
+
+- **M1, maintenance track.** A task that changes the behaviour of a name the starting code already
+  has (the known issues, mostly) is judged by hidden tests. Any other task is judged by a blind
+  reviewer agent: it receives the task text and the session's diff with every fairlead file,
+  directive comment and `AGENTS.md` change removed, so it cannot tell the arms apart, and answers
+  `done`, `partial` or `not-done`. Only `done` counts as done. Each result records which judge it
+  used.
+- **M1, from-scratch track.** Hidden tests, which call only the names the spec fixes, wherever the
+  step's feature has such names; a step whose feature has none (a setup step, Ledger's engine) is
+  judged by the same blind reviewer.
+- **M2.** The hidden tests of every earlier task, plus, in the maintenance track, the project's
+  starting tests (`hidden/_base`, which test only behaviour the known issues do not change).
+- The hidden tests of the pilot are written first; those of the remaining tasks before the full
+  run.
+
 ## Amendments
 
 (none)
