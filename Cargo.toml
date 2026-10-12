@@ -5,7 +5,7 @@ exclude = ["fuzz", "tests/golden", "fixtures", "tools"]
 resolver = "3"
 
 [workspace.package]
-version = "0.3.0"
+version = "0.3.1"
 edition = "2024"
 rust-version = "1.88" # MSRV floor, R-ARCH-121
 license = "GPL-3.0-or-later"   # D-60 (0.1.0 was MIT, D-58)
@@ -28,5 +28,5 @@ todo = "deny"         # flipped at the end of P9-T24 (amendment A-67)
 
 [workspace.dependencies]
 # Internal path dependencies
-fairlead-syntax = { path = "crates/fairlead-syntax", version = "0.3.0" }
-fairlead-core = { path = "crates/fairlead-core", version = "0.3.0" }
+fairlead-syntax = { path = "crates/fairlead-syntax", version = "0.3.1" }
+fairlead-core = { path = "crates/fairlead-core", version = "0.3.1" }

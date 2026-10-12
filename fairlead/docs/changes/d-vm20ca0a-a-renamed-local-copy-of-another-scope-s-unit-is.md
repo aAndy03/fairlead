@@ -1,7 +1,7 @@
 +++
 id = "d-vm20ca0a"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "fix"
 sum = "of= on a unit is reported, and with fork-detect a renamed local copy of another scope's unit is a fork suspect"
 out = "shipped"

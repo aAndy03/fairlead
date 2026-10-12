@@ -1,4 +1,4 @@
-fairlead check 0.3.0 edition=1 as-of=2026-10-09 scopes=1 files=6 rules=0
+fairlead check 0.3.1 edition=1 as-of=2026-10-09 scopes=1 files=6 rules=0
 errors 0 warn 1 info 0 | baselined 0 | waived 0 | observe 0 | accepted 0
 HN-I003 warn src/legacy.ts file is not valid UTF-8 and was not scanned | fix: convert to UTF-8, or add the path to [scan] skip
 waivers: none | relaxations: none

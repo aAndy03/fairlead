@@ -1,7 +1,7 @@
 +++
 id = "d-2bhm0jjk"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "fix"
 sum = "an interim wrapper near its target version warns (HN-W001) and fails only once the target is reached (HN-X001)"
 out = "shipped"

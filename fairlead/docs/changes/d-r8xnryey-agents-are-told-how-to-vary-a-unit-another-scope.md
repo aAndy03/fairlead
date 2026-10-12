@@ -1,7 +1,7 @@
 +++
 id = "d-r8xnryey"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "fix"
 sum = "the agent block, explain, new --help and new request lead an agent to the variation protocol"
 out = "shipped"

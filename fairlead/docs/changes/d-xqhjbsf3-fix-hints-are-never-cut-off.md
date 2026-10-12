@@ -1,7 +1,7 @@
 +++
 id = "d-xqhjbsf3"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "fix"
 sum = "fix hints fit 100 characters, so terse output never cuts one off; the hierarchy lower-bound note moved to the message"
 out = "shipped"

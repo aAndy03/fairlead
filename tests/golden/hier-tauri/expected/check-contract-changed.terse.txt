@@ -1,4 +1,4 @@
-fairlead check 0.3.0 edition=1 as-of=2026-10-12 scopes=1 files=19 rules=0
+fairlead check 0.3.1 edition=1 as-of=2026-10-12 scopes=1 files=19 rules=0
 errors 0 warn 2 info 0 | baselined 0 | waived 0 | observe 0 | accepted 0
 HN-D004 warn docs/sync-contract.md the contract of bridge brg.sync-run changed since 0.1.0, and no draft or ready change doc touches it | fix: add the bridge to touches of a change doc that covers both ends (R-HIER-064)
 HN-D006 warn docs/sync-contract.md changed file is not covered by a draft or ready change doc | fix: fairlead new change "<title>" --field covers=<glob>, or add it to an open doc's covers

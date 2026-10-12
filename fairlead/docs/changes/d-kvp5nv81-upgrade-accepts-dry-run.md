@@ -1,7 +1,7 @@
 +++
 id = "d-kvp5nv81"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "fix"
 sum = "upgrade --dry-run prints the plan, writes nothing and exits 0, like every other writer"
 out = "shipped"

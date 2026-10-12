@@ -1,4 +1,4 @@
-fairlead check 0.3.0 edition=1 as-of=2026-10-10 scopes=1 files=14 rules=0
+fairlead check 0.3.1 edition=1 as-of=2026-10-10 scopes=1 files=14 rules=0
 errors 0 warn 0 info 0 | baselined 2 | waived 0 | observe 0 | accepted 0
 waivers: none | relaxations: none
 exceptions: +0

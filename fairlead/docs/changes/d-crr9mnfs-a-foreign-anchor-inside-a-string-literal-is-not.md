@@ -1,7 +1,7 @@
 +++
 id = "d-crr9mnfs"
 kind = "change"
-status = "draft"
+status = "ready"
 impact = "fix"
 sum = "the lost-anchor check reads the committed copy with the directive extractor, not by text search"
 out = "shipped"
