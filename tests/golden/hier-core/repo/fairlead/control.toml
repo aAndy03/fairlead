@@ -1,0 +1,34 @@
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder           = "fairlead"
+fairlead-version = "0.2.0"
+purpose          = "A sync backend: engine, service and a CLI shell."
+owners           = ["@core"]
+
+[layers.core]
+engine  = 10
+service = 20
+shell   = 30
+
+[layer-policy."core.shell"]
+used-by = "entry"
+
+[kinds.un]
+title = "unit"
+shape = "code"
+
+[kinds.ctr]
+title = "container"
+shape = "code"
+
+[kinds.ent]
+title = "entry"
+shape = "code"
+
+[hier]
+level = 3

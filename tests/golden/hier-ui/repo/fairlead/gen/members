@@ -1,0 +1,4 @@
+# scope root edition=1 body=czac71zy8jp9jtdnepj0
+scope.admin dir=admin
+scope.web dir=web
+self.root dir=. up=- chain=root

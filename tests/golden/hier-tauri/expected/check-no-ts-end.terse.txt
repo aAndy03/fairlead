@@ -1,0 +1,5 @@
+fairlead check 0.2.2 edition=1 as-of=2026-10-12 scopes=1 files=13 rules=0
+errors 1 warn 0 info 0 | baselined 0 | waived 0 | observe 0 | accepted 0
+HN-H021 error fairlead/decl/bridges.md:2:16 bridge brg.sync-run: the ts end src/api/sync.ts does not exist | fix: fix the path, or restore the file (R-HIER-062)
+waivers: none | relaxations: none
+exceptions: +0

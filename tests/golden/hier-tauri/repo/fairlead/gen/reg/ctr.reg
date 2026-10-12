@@ -1,0 +1,3 @@
+# scope root edition=1 body=r4r66tqe8dkar1sn85r0
+ctr.cmds pol=needs-exception path=src-tauri/**
+ctr.ui pol=needs-exception path=src/**

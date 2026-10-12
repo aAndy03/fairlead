@@ -1,0 +1,2 @@
+# scope root edition=1 body=q5thnk45tf4k61fm4da9
+brg.sync-run pol=needs-exception contract=docs/sync-contract.md dir=ts->rs params=req proto=tauri-command reaches=un.sync-cmd rs=src-tauri/src/commands.rs#sync_run ts=src/api/sync.ts#syncNow ver=1 wire=sync_run

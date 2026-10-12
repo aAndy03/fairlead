@@ -1,0 +1,12 @@
+[golden]
+name = "hier-core"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+
+# The backend ladder (0.3 P7-T1): a Cargo edge against the ranks, an entry-only shell used by a
+# service, and an engine no entry reaches (stale).
+[[case]]
+args = ["check", "--as-of", "2026-10-12", "--format", "terse"]
+exit = 1
+stdout = "expected/check.terse.txt"

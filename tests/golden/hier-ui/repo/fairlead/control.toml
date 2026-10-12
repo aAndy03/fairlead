@@ -1,0 +1,28 @@
+[fairlead]
+edition = 1
+root    = true
+scope   = "root"
+marker  = "fairlead"
+
+[settings]
+folder           = "fairlead"
+fairlead-version = "0.2.0"
+purpose          = "A component library with two apps."
+owners           = ["@ui"]
+
+[layers.ui]
+atom     = 10
+molecule = 20
+organism = 30
+page     = 40
+
+[kinds.cmp]
+title = "component"
+shape = "code"
+
+[kinds.ctr]
+title = "container"
+shape = "code"
+
+[hier]
+level = 2

@@ -1,0 +1,3 @@
+# scope root edition=1 body=16pz8g3xvdndanrckge8
+cmp.button pol=needs-exception container=ctr.atoms layer=ui.atom vis=public
+cmp.card pol=needs-exception container=ctr.organisms layer=ui.organism vis=public

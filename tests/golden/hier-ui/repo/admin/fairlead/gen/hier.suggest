@@ -1,0 +1,2 @@
+# scope admin edition=1 body=t28zwbv50jvahfd768q3
+demote cmp.audit-table to=ui.atom -- declared ui.organism, more than one layer above what it uses

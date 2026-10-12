@@ -1,0 +1,4 @@
+# scope root edition=1 body=zg7tm81b1ypmvn0navwr
+ctr.engine pol=needs-exception path=crates/engine/**
+ctr.service pol=needs-exception path=crates/service/**
+ctr.shell pol=needs-exception path=crates/shell/**

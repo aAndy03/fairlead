@@ -1,0 +1,46 @@
+[golden]
+name = "hier-tauri"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+
+# The "sync with server" worked example of 30-hierarchy (0.3 P7-T1) and bridge detection
+# (P7-T5): deleting the TS end, deleting the Rust end and editing the contract after a seal each
+# produce their finding.
+[[case]]
+args = ["check", "--as-of", "2026-10-12", "--format", "terse"]
+exit = 0
+stdout = "expected/check.terse.txt"
+commit = "synced"
+
+[[case]]
+args = ["check", "--as-of", "2026-10-12", "--format", "terse"]
+exit = 1
+stdout = "expected/check-no-ts-end.terse.txt"
+reuse = true
+edit = [{ path = "src/api/sync.ts", remove = true }]
+
+[[case]]
+args = ["check", "--as-of", "2026-10-12", "--format", "terse"]
+exit = 1
+stdout = "expected/check-no-rs-end.terse.txt"
+reuse = true
+git = [["checkout", "--", "src/api/sync.ts"]]
+edit = [{ path = "src-tauri/src/commands.rs", remove = true }]
+
+[[case]]
+args = ["seal", "--yes", "--anywhere", "--as-of", "2026-10-12"]
+exit = 0
+stdout = "expected/seal.txt"
+reuse = true
+git = [["checkout", "--", "src-tauri/src/commands.rs"]]
+edit = [{ path = "fairlead/docs/changes/d-5ync0001-sync.md", append = "+++\nid = \"d-5ync0001\"\nkind = \"change\"\nstatus = \"ready\"\nimpact = \"add\"\nscope = \"root\"\ntitle = \"Sync with server\"\nsum = \"The sync button calls the sync_run command\"\ncovers = [\"src/**\", \"src-tauri/**\", \"docs/**\"]\nadds = [\"un.sync-button\", \"un.sync-cmd\", \"un.engine\", \"ctr.ui\", \"ctr.cmds\", \"brg.sync-run\"]\ncreated = \"0.1.0\"\n+++\n# Sync with server\n" }]
+commit = "ready"
+
+[[case]]
+args = ["check", "--as-of", "2026-10-12", "--format", "terse"]
+exit = 0
+stdout = "expected/check-contract-changed.terse.txt"
+reuse = true
+git = [["add", "-A"], ["commit", "-q", "-m", "sealed"]]
+edit = [{ path = "docs/sync-contract.md", append = "- params gain `since`\n" }]

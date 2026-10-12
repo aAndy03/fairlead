@@ -1,0 +1,12 @@
+[golden]
+name = "hier-ui"
+platforms = ["linux", "windows", "macos"]
+needs_git = true
+line_endings = "lf"
+
+# The UI ladder from atoms to pages (0.3 P7-T1): a rank violation (an atom uses an organism),
+# the unit and container cycle it closes, and a visibility error between sibling scopes.
+[[case]]
+args = ["check", "--as-of", "2026-10-12", "--format", "terse"]
+exit = 1
+stdout = "expected/check.terse.txt"

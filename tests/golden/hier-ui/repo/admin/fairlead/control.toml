@@ -1,0 +1,5 @@
+[fairlead]
+scope = "admin"
+
+[scope]
+provides = ["cmp.*"]
