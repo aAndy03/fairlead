@@ -67,3 +67,11 @@ known issues and the features not built yet) and, for Relay s5 to s8, on a throw
 implementation of the commands, where it passes. Where the spec leaves a reply format open
 (`notes.by-tag`, `notes.search`, the spelling of `pinned`, the CSV header), the tests accept every
 reading. The other tasks are judged by the blind reviewer.
+
+## Found during the full run
+
+- The scorer read every file in the working tree, including files the project's `.gitignore`
+  excludes, so a `Cargo.lock` written by `cargo test` counted as a change, and in Relay as an
+  ownership break (first seen in `maint-relay-C-r1-t1`). The working tree is now what
+  `git ls-files -co --exclude-standard` lists. The full run is re-scored with `rescore.ps1` when it
+  ends; its live numbers before that are provisional.

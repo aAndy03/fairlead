@@ -76,7 +76,20 @@ type Tree = BTreeMap<String, String>;
 
 const SKIP_DIRS: [&str; 5] = [".git", "target", "node_modules", ".fairlead", "dist"];
 
+/// The working tree as git sees it: tracked files plus untracked ones the repository's ignore
+/// rules do not exclude (a `Cargo.lock` that `cargo test` writes is not a change by the agent).
 fn working_tree(dir: &Path) -> Tree {
+    match git(dir, &["ls-files", "-co", "--exclude-standard", "-z"]) {
+        Ok(list) => list
+            .split('\0')
+            .filter(|p| !p.is_empty() && !skipped(p))
+            .filter_map(|p| std::fs::read_to_string(dir.join(p)).ok().map(|t| (p.to_owned(), t)))
+            .collect(),
+        Err(_) => walk_tree(dir),
+    }
+}
+
+fn walk_tree(dir: &Path) -> Tree {
     fn walk(base: &Path, dir: &Path, out: &mut Tree) {
         let Ok(rd) = std::fs::read_dir(dir) else { return };
         for e in rd.flatten() {
