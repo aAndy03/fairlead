@@ -4,14 +4,39 @@ use crate::config::KindShape;
 use crate::error::Error;
 use crate::registry::Registry;
 
-pub const TOPICS: [&str; 6] = [
+pub const TOPICS: [&str; 7] = [
     "syntax",
     "kinds",
     "approve",
     "pr-template",
     "docs-first",
     "authority",
+    "variation",
 ];
+
+/// 31-variation-protocol for an agent: what a consuming scope does when a unit it uses, homed in
+/// another scope, lacks what it needs (0.3.1, B-3: nothing pointed at the protocol).
+pub const VARIATION: &str = "\
+A unit (a component, a service, any def with a layer) belongs to its home scope. Another scope that
+needs it different never copies it and never edits the home scope's files. It has four moves:
+
+1. Use what exists: an axis value or a variant of the unit (`fairlead explain <unit>` lists them).
+2. Request it from the home scope, in your own scope:
+     fairlead new request <home>:<unit> --scope <your scope> --field want=\"...\" --field because=\"...\" --field sum=\"...\"
+3. Meanwhile, wrap it in your scope and say what the wrapper waits for:
+     // fairlead: def <your-id> wraps=<home>:<unit> layer=<same layer> container=<your container>
+     // fairlead: use <home>:<unit>
+     // fairlead: flag awaiting to=<your scope>:<request id> target=<version the answer is expected by>
+   The wrapper composes the unit (it renders or calls it); it does not reimplement it. `check`
+   warns as the target version nears and fails once it is reached.
+4. Keep a permanent adapter only after a rejection: `def <id> adapter=true rejected-by=<change doc>`.
+
+The home scope answers the request with a change doc (`answers`, `type`, `result`); its owner
+approves it. Then switch to the new variant (`use <home>:<variant>`) and delete the wrapper.
+
+Not these: a new unit that copies the original (fork detection reports it), `variant-of=` in your
+own scope (a variant lives in the base's scope), `of=` on a unit (of= is the base of a token), or
+an escalation (that loosens a policy key; it does not change a unit).";
 
 /// R-AGT-031: the PR template text, printed for the team to paste; `init` never writes it.
 pub const PR_TEMPLATE: &str = "\
@@ -481,6 +506,11 @@ pub fn topic_sections(name: &str, reg: Option<&Registry>) -> Result<Vec<ExplainS
         "docs-first" => Ok(vec![section(
             "docs-first",
             DOCS_FIRST.lines().map(str::to_owned).collect(),
+            vec![],
+        )]),
+        "variation" => Ok(vec![section(
+            "variation",
+            VARIATION.lines().map(str::to_owned).collect(),
             vec![],
         )]),
         other => Err(Error::Usage(format!("unknown topic {other}"))),

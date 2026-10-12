@@ -130,6 +130,7 @@ impl Check for VariationCheck {
         awaiting_of(cx, scope, &requests, &answers, &awaiting, out);
         sprawl(cx, scope, &awaiting, root.exceptions.max_live_per_rule, out);
         forks(cx, scope, vcfg.fork_detect, out);
+        local_copies(cx, &mine, vcfg.fork_detect, out);
     }
 }
 
@@ -753,8 +754,15 @@ fn awaiting_of(
                 Severity::Warn => format!("{wrapper} awaits {to}; its target {t} is due next"),
                 _ => format!("{wrapper} awaits {to}; its target {t} is near"),
             };
+            // HN-X001 is a floor code (always an error), so the advance notice before the target
+            // is HN-W001, the request going stale (0.3.1: the ramp never showed before E3-48).
+            let code = if sev == Severity::Error {
+                HN_X001
+            } else {
+                HN_W001
+            };
             out.push(
-                DiagB::new(HN_X001, p, l, c, msg)
+                DiagB::new(code, p, l, c, msg)
                     .hint("migrate to the answered variant and drop the flag, or retarget it in a change doc (R-VAR-061)")
                     .severity(sev)
                     .text(format!("{to}@{t}"))
@@ -943,5 +951,82 @@ fn forks(cx: &CheckCx<'_>, scope: &ScopeId, mode: ForkDetect, out: &mut Vec<Diag
     }
 }
 
+/// 0.3.1 (B-3, 1.0 gap G-20): the copy-and-edit fork a consumer writes under a new name. `of=` on
+/// a unit is always reported (it is a token key; agents read it as "variant of"). With
+/// `[variation] fork-detect` on, a unit that uses a same-kind, same-layer unit of another scope
+/// whose name it ends with (`ghost-button` and `button`), or names with `of=`, without `wraps=` or
+/// `variant-of=`, is `var.fork-suspect`.
+fn local_copies(cx: &CheckCx<'_>, mine: &[&Item], mode: ForkDetect, out: &mut Vec<Diagnostic>) {
+    let reg = cx.registry;
+    let ovrs = fork_ovrs(cx);
+    let last = |s: &str| s.rsplit(['-', '.', '_']).next().unwrap_or(s).to_owned();
+    for it in mine {
+        let Some(layer) = field_str(it, "layer") else {
+            continue;
+        };
+        if ["wraps", "variant-of", "rejected-by"]
+            .iter()
+            .any(|k| field_str(it, k).is_some())
+            || truthy(it, "adapter")
+        {
+            continue;
+        }
+        let (p, l, c) = origin_loc(it);
+        let name = bare_id(&it.id);
+        let of = field_str(it, "of");
+        if let Some(raw) = of {
+            out.push(malformed(
+                &p,
+                l,
+                c,
+                format!("{name} declares of={raw}: of= names the base of a token, not of a unit"),
+                name.clone(),
+                "drop of=; to vary a unit another scope owns, see fairlead explain variation",
+            ));
+        }
+        if mode == ForkDetect::Off || ovrs.iter().any(|o| o.of == name) {
+            continue;
+        }
+        let of_target = of.and_then(|raw| resolve(reg, &it.id.scope, raw));
+        let files = files_of(reg, &it.id);
+        let mut seen = BTreeSet::new();
+        for e in reg.edges().iter().filter(|e| files.contains(&e.from.path)) {
+            let Some(t) = e.resolved.as_ref() else {
+                continue;
+            };
+            let Some(base) = reg.item(t) else { continue };
+            let copies = t.scope != it.id.scope
+                && t.kind == it.id.kind
+                && field_str(base, "layer") == Some(layer)
+                && (of_target.as_ref() == Some(t) || last(&name) == last(&bare_id(t)));
+            if !copies || !seen.insert(t.clone()) {
+                continue;
+            }
+            let stage = match mode {
+                ForkDetect::Enforce => crate::config::Stage::Enforce,
+                ForkDetect::Warn => crate::config::Stage::Warn,
+                _ => crate::config::Stage::Observe,
+            };
+            out.push(
+                DiagB::new(
+                    HN_W003,
+                    &p,
+                    l,
+                    c,
+                    format!(
+                        "{name} uses {}:{} on its layer {layer} without wraps= or variant-of=: a possible local copy",
+                        t.scope.0.as_str(),
+                        bare_id(t)
+                    ),
+                )
+                .hint("request a variant and wrap it meanwhile: fairlead explain variation")
+                .related(format!("{}:{}", t.scope.0.as_str(), bare_id(t)))
+                .stage(stage)
+                .text(format!("{name}:copy"))
+                .build(),
+            );
+        }
+    }
+}
 #[cfg(test)]
 mod tests;

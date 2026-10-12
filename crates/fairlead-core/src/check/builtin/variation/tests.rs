@@ -507,14 +507,21 @@ fn r_var_061__a_wrapper_ramps_by_version() {
             );
         w = w.file("fairlead/versions/0.4.0.md", "+++\n+++\n"); // sealed 0.4.0, open 0.4.1
         let ds = w.build().run_check(&VariationCheck);
-        of(&ds, c::HN_X001).first().map(|d| d.severity)
+        ds.iter()
+            .find(|d| d.code == c::HN_X001 || d.code == c::HN_W001)
+            .map(|d| (d.code, d.severity))
     };
+    // Before the target the notice is HN-W001: HN-X001 is a floor code, always an error (E3-48).
     assert_eq!(at("0.9.0"), None);
-    assert_eq!(at("0.6.0"), Some(Severity::Info), "two minors ahead");
-    assert_eq!(at("0.5.0"), Some(Severity::Warn), "due next");
+    assert_eq!(
+        at("0.6.0"),
+        Some((c::HN_W001, Severity::Info)),
+        "two minors ahead"
+    );
+    assert_eq!(at("0.5.0"), Some((c::HN_W001, Severity::Warn)), "due next");
     assert_eq!(
         at("0.4.1"),
-        Some(Severity::Error),
+        Some((c::HN_X001, Severity::Error)),
         "open version reached the target"
     );
 }
@@ -692,4 +699,55 @@ fn r_ret_050__a_compacted_request_still_resolves() {
         x.iter().any(|d| d.message.contains("closed and compacted")),
         "{ds:#?}"
     );
+}
+
+/// 0.3.1 (B-3): what all three B-3 subjects wrote for a ghost button the library lacked.
+const GHOST: &str = "// fairlead: def cmp.ghost-button layer=ui.atom of=root:cmp.button\n// fairlead: use root:cmp.button\nexport function Ghost() {}\n";
+
+#[test]
+fn r_var_012__of_on_a_unit_is_malformed_whatever_fork_detect_says() {
+    let ds = world()
+        .file("web/src/ghost.tsx", GHOST)
+        .build()
+        .run_check(&VariationCheck);
+    let s = of(&ds, c::HN_S016);
+    assert_eq!(s.len(), 1, "{ds:#?}");
+    assert!(
+        s[0].message.contains("of= names the base of a token")
+            && s[0].hint.contains("explain variation"),
+        "{}",
+        s[0].message
+    );
+    assert!(
+        of(&ds, c::HN_W003).is_empty(),
+        "fork detection is off by default"
+    );
+}
+
+#[test]
+fn r_var_081__a_renamed_local_copy_of_a_foreign_unit_is_a_fork_suspect() {
+    let copy = "// fairlead: def cmp.ghost-button layer=ui.atom\n// fairlead: use root:cmp.button\nexport function Ghost() {}\n";
+    let on = |file: &str| {
+        World::new()
+            .root(&format!("{ROOT}fork-detect = \"warn\"\n"))
+            .file("src/kit/button.tsx", KIT)
+            .scope("web", WEB)
+            .file("web/src/ghost.tsx", file)
+            .build()
+            .run_check(&VariationCheck)
+    };
+    let ds = on(copy);
+    let w = of(&ds, c::HN_W003);
+    assert_eq!(w.len(), 1, "{ds:#?}");
+    assert!(
+        w[0].message
+            .contains("uses root:cmp.button on its layer ui.atom")
+    );
+    assert_eq!(w[0].stage, Some(crate::config::Stage::Warn));
+    // A declared wrapper is the protocol's interim move, not a copy.
+    let wrapper = copy.replace("layer=ui.atom", "layer=ui.atom wraps=root:cmp.button");
+    assert!(of(&on(&wrapper), c::HN_W003).is_empty());
+    // A different unit on the same layer (an icon beside the button) is composition.
+    let icon = copy.replace("cmp.ghost-button", "cmp.icon");
+    assert!(of(&on(&icon), c::HN_W003).is_empty());
 }

@@ -3,7 +3,7 @@ Scaffold one authored item; never overwrites (R-CLI-028)
 Usage: fairlead new [OPTIONS] <KIND> <NAME>
 
 Arguments:
-  <KIND>  Kind of the item: a declared kind, or scope, rule, ladder, escalation or handoff
+  <KIND>  Kind of the item: a declared kind, or scope, rule, ladder, escalation, request or handoff
   <NAME>  Slug name, at most 64 characters (R-CLI-029)
 
 Options:
@@ -33,10 +33,12 @@ Options:
                values leaking into CSS or TSX; it is not a secret scanner)
   scope        purpose (with --at <folder>)
   ladder       no fields; NAME is a preset, ui or core (root only; 0.3)
-  escalation   to (an ancestor scope), set, why, blocking; the NAME is the item escalated
-               (fairlead new escalation rule.no-dbg --field why=...), not a label
+  escalation   to (an ancestor scope), set, why, blocking: ask to loosen a policy an ancestor owns; the
+               NAME is the item escalated (fairlead new escalation rule.no-dbg --field why=...)
+  request      want, because, sum: ask the home scope of a unit for a variant or a change; NAME is
+               that unit (root:cmp.button) and --scope is yours (fairlead explain variation)
   change       impact (break|add|fix), covers (comma list of globs or IDs), hotfix, revisits, revisit-why
   handoff and declared kinds
-               st, sum, kw, sym, of, policy, value, applies, min-len, home, css, and the keys of the
-               kind's [kinds.K] table (fairlead explain kinds)
+               st, sum, kw, sym, of (the base of a token, not a unit), policy, value, applies, min-len,
+               home, css, and the keys of the kind's [kinds.K] table (fairlead explain kinds)
 new checks the result before writing: a value the control file would reject writes nothing.

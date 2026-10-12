@@ -8,7 +8,7 @@ use crate::{
     },
     diag::{Diagnostic, codes::*},
     registry::ScopeId,
-    write::pointer_block,
+    write::{pointer_block, pointer_block_0_1},
 };
 use fairlead_syntax::diag::DiagCode;
 use globset::{Glob, GlobSetBuilder};
@@ -123,8 +123,11 @@ impl Check for AgentsCheck {
             return;
         }
         let expected = pointer_block(&marker, &folder);
+        let previous = pointer_block_0_1(&marker, &folder);
         for (path, text) in &f.agent_files {
-            if block_of(text, &marker).as_deref() != Some(expected.trim_end()) {
+            let block = block_of(text, &marker);
+            let current = [expected.trim_end(), previous.trim_end()];
+            if !block.as_deref().is_some_and(|b| current.contains(&b)) {
                 out.push(
                     DiagB::new(
                         HN_A001,
@@ -200,6 +203,17 @@ mod tests {
             },
             fp_prefix: "k3m9".into(),
         }
+    }
+
+    #[test]
+    fn r_agt_002__the_0_1_block_text_is_still_current() {
+        // D-66: 0.3.1 lengthened the block; a repository on the earlier text sees no HN-A001.
+        let old = format!("intro\n{}", pointer_block_0_1("fairlead", "fairlead"));
+        let ds = World::new()
+            .facts(agent("AGENTS.md", old))
+            .build()
+            .run_check(&AgentsCheck);
+        assert!(of(&ds, c::HN_A001).is_empty(), "{ds:#?}");
     }
 
     #[test]

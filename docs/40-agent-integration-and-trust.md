@@ -31,7 +31,7 @@ Describes how agents and humans consume fairlead (instruction files, `context`, 
 - **R-AGT-005 [0.1]** CI MUST run `check` on the merge result, not only each branch, because duplicate IDs and shadowing created on parallel branches are invisible on either branch alone. CI SHOULD re-check every commit of a PR range to cover local `--no-verify`.
 - **R-AGT-006 [0.1]** CI SHOULD pass `--as-of` as the commit date, install the pinned version from prebuilt binaries (`cargo binstall` or release download), and upload SARIF. A pin mismatch fails the job with exit 4.
 - **R-AGT-007 [0.1]** Fairlead MUST NOT run in the background, watch files or keep session state (D-26). All "memory" is the repository plus the printed digest.
-- **R-AGT-008 [0.1]** The agent loop is: `context` before editing, `check <path>` after editing, `check --for-agent` plus `sync` before finishing. Instruction files SHOULD say exactly this and nothing else.
+- **R-AGT-008 [0.1]** The agent loop is: `context` before editing, `check <path>` after editing, `check --for-agent` plus `sync` before finishing. Instruction files SHOULD say this, where the rules are explained (`fairlead explain` and its topics) and that code another scope owns is never copied or edited, and nothing else (amended 0.3.1, D-66).
 
 ### Authority and trust model (D-03)
 | Layer | Stops | Cannot stop | Milestone |

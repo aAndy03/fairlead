@@ -79,7 +79,38 @@ fn new(global: &GlobalArgs, args: &NewArgs) -> Result<CommandResult, Error> {
         return Ok(CommandResult::text(plan.render_text("new plan")));
     }
     let outcome = commit_plan(&session, plan)?;
-    Ok(CommandResult::text(changed_list(&outcome.report)))
+    let mut text = changed_list(&outcome.report);
+    if args.kind == "request" {
+        text.push_str(&request_next(&registry, &outcome.report, &args.name));
+    }
+    Ok(CommandResult::text(text))
+}
+
+/// 0.3.1 (B-3): after filing a request, the next move of the protocol: an interim wrapper that
+/// says what it waits for (31-variation-protocol, R-VAR-021, R-VAR-060).
+fn request_next(
+    registry: &fairlead_core::registry::Registry,
+    report: &fairlead_core::write::CommitReport,
+    need: &str,
+) -> String {
+    let Some(path) = report
+        .written
+        .iter()
+        .find(|p| p.as_str().contains("/docs/requests/"))
+    else {
+        return String::new();
+    };
+    let id: String = path.file_name().chars().take(10).collect();
+    let scope = registry
+        .scope_of(path)
+        .map_or_else(|| "root".to_owned(), |s| s.0.as_str().to_owned());
+    format!(
+        "next: until the home scope answers, wrap the unit in your scope:\n\
+\x20 // fairlead: def <your-id> wraps={need} layer=<its layer> container=<your container>\n\
+\x20 // fairlead: use {need}\n\
+\x20 // fairlead: flag awaiting to={scope}:{id} target=<the version you need it by>\n\
+more: fairlead explain variation\n"
+    )
 }
 
 /// `--field K=V`, repeatable. The first `=` splits; a repeated key is a usage error.

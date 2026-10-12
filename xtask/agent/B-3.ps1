@@ -9,7 +9,8 @@
 #
 # The fixture is the golden's repository with its two deliberate errors removed (the upward
 # `use cmp.card` in the button and the `admin:cmp.audit-table` visibility error) and
-# `[variation] fork-detect = "warn"`, committed in a fresh git repository outside this one.
+# `[variation] fork-detect = "warn"`, committed in a fresh git repository outside this one, with the
+# agent block `fairlead init --yes` writes into AGENTS.md (D-66).
 param(
     [int]$Samples = 3,
     [int]$Seed = 1,
@@ -43,6 +44,9 @@ function New-Fixture([string]$Dir) {
     $ctl = Join-Path $Dir 'fairlead\control.toml'
     Write-Utf8 $ctl ((Get-Content -Raw $ctl) + "`n[variation]`nfork-detect = `"warn`"`n")
     Invoke-Quiet $Dir 'git' @('init', '-q') | Out-Null
+    # D-66: an adopted repository carries the agent block `init` writes (AGENTS.md); the subject
+    # reads it as any agent would. B-3 runs before 0.3.1 had no AGENTS.md.
+    Invoke-Quiet $Dir $bin @('init', '--yes', '--as-of', $AsOf) | Out-Null
     Invoke-Quiet $Dir 'git' @('-c', 'core.autocrlf=false', 'add', '-A') | Out-Null
     Invoke-Quiet $Dir 'git' @('-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid', 'commit', '-qm', 'fixture') | Out-Null
     $c = Invoke-Quiet $Dir $bin @('check', '--as-of', $AsOf, '--format', 'terse')

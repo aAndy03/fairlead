@@ -528,6 +528,26 @@ fn id_sections(
         }
         out.push(section("bridge", prose, vec![]));
     }
+    // 0.3.1 (B-3): a unit says how another scope varies it, since an agent that needs it
+    // different otherwise copies it.
+    let used_elsewhere = reg.edges().iter().any(|e| {
+        e.resolved.as_ref() == Some(&item_id) && reg.scope_of(&e.from.path) != Some(&item_id.scope)
+    });
+    if (item.fields.contains_key("layer") || used_elsewhere)
+        && !item.fields.contains_key("variant-of")
+    {
+        let home = item_id.scope.0.as_str();
+        out.push(section(
+            "vary",
+            vec![
+                format!("home scope: {home}; another scope never copies or edits it"),
+                format!("need it different: fairlead new request {qid} --scope <your scope> --field want=\"...\""),
+                format!("meanwhile: def <your-id> wraps={qid}, use {qid}, flag awaiting to=<your request>"),
+                "more: fairlead explain variation".to_owned(),
+            ],
+            vec![],
+        ));
+    }
     // 0.2.2-T5: the check findings that name the item (a due lifecycle plan, an open escalation),
     // with their fix; the field test found a seal blocked by a plan `explain` never mentioned.
     if let Some(rep) = report {

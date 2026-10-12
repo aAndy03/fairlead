@@ -13,7 +13,8 @@ use fairlead_core::time::AsOf;
 
 /// 0.2.1-T8 (D-62): the field test learned the topics and exit codes only by failing.
 pub const TOP_HELP: &str = "Start:      fairlead init --dry-run, then fairlead init --yes; fairlead check; fairlead context <path>
-Learn:      fairlead explain syntax | kinds | approve | pr-template | docs-first | authority | <a diagnostic code from check>
+Learn:      fairlead explain syntax | kinds | variation | approve | pr-template | docs-first | authority
+            | <a code from check> | <an ID>; a unit you need different: fairlead explain variation
 Exit codes: 0 ok; 1 findings that fail the run; 2 usage, configuration or syntax error;
             3 stale generated files (run fairlead sync); 4 refused by a gate or a policy;
             5 internal error or cannot determine. When several apply: 5, 2, 4, 1, 3, 0.";
@@ -25,12 +26,14 @@ pub const NEW_HELP: &str = "--field keys by kind (a key starting x- is always ac
                values leaking into CSS or TSX; it is not a secret scanner)
   scope        purpose (with --at <folder>)
   ladder       no fields; NAME is a preset, ui or core (root only; 0.3)
-  escalation   to (an ancestor scope), set, why, blocking; the NAME is the item escalated
-               (fairlead new escalation rule.no-dbg --field why=...), not a label
+  escalation   to (an ancestor scope), set, why, blocking: ask to loosen a policy an ancestor owns; the
+               NAME is the item escalated (fairlead new escalation rule.no-dbg --field why=...)
+  request      want, because, sum: ask the home scope of a unit for a variant or a change; NAME is
+               that unit (root:cmp.button) and --scope is yours (fairlead explain variation)
   change       impact (break|add|fix), covers (comma list of globs or IDs), hotfix, revisits, revisit-why
   handoff and declared kinds
-               st, sum, kw, sym, of, policy, value, applies, min-len, home, css, and the keys of the
-               kind's [kinds.K] table (fairlead explain kinds)
+               st, sum, kw, sym, of (the base of a token, not a unit), policy, value, applies, min-len,
+               home, css, and the keys of the kind's [kinds.K] table (fairlead explain kinds)
 new checks the result before writing: a value the control file would reject writes nothing.";
 
 #[derive(Parser, Debug)]
@@ -238,7 +241,7 @@ pub struct SyncArgs {
 
 #[derive(Args, Debug, Clone)]
 pub struct NewArgs {
-    /// Kind of the item: a declared kind, or scope, rule, ladder, escalation or handoff.
+    /// Kind of the item: a declared kind, or scope, rule, ladder, escalation, request or handoff.
     pub kind: String,
     /// Slug name, at most 64 characters (R-CLI-029).
     pub name: String,

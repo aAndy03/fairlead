@@ -517,7 +517,7 @@ fn insert_cands(
                     anc.scope.0.as_str()
                 ))
                 .related(anc.to_id().to_string())
-                .hint("convert it to an `ovr` of the inherited item, or rename it")
+                .hint("make it an `ovr` of the inherited item, or rename it; to vary it: fairlead explain variation")
                 .text(text)
                 .done(),
             );

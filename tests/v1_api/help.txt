@@ -28,7 +28,8 @@ Options:
   -V, --version             Print version
 
 Start:      fairlead init --dry-run, then fairlead init --yes; fairlead check; fairlead context <path>
-Learn:      fairlead explain syntax | kinds | approve | pr-template | docs-first | authority | <a diagnostic code from check>
+Learn:      fairlead explain syntax | kinds | variation | approve | pr-template | docs-first | authority
+            | <a code from check> | <an ID>; a unit you need different: fairlead explain variation
 Exit codes: 0 ok; 1 findings that fail the run; 2 usage, configuration or syntax error;
             3 stale generated files (run fairlead sync); 4 refused by a gate or a policy;
             5 internal error or cannot determine. When several apply: 5, 2, 4, 1, 3, 0.

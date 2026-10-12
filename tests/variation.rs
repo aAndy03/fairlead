@@ -226,3 +226,59 @@ fn r_var_031__the_whole_variation_cycle_closes_the_request() {
         ctx.stdout
     );
 }
+
+/// 0.3.1 (B-3, G-20): an agent that needs a unit different is told how, wherever it looks.
+#[test]
+fn r_var_021__explain_help_and_new_request_point_at_the_protocol() {
+    let repo = repo();
+    let topic = repo.run(&["explain", "variation"]);
+    assert_eq!(topic.code, 0, "{}", topic.stderr);
+    assert!(
+        topic.stdout.contains("fairlead new request") && topic.stdout.contains("flag awaiting"),
+        "{}",
+        topic.stdout
+    );
+    let unit = repo.run(&["explain", "root:cmp.button", "--as-of", AS_OF]);
+    assert!(
+        unit.stdout.contains("vary:") && unit.stdout.contains("new request root:cmp.button"),
+        "{}",
+        unit.stdout
+    );
+    let filed = new_request(&repo, "root:cmp.button");
+    assert_eq!(filed.code, 0, "{}", filed.stderr);
+    assert!(
+        filed.stdout.contains("wraps=root:cmp.button")
+            && filed.stdout.contains("flag awaiting to=web:d-"),
+        "{}",
+        filed.stdout
+    );
+}
+
+/// HN-X001 is a floor code, so before E3-48 a wrapper whose target was merely near already
+/// failed the run; the notice before the target is now HN-W001.
+#[test]
+fn r_var_061__a_near_target_warns_and_does_not_fail() {
+    let repo = repo();
+    assert_eq!(new_request(&repo, "root:cmp.button").code, 0);
+    let reqs = repo.path().join("web/fairlead/docs/requests");
+    let file = std::fs::read_dir(&reqs)
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let id = file.file_name().unwrap().to_string_lossy()[..10].to_owned();
+    std::fs::write(
+        repo.path().join("web/src/ghost.tsx"),
+        format!("// fairlead: def cmp.ghost wraps=root:cmp.button\n// fairlead: use root:cmp.button\n// fairlead: flag awaiting to=web:{id} target=0.2.0\nexport const G = 1;\n"),
+    )
+    .unwrap();
+    assert_eq!(repo.run(&["sync", "--yes", "--as-of", AS_OF]).code, 0);
+    let check = repo.run(&["check", "--as-of", AS_OF, "--format", "terse"]);
+    assert_eq!(check.code, 0, "{}", check.stdout);
+    assert!(
+        check.stdout.contains("HN-W001 warn") && !check.stdout.contains("HN-X001"),
+        "{}",
+        check.stdout
+    );
+}
