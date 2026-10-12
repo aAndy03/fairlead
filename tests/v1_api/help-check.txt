@@ -1,0 +1,32 @@
+Scan and report drift; never writes (R-CLI-021)
+
+Usage: fairlead check [OPTIONS] [PATH]...
+
+Arguments:
+  [PATH]...  Report filter: only these paths are reported; global checks stay whole-registry (R-CLI-021)
+
+Options:
+      --for-agent             Terse output, no excerpts, 2 KB cap (R-CHK-039)
+      --root <DIR>            Codebase root; wins over FAIRLEAD_ROOT and the upward search (R-CLI-004)
+  -C <DIR>                    Run as if started in DIR; the root search starts there (R-CLI-006)
+      --max <N>               Cap printed findings; 0 prints all (R-CHK-038)
+      --format <FORMAT>       Output format: human, terse or json; sarif for check only (R-CLI-006) [possible values: human, terse, json, sarif]
+      --rule <CODE>           Only findings with this code (R-CHK-038)
+      --quiet                 Suppress informational output; errors still print
+      --show-observe          Print observe-stage findings (R-CLI-021)
+      --color <WHEN>          Colour: auto (TTY and NO_COLOR unset) or never (R-CLI-006) [default: auto] [possible values: auto, never]
+      --deny-warnings         Any non-baselined warning fails the run (R-CHK-040)
+      --as-of <YYYY-MM-DD>    Date for exp= and date expiry; default UTC today (D-37, R-CHK-014)
+      --require-declarations  Zero declarations exits 1 instead of 0 (R-CHK-003)
+      --files-from <FILE>     Report only newline-separated paths; `-` reads stdin (R-CLI-022)
+      --no-cache              Ignore the .fairlead/ cache; output stays byte-identical (R-CHK-013)
+      --no-baseline           Ignore the baseline (R-CLI-021)
+      --threads <N>           Worker threads; FAIRLEAD_THREADS sets the same value and the flag wins (D-54)
+      --budget <DURATION>     Stop at the deadline: integer plus ms, s or m (C-14)
+      --changed               Changed files only: working tree and index against HEAD (D-43)
+      --ci                    Integration-branch mode: with authority.signed-records, verify the signatures of authority records with `git verify-commit` (R-LC-040)
+      --staged                Report only staged paths (R-CLI-022)
+      --base <REF>            Coverage base and changed set: the files changed since REF (R-GIT-041)
+      --since <REV>           List what a reviewer must look at since REV: lowered pins, ovr changes, rules, instructions
+      --against <REF>         Warn when local sealed version files differ from REF (R-GIT-042)
+  -h, --help                  Print help

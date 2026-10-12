@@ -1,0 +1,42 @@
+Scaffold one authored item; never overwrites (R-CLI-028)
+
+Usage: fairlead new [OPTIONS] <KIND> <NAME>
+
+Arguments:
+  <KIND>  Kind of the item: a declared kind, or scope, rule, ladder, escalation or handoff
+  <NAME>  Slug name, at most 64 characters (R-CLI-029)
+
+Options:
+      --root <DIR>          Codebase root; wins over FAIRLEAD_ROOT and the upward search (R-CLI-004)
+      --scope <ID>          Scope that receives the item (R-CLI-028)
+  -C <DIR>                  Run as if started in DIR; the root search starts there (R-CLI-006)
+      --field <K=V>         Scaffold field K=V; repeatable (R-CLI-028)
+      --format <FORMAT>     Output format: human, terse or json; sarif for check only (R-CLI-006) [possible values: human, terse, json, sarif]
+      --print               Write the scaffold to stdout only (R-CLI-028)
+      --dry-run             Print the plan and write nothing; exit 0 (R-CLI-002)
+      --quiet               Suppress informational output; errors still print
+      --color <WHEN>        Colour: auto (TTY and NO_COLOR unset) or never (R-CLI-006) [default: auto] [possible values: auto, never]
+      --yes                 Accepted and ignored: new applies directly (R-CLI-043)
+      --as-of <YYYY-MM-DD>  Date for exp= and date expiry; default UTC today (D-37, R-CHK-014)
+      --at <PATH>           Folder for `new scope` (R-CLI-030)
+      --hoist               Lift identical file-local lines into one scope-level item (R-SCOPE-013)
+      --no-cache            Ignore the .fairlead/ cache; output stays byte-identical (R-CHK-013)
+      --hotfix              `new change --hotfix`: open a backfill debt (needs `docs-first.hotfix = true`, R-VER-047)
+      --threads <N>         Worker threads; FAIRLEAD_THREADS sets the same value and the flag wins (D-54)
+      --reid                `new change <draft id or path> --reid`: give a colliding draft a new ID (R-VER-042)
+      --from-diff           `new change <title> --from-diff`: a rolling chore doc covering every changed file no open doc covers yet (R-HIER-092)
+  -h, --help                Print help
+
+--field keys by kind (a key starting x- is always accepted):
+  rule         check (pattern|leak), forbid (a regex), msg, glob and exclude (comma lists of globs),
+               sev (error|warn|info), waivable (true|false), why, tokens (check=leak: design-token
+               values leaking into CSS or TSX; it is not a secret scanner)
+  scope        purpose (with --at <folder>)
+  ladder       no fields; NAME is a preset, ui or core (root only; 0.3)
+  escalation   to (an ancestor scope), set, why, blocking; the NAME is the item escalated
+               (fairlead new escalation rule.no-dbg --field why=...), not a label
+  change       impact (break|add|fix), covers (comma list of globs or IDs), hotfix, revisits, revisit-why
+  handoff and declared kinds
+               st, sum, kw, sym, of, policy, value, applies, min-len, home, css, and the keys of the
+               kind's [kinds.K] table (fairlead explain kinds)
+new checks the result before writing: a value the control file would reject writes nothing.

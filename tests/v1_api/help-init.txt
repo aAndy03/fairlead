@@ -1,0 +1,21 @@
+Scaffold the control file, agent block, ignore lines and baseline; plan first (R-CLI-012)
+
+Usage: fairlead init [OPTIONS]
+
+Options:
+      --dry-run             Print the plan and write nothing; exit 0 (R-CLI-002)
+      --root <DIR>          Codebase root; wins over FAIRLEAD_ROOT and the upward search (R-CLI-004)
+  -C <DIR>                  Run as if started in DIR; the root search starts there (R-CLI-006)
+      --yes                 Apply the printed plan; without it init exits 4 (R-CLI-043)
+      --format <FORMAT>     Output format: human, terse or json; sarif for check only (R-CLI-006) [possible values: human, terse, json, sarif]
+      --preset <PRESET>     Ecosystem preset: none, rust or ts (R-CLI-012) [default: none] [possible values: none, rust, ts]
+      --no-baseline         Skip the baseline (R-CLI-019)
+      --quiet               Suppress informational output; errors still print
+      --color <WHEN>        Colour: auto (TTY and NO_COLOR unset) or never (R-CLI-006) [default: auto] [possible values: auto, never]
+      --hooks               Install git and agent hooks, merged and never default-on (R-CLI-020)
+      --as-of <YYYY-MM-DD>  Date for exp= and date expiry; default UTC today (D-37, R-CHK-014)
+      --codeowners          Add the CODEOWNERS line for the managerial folder (R-CLI-015)
+      --agents <FILE>       Instruction file that receives the managed block; repeatable (R-CLI-012)
+      --no-cache            Ignore the .fairlead/ cache; output stays byte-identical (R-CHK-013)
+      --threads <N>         Worker threads; FAIRLEAD_THREADS sets the same value and the flag wins (D-54)
+  -h, --help                Print help

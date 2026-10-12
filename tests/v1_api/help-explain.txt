@@ -1,0 +1,17 @@
+Unbudgeted depth on a file, an ID, a code or a topic (R-CLI-035)
+
+Usage: fairlead explain [OPTIONS] <TARGET>
+
+Arguments:
+  <TARGET>  A file path, an ID, a diagnostic code or a topic (R-CLI-035)
+
+Options:
+      --root <DIR>          Codebase root; wins over FAIRLEAD_ROOT and the upward search (R-CLI-004)
+  -C <DIR>                  Run as if started in DIR; the root search starts there (R-CLI-006)
+      --format <FORMAT>     Output format: human, terse or json; sarif for check only (R-CLI-006) [possible values: human, terse, json, sarif]
+      --quiet               Suppress informational output; errors still print
+      --color <WHEN>        Colour: auto (TTY and NO_COLOR unset) or never (R-CLI-006) [default: auto] [possible values: auto, never]
+      --as-of <YYYY-MM-DD>  Date for exp= and date expiry; default UTC today (D-37, R-CHK-014)
+      --no-cache            Ignore the .fairlead/ cache; output stays byte-identical (R-CHK-013)
+      --threads <N>         Worker threads; FAIRLEAD_THREADS sets the same value and the flag wins (D-54)
+  -h, --help                Print help

@@ -1,0 +1,30 @@
+Relocate files, folders and scopes; rewrites fairlead's own text only (R-CLI-040)
+
+Usage: fairlead move [OPTIONS] <SRC> [DST]
+
+Arguments:
+  <SRC>  The file, folder or scope directory to move
+  [DST]  Where it goes; omitted for --detach, --demote and --delete
+
+Options:
+      --dry-run             Print the plan and write nothing; exit 0
+      --root <DIR>          Codebase root; wins over FAIRLEAD_ROOT and the upward search (R-CLI-004)
+  -C <DIR>                  Run as if started in DIR; the root search starts there (R-CLI-006)
+      --yes                 Apply the plan
+      --allow-dirty         Apply although files of the write-set differ from HEAD (R-GIT-062)
+      --format <FORMAT>     Output format: human, terse or json; sarif for check only (R-CLI-006) [possible values: human, terse, json, sarif]
+      --merge               Merge into an existing scope or folder; colliding IDs are renamed through aliases
+      --quiet               Suppress informational output; errors still print
+      --color <WHEN>        Colour: auto (TTY and NO_COLOR unset) or never (R-CLI-006) [default: auto] [possible values: auto, never]
+      --detach              Detach a scope from its ancestors without moving it (R-CLI-047)
+      --as-of <YYYY-MM-DD>  Date for exp= and date expiry; default UTC today (D-37, R-CHK-014)
+      --demote              Turn a scope back into a folder of its parent
+      --delete              Delete a scope; its items are tombstoned (R-PORT-010)
+      --no-cache            Ignore the .fairlead/ cache; output stays byte-identical (R-CHK-013)
+      --force               With --delete: override the zero-live-references gate (needs an approve record)
+      --threads <N>         Worker threads; FAIRLEAD_THREADS sets the same value and the flag wins (D-54)
+      --cut                 Arrives in 0.3
+      --copy                Arrives in 0.3
+      --attach              Arrives in 0.3
+      --adopt               Arrives in 0.3
+  -h, --help                Print help

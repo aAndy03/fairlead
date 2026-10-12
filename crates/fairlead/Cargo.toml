@@ -120,3 +120,7 @@ path = "../../tests/retention.rs"
 [[test]]
 name = "query"
 path = "../../tests/query.rs"
+
+[[test]]
+name = "v1_api"
+path = "../../tests/v1_api.rs"

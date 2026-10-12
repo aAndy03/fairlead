@@ -1,0 +1,23 @@
+Close the open version: seal ready change docs, write the version file last (R-CLI-041)
+
+Usage: fairlead seal [OPTIONS]
+
+Options:
+      --dry-run             Print the plan and write nothing
+      --root <DIR>          Codebase root; wins over FAIRLEAD_ROOT and the upward search (R-CLI-004)
+  -C <DIR>                  Run as if started in DIR; the root search starts there (R-CLI-006)
+      --yes                 Apply the plan
+      --allow-dirty         Seal although files outside the seal write-set changed; recorded as `dirty = true`
+      --format <FORMAT>     Output format: human, terse or json; sarif for check only (R-CLI-006) [possible values: human, terse, json, sarif]
+      --anywhere            Seal on any branch (`version.seal-where = "any"`), for solo work (R-VER-055)
+      --quiet               Suppress informational output; errors still print
+      --color <WHEN>        Colour: auto (TTY and NO_COLOR unset) or never (R-CLI-006) [default: auto] [possible values: auto, never]
+      --commit              Commit exactly the seal's files with the user's `git` (trailer `Fairlead-Version`)
+      --as-of <YYYY-MM-DD>  Date for exp= and date expiry; default UTC today (D-37, R-CHK-014)
+      --tag                 Tag the seal commit `fairlead/<version>`; needs `--commit`
+      --abort               Roll an interrupted seal back and stop (any writer would roll it forward instead)
+      --no-cache            Ignore the .fairlead/ cache; output stays byte-identical (R-CHK-013)
+      --reseal              Renumber your own unintegrated seal after the integration line (R-GIT-031)
+      --threads <N>         Worker threads; FAIRLEAD_THREADS sets the same value and the flag wins (D-54)
+      --compact-only        Re-run compaction without a new version, at the latest seal's recorded date; a no-op when nothing is due (R-RET-024)
+  -h, --help                Print help
