@@ -57,3 +57,13 @@ The eight violations, all real:
   the contract would be one-sided. Both are kept, as written (PROTOCOL.md).
 - The reviewer judged 18 of the 54 "task done" results; it reads a diff with every fairlead trace
   removed, but it is one model.
+
+## Hidden tests for the full run
+
+Written after the pilot, against the task text and the spec only, for every task whose feature the
+existing code or the spec names: Shelf t7, s4, s8, s9; Ledger t7, s4, s5, s8, s9; Relay t4, t7, s4
+(both sides), s5, s6, s7, s8. Each was run on the reference code (where it fails exactly on the
+known issues and the features not built yet) and, for Relay s5 to s8, on a throwaway reference
+implementation of the commands, where it passes. Where the spec leaves a reply format open
+(`notes.by-tag`, `notes.search`, the spelling of `pinned`, the CSV header), the tests accept every
+reading. The other tasks are judged by the blind reviewer.
